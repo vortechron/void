@@ -1,5 +1,10 @@
 # T3 Code
 
+> **This checkout is Void, a fork of T3 Code.** Read `docs/void/FORK.md` first —
+> it covers the branch model, the upstream sync flow, and how the dev server and
+> the daily-driver app stay out of each other's data. Where it disagrees with
+> this document, it wins. The rest of this file is upstream's and still applies.
+
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs (Codex, Claude Code, Cursor, Grok, OpenCode) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
