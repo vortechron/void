@@ -670,7 +670,7 @@ export function TerminalViewport({
       });
       themeObserver.observe(document.documentElement, {
         attributes: true,
-        attributeFilter: ["class", "style"],
+        attributeFilter: ["class", "style", "data-theme"],
       });
       setupCleanups.push(() => themeObserver.disconnect());
 

@@ -94,6 +94,18 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --glass-blur: 12px;
   --glass-opacity: 80%;
   --glass-saturation: 1.14;
+  --workspace-content-background: var(--background);
+  --ui-font-family:
+    "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+  --code-font-family:
+    "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  --ui-font-scale: 1;
+  --code-font-size: 13px;
+  --code-line-height: 20px;
+  --diffs-font-family: var(--code-font-family);
+  --diffs-font-size: var(--code-font-size);
+  --diffs-line-height: var(--code-line-height);
   --desktop-window-right-resize-inset: 0px;
   --workspace-topbar-height: 52px;
   --workspace-controls-top: 0px;
@@ -109,6 +121,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --app-scrollbar-thumb-hover: rgb(255 255 255 / 12%);
   --glass-blur: 16px;
   --glass-saturation: 1.08;
+  --workspace-content-background: color-mix(in srgb, var(--background) 72%, black);
 }
 
 [data-slot="sidebar-wrapper"] {
@@ -138,11 +151,22 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
   --animate-sidebar-working-text: sidebar-working-text 3.4s infinite;
-  --font-sans:
-    "DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
-    sans-serif;
-  --font-mono:
-    "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  --font-sans: var(--ui-font-family);
+  --font-mono: var(--code-font-family);
+  --text-xs: calc(0.75rem * var(--ui-font-scale));
+  --text-xs--line-height: calc(1rem * var(--ui-font-scale));
+  --text-sm: calc(0.875rem * var(--ui-font-scale));
+  --text-sm--line-height: calc(1.25rem * var(--ui-font-scale));
+  --text-base: calc(1rem * var(--ui-font-scale));
+  --text-base--line-height: calc(1.5rem * var(--ui-font-scale));
+  --text-lg: calc(1.125rem * var(--ui-font-scale));
+  --text-lg--line-height: calc(1.75rem * var(--ui-font-scale));
+  --text-xl: calc(1.25rem * var(--ui-font-scale));
+  --text-xl--line-height: calc(1.75rem * var(--ui-font-scale));
+  --text-2xl: calc(1.5rem * var(--ui-font-scale));
+  --text-2xl--line-height: calc(2rem * var(--ui-font-scale));
+  --text-3xl: calc(1.875rem * var(--ui-font-scale));
+  --text-3xl--line-height: calc(2.25rem * var(--ui-font-scale));
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-success-foreground: var(--success-foreground);
@@ -168,6 +192,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-workspace-content: var(--workspace-content-background);
   --color-surface-raised: var(--surface-raised);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
@@ -989,17 +1014,317 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --sidebar-stage-fade: var(--card);
 }
 
+/* Named palettes keep the same semantic surface model as Light/Dark. The
+   theme hook still exposes a light/dark mode for native shell chrome and
+   components that only need contrast, while these tokens provide the richer
+   app palette. */
+:root:is(
+  [data-theme="catppuccin-latte"],
+  [data-theme="catppuccin-macchiato"],
+  [data-theme="catppuccin-mocha"],
+  [data-theme="dracula"],
+  [data-theme="nord"],
+  [data-theme="tokyo-night"],
+  [data-theme="gruvbox-dark"],
+  [data-theme="solarized-dark"]
+) {
+  color-scheme: var(--theme-color-scheme);
+  --background: var(--theme-background);
+  --app-chrome-background: var(--theme-background);
+  --foreground: var(--theme-foreground);
+  --card: var(--theme-card);
+  --card-foreground: var(--theme-foreground);
+  --popover: var(--theme-popover);
+  --popover-foreground: var(--theme-foreground);
+  --primary: var(--theme-primary);
+  --primary-foreground: var(--theme-primary-foreground);
+  --secondary: var(--theme-secondary);
+  --secondary-foreground: var(--theme-foreground);
+  --muted: var(--theme-muted);
+  --muted-foreground: var(--theme-muted-foreground);
+  --accent: var(--theme-accent);
+  --accent-foreground: var(--theme-foreground);
+  --destructive: var(--theme-red);
+  --destructive-foreground: var(--theme-red);
+  --border: var(--theme-border);
+  --input: var(--theme-input);
+  --ring: var(--theme-primary);
+  --info: var(--theme-blue);
+  --info-foreground: var(--theme-blue);
+  --success: var(--theme-green);
+  --success-foreground: var(--theme-green);
+  --warning: var(--theme-yellow);
+  --warning-foreground: var(--theme-yellow);
+  --sidebar: var(--theme-sidebar);
+  --sidebar-foreground: var(--theme-foreground);
+  --sidebar-muted-foreground: var(--theme-muted-foreground);
+  --sidebar-control-surface: var(--theme-muted);
+  --sidebar-row-hover: var(--theme-accent);
+  --sidebar-row-active: var(--theme-secondary);
+  --sidebar-row-selected: var(--theme-muted);
+  --sidebar-border: var(--theme-border);
+  --sidebar-stage-fade: var(--theme-sidebar);
+  --app-scrollbar-thumb: color-mix(in srgb, var(--theme-foreground) 14%, transparent);
+  --app-scrollbar-thumb-hover: color-mix(in srgb, var(--theme-foreground) 22%, transparent);
+}
+
+:root:is(
+    [data-theme="catppuccin-latte"],
+    [data-theme="catppuccin-macchiato"],
+    [data-theme="catppuccin-mocha"],
+    [data-theme="dracula"],
+    [data-theme="nord"],
+    [data-theme="tokyo-night"],
+    [data-theme="gruvbox-dark"],
+    [data-theme="solarized-dark"]
+  )
+  :is([data-sidebar-version="v1"], [data-sidebar-version="v2"]) {
+  --background: var(--theme-background);
+  --foreground: var(--theme-foreground);
+  --card: var(--theme-sidebar);
+  --card-foreground: var(--theme-foreground);
+  --accent: var(--theme-accent);
+  --accent-foreground: var(--theme-foreground);
+  --muted: var(--theme-muted);
+  --muted-foreground: var(--theme-muted-foreground);
+  --border: var(--theme-border);
+  --input: var(--theme-input);
+  --sidebar: var(--theme-sidebar);
+  --sidebar-foreground: var(--theme-foreground);
+  --sidebar-muted-foreground: var(--theme-muted-foreground);
+  --sidebar-control-surface: var(--theme-muted);
+  --sidebar-row-hover: var(--theme-accent);
+  --sidebar-row-active: var(--theme-secondary);
+  --sidebar-row-selected: var(--theme-muted);
+  --sidebar-border: var(--theme-border);
+  --sidebar-stage-fade: var(--theme-sidebar);
+  background-color: var(--theme-sidebar);
+}
+
+:root[data-theme="catppuccin-latte"] {
+  --theme-color-scheme: light;
+  --theme-background: #eff1f5;
+  --theme-card: #e6e9ef;
+  --theme-popover: #dce0e8;
+  --theme-sidebar: #e6e9ef;
+  --theme-foreground: #4c4f69;
+  --theme-muted-foreground: #7c7f93;
+  --theme-primary: #1e66f5;
+  --theme-primary-foreground: #eff1f5;
+  --theme-secondary: #dce0e8;
+  --theme-muted: #ccd0da;
+  --theme-accent: #bcc0cc;
+  --theme-border: #bcc0cc;
+  --theme-input: #acb0be;
+  --theme-red: #d20f39;
+  --theme-blue: #1e66f5;
+  --theme-green: #40a02b;
+  --theme-yellow: #df8e1d;
+}
+
+:root[data-theme="catppuccin-macchiato"] {
+  --theme-color-scheme: dark;
+  --theme-background: #24273a;
+  --theme-card: #1e2030;
+  --theme-popover: #181926;
+  --theme-sidebar: #1e2030;
+  --theme-foreground: #cad3f5;
+  --theme-muted-foreground: #a5adcb;
+  --theme-primary: #8aadf4;
+  --theme-primary-foreground: #181926;
+  --theme-secondary: #363a4f;
+  --theme-muted: #363a4f;
+  --theme-accent: #494d64;
+  --theme-border: #494d64;
+  --theme-input: #5b6078;
+  --theme-red: #ed8796;
+  --theme-blue: #8aadf4;
+  --theme-green: #a6da95;
+  --theme-yellow: #eed49f;
+}
+
+:root[data-theme="catppuccin-mocha"] {
+  --theme-color-scheme: dark;
+  --theme-background: #1e1e2e;
+  --theme-card: #181825;
+  --theme-popover: #11111b;
+  --theme-sidebar: #181825;
+  --theme-foreground: #cdd6f4;
+  --theme-muted-foreground: #a6adc8;
+  --theme-primary: #89b4fa;
+  --theme-primary-foreground: #11111b;
+  --theme-secondary: #313244;
+  --theme-muted: #313244;
+  --theme-accent: #45475a;
+  --theme-border: #45475a;
+  --theme-input: #585b70;
+  --theme-red: #f38ba8;
+  --theme-blue: #89b4fa;
+  --theme-green: #a6e3a1;
+  --theme-yellow: #f9e2af;
+}
+
+:root[data-theme="dracula"] {
+  --theme-color-scheme: dark;
+  --theme-background: #282a36;
+  --theme-card: #21222c;
+  --theme-popover: #191a21;
+  --theme-sidebar: #21222c;
+  --theme-foreground: #f8f8f2;
+  --theme-muted-foreground: #b9bac3;
+  --theme-primary: #bd93f9;
+  --theme-primary-foreground: #191a21;
+  --theme-secondary: #343746;
+  --theme-muted: #343746;
+  --theme-accent: #44475a;
+  --theme-border: #44475a;
+  --theme-input: #5a5e75;
+  --theme-red: #ff5555;
+  --theme-blue: #8be9fd;
+  --theme-green: #50fa7b;
+  --theme-yellow: #f1fa8c;
+}
+
+:root[data-theme="nord"] {
+  --theme-color-scheme: dark;
+  --theme-background: #2e3440;
+  --theme-card: #272c36;
+  --theme-popover: #242933;
+  --theme-sidebar: #272c36;
+  --theme-foreground: #eceff4;
+  --theme-muted-foreground: #d8dee9;
+  --theme-primary: #88c0d0;
+  --theme-primary-foreground: #2e3440;
+  --theme-secondary: #3b4252;
+  --theme-muted: #3b4252;
+  --theme-accent: #434c5e;
+  --theme-border: #4c566a;
+  --theme-input: #4c566a;
+  --theme-red: #bf616a;
+  --theme-blue: #81a1c1;
+  --theme-green: #a3be8c;
+  --theme-yellow: #ebcb8b;
+}
+
+:root[data-theme="tokyo-night"] {
+  --theme-color-scheme: dark;
+  --theme-background: #1a1b26;
+  --theme-card: #16161e;
+  --theme-popover: #101014;
+  --theme-sidebar: #16161e;
+  --theme-foreground: #c0caf5;
+  --theme-muted-foreground: #9aa5ce;
+  --theme-primary: #7aa2f7;
+  --theme-primary-foreground: #16161e;
+  --theme-secondary: #24283b;
+  --theme-muted: #24283b;
+  --theme-accent: #343b58;
+  --theme-border: #3b4261;
+  --theme-input: #414868;
+  --theme-red: #f7768e;
+  --theme-blue: #7aa2f7;
+  --theme-green: #9ece6a;
+  --theme-yellow: #e0af68;
+}
+
+:root[data-theme="gruvbox-dark"] {
+  --theme-color-scheme: dark;
+  --theme-background: #282828;
+  --theme-card: #1d2021;
+  --theme-popover: #1b1b1b;
+  --theme-sidebar: #1d2021;
+  --theme-foreground: #ebdbb2;
+  --theme-muted-foreground: #bdae93;
+  --theme-primary: #83a598;
+  --theme-primary-foreground: #1d2021;
+  --theme-secondary: #3c3836;
+  --theme-muted: #3c3836;
+  --theme-accent: #504945;
+  --theme-border: #504945;
+  --theme-input: #665c54;
+  --theme-red: #fb4934;
+  --theme-blue: #83a598;
+  --theme-green: #b8bb26;
+  --theme-yellow: #fabd2f;
+}
+
+:root[data-theme="solarized-dark"] {
+  --theme-color-scheme: dark;
+  --theme-background: #002b36;
+  --theme-card: #00252e;
+  --theme-popover: #001f27;
+  --theme-sidebar: #00252e;
+  --theme-foreground: #eee8d5;
+  --theme-muted-foreground: #93a1a1;
+  --theme-primary: #268bd2;
+  --theme-primary-foreground: #002b36;
+  --theme-secondary: #073642;
+  --theme-muted: #073642;
+  --theme-accent: #0b4654;
+  --theme-border: #0f5261;
+  --theme-input: #586e75;
+  --theme-red: #dc322f;
+  --theme-blue: #268bd2;
+  --theme-green: #859900;
+  --theme-yellow: #b58900;
+}
+
 body {
-  font-family:
-    "DM Sans Variable",
-    "DM Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+  font-family: var(--font-sans);
+  font-size: calc(1rem * var(--ui-font-scale));
   margin: 0;
   padding: 0;
+}
+
+/* Tailwind's arbitrary pixel sizes bypass its scalable named text tokens. */
+.text-\[7px\] {
+  font-size: calc(7px * var(--ui-font-scale));
+}
+
+.text-\[8px\] {
+  font-size: calc(8px * var(--ui-font-scale));
+}
+
+.text-\[9px\] {
+  font-size: calc(9px * var(--ui-font-scale));
+}
+
+.text-\[10px\] {
+  font-size: calc(10px * var(--ui-font-scale));
+}
+
+.text-\[11px\] {
+  font-size: calc(11px * var(--ui-font-scale));
+}
+
+.text-\[12px\] {
+  font-size: calc(12px * var(--ui-font-scale));
+}
+
+.text-\[13px\] {
+  font-size: calc(13px * var(--ui-font-scale));
+}
+
+.text-\[14px\] {
+  font-size: calc(14px * var(--ui-font-scale));
+}
+
+.text-\[16px\] {
+  font-size: calc(16px * var(--ui-font-scale));
+}
+
+.text-\[\.625rem\] {
+  font-size: calc(0.625rem * var(--ui-font-scale));
+}
+
+@media (min-width: 40rem) {
+  .sm\:text-\[14px\] {
+    font-size: calc(14px * var(--ui-font-scale));
+  }
+
+  .sm\:text-\[\.625rem\] {
+    font-size: calc(0.625rem * var(--ui-font-scale));
+  }
 }
 
 html,
@@ -1048,8 +1373,7 @@ body {
 
 pre,
 code {
-  font-family:
-    "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 /* Window drag region (frameless titlebar) */
@@ -1215,21 +1539,21 @@ label:has(> select#reasoning-effort) select {
 }
 
 .chat-markdown h1 {
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--ui-font-scale));
 }
 
 .chat-markdown h2 {
-  font-size: 1.125rem;
+  font-size: calc(1.125rem * var(--ui-font-scale));
 }
 
 .chat-markdown h3 {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--ui-font-scale));
 }
 
 .chat-markdown h4,
 .chat-markdown h5,
 .chat-markdown h6 {
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--ui-font-scale));
 }
 
 .chat-markdown h6 {
@@ -1312,7 +1636,7 @@ label:has(> select#reasoning-effort) select {
   border-top: 1px solid var(--border);
   padding-top: 0.75rem;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--ui-font-scale));
 }
 
 .chat-markdown section[data-footnotes] ol {
@@ -1332,7 +1656,7 @@ label:has(> select#reasoning-effort) select {
   justify-content: center;
   border-radius: 0.25rem;
   text-decoration: none;
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--ui-font-scale));
   font-weight: 600;
 }
 
@@ -1342,7 +1666,7 @@ label:has(> select#reasoning-effort) select {
   background: var(--muted);
   padding: 0.1rem 0.35rem;
   color: var(--foreground);
-  font-size: 0.75rem;
+  font-size: var(--code-font-size);
 }
 
 .chat-markdown a.chat-markdown-file-link {
@@ -1373,7 +1697,7 @@ label:has(> select#reasoning-effort) select {
   border: none;
   background: transparent;
   padding: 0;
-  font-size: 0.75rem;
+  font-size: var(--code-font-size);
 }
 
 .chat-markdown pre {
@@ -1433,7 +1757,7 @@ label:has(> select#reasoning-effort) select {
   align-items: center;
   gap: 0.4rem;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--ui-font-scale));
 }
 
 .chat-markdown .chat-markdown-chrome-action {
@@ -1465,6 +1789,12 @@ label:has(> select#reasoning-effort) select {
   background: transparent !important;
 }
 
+.chat-markdown .chat-markdown-codeblock pre,
+.chat-markdown .chat-markdown-codeblock code {
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
+}
+
 /* Diagnostics-style tables: row separators only, uppercase headers, and a
    scroll-fade container for horizontal overflow. The root chat-markdown
    wrapping rules (overflow-wrap: anywhere) would let columns shrink to single
@@ -1476,7 +1806,7 @@ label:has(> select#reasoning-effort) select {
   border-collapse: collapse;
   overflow-wrap: normal;
   word-break: normal;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--ui-font-scale));
 }
 
 .chat-markdown th,

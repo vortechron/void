@@ -51,6 +51,8 @@ export function useNewThreadHandler() {
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
+        /** Always allocate another chat session instead of reopening a draft. */
+        forceNew?: boolean;
       },
     ): Promise<void> => {
       const {
@@ -128,7 +130,7 @@ export function useNewThreadHandler() {
           ? getDraftThread(currentRouteTarget.threadRef)
           : getDraftSession(currentRouteTarget.draftId)
         : null;
-      if (reusableStoredDraftThread) {
+      if (reusableStoredDraftThread && options?.forceNew !== true) {
         return (async () => {
           const isDraftAlreadyOpen =
             currentRouteTarget?.kind === "draft" &&
@@ -210,6 +212,7 @@ export function useNewThreadHandler() {
       }
 
       if (
+        options?.forceNew !== true &&
         latestActiveDraftThread &&
         currentRouteTarget?.kind === "draft" &&
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
@@ -260,6 +263,7 @@ export function useNewThreadHandler() {
             }),
           runtimeMode: carryRuntimeMode ?? DEFAULT_RUNTIME_MODE,
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
+          ...(options?.forceNew === true ? { preservePrevious: true } : {}),
         });
         applyStickyState(draftId);
         if (carryModelSelection) {

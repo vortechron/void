@@ -190,4 +190,29 @@ describe("theme failure handling", () => {
       expect(JSON.stringify(attributes)).not.toContain(cause.message);
     }
   });
+
+  it("accepts named themes and maps them to the desktop shell color scheme", async () => {
+    const storage = createStorage();
+    storage.setItem("t3code:theme", "tokyo-night");
+    vi.stubGlobal("window", {
+      localStorage: storage,
+      matchMedia: () => ({ matches: false }),
+    });
+    vi.stubGlobal("document", {
+      documentElement: {
+        classList: { add: vi.fn(), remove: vi.fn(), toggle: vi.fn() },
+        setAttribute: vi.fn(),
+      },
+    });
+
+    const { readThemePreference, syncDesktopThemePreference } = await import("./useTheme");
+    const setTheme = vi.fn().mockResolvedValue(undefined);
+
+    expect(readThemePreference()).toBe("tokyo-night");
+    await syncDesktopThemePreference({ setTheme }, "catppuccin-latte");
+    await syncDesktopThemePreference({ setTheme }, "tokyo-night");
+
+    expect(setTheme).toHaveBeenNthCalledWith(1, "light");
+    expect(setTheme).toHaveBeenNthCalledWith(2, "dark");
+  });
 });

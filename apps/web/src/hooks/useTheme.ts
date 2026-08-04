@@ -2,9 +2,15 @@ import type { DesktopBridge } from "@t3tools/contracts";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import {
+  APP_THEME_VALUES,
+  type AppTheme,
+  isAppTheme,
+  resolveAppTheme,
+} from "../appearancePreferences";
 
-const ThemePreference = Schema.Literals(["light", "dark", "system"]);
-type Theme = typeof ThemePreference.Type;
+const ThemePreference = Schema.Literals(APP_THEME_VALUES);
+type Theme = AppTheme;
 type ThemeSnapshot = {
   theme: Theme;
   systemDark: boolean;
@@ -81,7 +87,7 @@ export function readThemePreference(): Theme {
       cause,
     });
   }
-  if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  if (isAppTheme(raw)) return raw;
   return DEFAULT_THEME_SNAPSHOT.theme;
 }
 
@@ -184,8 +190,11 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const isDark = theme === "dark" || (theme === "system" && systemDark);
+  const resolvedTheme = resolveAppTheme(theme, systemDark);
+  const isDark = resolvedTheme === "dark";
   document.documentElement.classList.toggle("dark", isDark);
+  document.documentElement.setAttribute?.("data-theme", theme);
+  document.documentElement.setAttribute?.("data-theme-mode", resolvedTheme);
   lastAppliedTheme = { theme, systemDark };
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
@@ -204,7 +213,7 @@ export async function syncDesktopThemePreference(
   theme: Theme,
 ): Promise<void> {
   try {
-    await bridge.setTheme(theme);
+    await bridge.setTheme(theme === "system" ? "system" : resolveAppTheme(theme, false));
   } catch (cause) {
     throw new DesktopThemeSyncError({ theme, cause });
   }
@@ -287,8 +296,7 @@ export function useTheme() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const theme = snapshot.theme;
 
-  const resolvedTheme: "light" | "dark" =
-    theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
+  const resolvedTheme = resolveAppTheme(theme, snapshot.systemDark);
 
   const setTheme = useCallback((next: Theme) => {
     if (typeof window === "undefined") return;

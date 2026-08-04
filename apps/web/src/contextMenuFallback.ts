@@ -13,6 +13,20 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     },
     { tag: "path", attrs: { d: "m15 5 4 4" } },
   ],
+  pin: [
+    { tag: "path", attrs: { d: "M12 17v5" } },
+    {
+      tag: "path",
+      attrs: {
+        d: "M5 17h14a1 1 0 0 0 .9-1.45l-1.8-3.6A2 2 0 0 1 17.9 11V6h1a1 1 0 0 0 0-2H5a1 1 0 0 0 0 2h1v5a2 2 0 0 1-.2.95L4 15.55A1 1 0 0 0 5 17Z",
+      },
+    },
+  ],
+  archive: [
+    { tag: "rect", attrs: { width: "20", height: "5", x: "2", y: "3", rx: "1" } },
+    { tag: "path", attrs: { d: "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" } },
+    { tag: "path", attrs: { d: "M10 12h4" } },
+  ],
   copy: [
     { tag: "rect", attrs: { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" } },
     { tag: "path", attrs: { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" } },

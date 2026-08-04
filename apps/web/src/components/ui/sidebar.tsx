@@ -654,7 +654,7 @@ function SidebarInput({ className, ...props }: React.ComponentProps<typeof Input
 function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("flex flex-col gap-2 p-2", className)}
+      className={cn("flex flex-col gap-2 border-sidebar-foreground/10 border-b p-2", className)}
       data-sidebar="header"
       data-slot="sidebar-header"
       {...props}
@@ -665,7 +665,7 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
 function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("flex flex-col gap-2 p-2", className)}
+      className={cn("flex flex-col gap-2 border-sidebar-foreground/10 border-t p-2", className)}
       data-sidebar="footer"
       data-slot="sidebar-footer"
       {...props}
@@ -693,7 +693,9 @@ function SidebarContent({
 }) {
   return (
     <>
-      {fixedHeader ? <div className="w-full shrink-0">{fixedHeader}</div> : null}
+      {fixedHeader ? (
+        <div className="w-full shrink-0 border-sidebar-foreground/10 border-b">{fixedHeader}</div>
+      ) : null}
       <ScrollArea hideScrollbars scrollFade className="h-auto min-h-0 flex-1">
         <div
           className={cn(

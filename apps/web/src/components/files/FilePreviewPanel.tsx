@@ -22,8 +22,9 @@ import ChatMarkdown from "~/components/ChatMarkdown";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
+import type { CodeTheme } from "@t3tools/contracts/settings";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
-import { resolveDiffThemeName } from "~/lib/diffRendering";
+import { resolveDiffThemeName, resolveDiffThemeType } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { resolvePathLinkTarget } from "~/terminal-links";
@@ -378,6 +379,7 @@ interface EditableFileSurfaceProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
   contents: string;
   resolvedTheme: "light" | "dark";
+  codeTheme: CodeTheme;
   revealRequestId: number;
   wordWrap: boolean;
   onPostRender: FilePostRender;
@@ -427,6 +429,7 @@ function EditableFileSurface({
   composerDraftTarget,
   contents,
   resolvedTheme,
+  codeTheme,
   revealRequestId,
   wordWrap,
   onPostRender,
@@ -658,8 +661,8 @@ function EditableFileSurface({
               onLineSelectionChange: setSelectedRange,
               onLineSelectionEnd: handleLineSelectionEnd,
               overflow: wordWrap ? "wrap" : "scroll",
-              theme: resolveDiffThemeName(resolvedTheme),
-              themeType: resolvedTheme,
+              theme: resolveDiffThemeName(resolvedTheme, codeTheme),
+              themeType: resolveDiffThemeType(resolvedTheme, codeTheme),
               unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
               onPostRender: handlePostRender,
             }}
@@ -699,6 +702,7 @@ function RenderedMarkdownSurface({
 }: Omit<
   EditableFileSurfaceProps,
   | "resolvedTheme"
+  | "codeTheme"
   | "composerDraftTarget"
   | "revealLine"
   | "revealRequestId"
@@ -759,6 +763,7 @@ export default function FilePreviewPanel({
   onPendingChange,
 }: FilePreviewPanelProps) {
   const { resolvedTheme } = useTheme();
+  const codeTheme = useClientSettings((settings) => settings.codeTheme);
   const wordWrap = useClientSettings((settings) => settings.wordWrap);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
@@ -998,7 +1003,7 @@ export default function FilePreviewPanel({
               />
             ) : file.data.truncated ? (
               <Virtualizer
-                key={`${relativePath}:${resolvedTheme}:${file.data.byteLength}`}
+                key={`${relativePath}:${resolvedTheme}:${codeTheme}:${file.data.byteLength}`}
                 className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
                 config={{
                   overscrollSize: 600,
@@ -1014,8 +1019,8 @@ export default function FilePreviewPanel({
                   options={{
                     disableFileHeader: true,
                     overflow: wordWrap ? "wrap" : "scroll",
-                    theme: resolveDiffThemeName(resolvedTheme),
-                    themeType: resolvedTheme,
+                    theme: resolveDiffThemeName(resolvedTheme, codeTheme),
+                    themeType: resolveDiffThemeType(resolvedTheme, codeTheme),
                     unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
                     onPostRender: onFilePostRender,
                   }}
@@ -1024,13 +1029,14 @@ export default function FilePreviewPanel({
               </Virtualizer>
             ) : (
               <EditableFileSurface
-                key={`${relativePath}:${resolvedTheme}`}
+                key={`${relativePath}:${resolvedTheme}:${codeTheme}`}
                 environmentId={environmentId}
                 cwd={cwd}
                 relativePath={relativePath}
                 composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
                 resolvedTheme={resolvedTheme}
+                codeTheme={codeTheme}
                 revealRequestId={revealRequestId}
                 wordWrap={wordWrap}
                 onPostRender={onFilePostRender}

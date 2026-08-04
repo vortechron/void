@@ -58,6 +58,44 @@ export const GlassOpacity = Schema.Int.check(
 );
 export type GlassOpacity = typeof GlassOpacity.Type;
 export const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
+export const MAX_FONT_FAMILY_NAME_LENGTH = 256;
+export const FontFamilyName = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(MAX_FONT_FAMILY_NAME_LENGTH),
+);
+export type FontFamilyName = typeof FontFamilyName.Type;
+export const UiFontFamily = FontFamilyName;
+export type UiFontFamily = typeof UiFontFamily.Type;
+export const DEFAULT_UI_FONT_FAMILY: UiFontFamily = "dm-sans";
+export const MIN_UI_FONT_SIZE = 12;
+export const MAX_UI_FONT_SIZE = 20;
+export const UiFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_UI_FONT_SIZE, maximum: MAX_UI_FONT_SIZE }),
+);
+export type UiFontSize = typeof UiFontSize.Type;
+export const DEFAULT_UI_FONT_SIZE: UiFontSize = 16;
+export const CodeFontFamily = FontFamilyName;
+export type CodeFontFamily = typeof CodeFontFamily.Type;
+export const DEFAULT_CODE_FONT_FAMILY: CodeFontFamily = "system-mono";
+export const MIN_CODE_FONT_SIZE = 10;
+export const MAX_CODE_FONT_SIZE = 20;
+export const CodeFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_CODE_FONT_SIZE, maximum: MAX_CODE_FONT_SIZE }),
+);
+export type CodeFontSize = typeof CodeFontSize.Type;
+export const DEFAULT_CODE_FONT_SIZE: CodeFontSize = 13;
+export const CodeTheme = Schema.Literals([
+  "default",
+  "catppuccin-latte",
+  "catppuccin-macchiato",
+  "catppuccin-mocha",
+  "dracula",
+  "nord",
+  "tokyo-night",
+  "gruvbox-dark",
+  "solarized-dark",
+]);
+export type CodeTheme = typeof CodeTheme.Type;
+export const DEFAULT_CODE_THEME: CodeTheme = "default";
 export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill", "none"]);
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
@@ -76,6 +114,17 @@ export const ClientSettingsSchema = Schema.Struct({
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
   ),
+  uiFontFamily: UiFontFamily.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_UI_FONT_FAMILY)),
+  ),
+  uiFontSize: UiFontSize.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_UI_FONT_SIZE))),
+  codeFontFamily: CodeFontFamily.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CODE_FONT_FAMILY)),
+  ),
+  codeFontSize: CodeFontSize.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CODE_FONT_SIZE)),
+  ),
+  codeTheme: CodeTheme.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CODE_THEME))),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
   // on a custom provider instance (e.g. "Codex Personal · gpt-5") without
@@ -113,6 +162,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
+  ),
+  // Logical project keys the user has hidden from the sidebar. Hiding is a
+  // view preference, not a removal: the project keeps its threads and comes
+  // back through the "Show hidden repositories" shelf.
+  sidebarHiddenProjectKeys: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
   ),
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
@@ -371,7 +426,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Server URL",
-        description: "Leave blank to let T3 Code spawn the server when needed.",
+        description: "Leave blank to let Void spawn the server when needed.",
         providerSettingsForm: {
           placeholder: "http://127.0.0.1:4096",
           clearWhenEmpty: "omit",
@@ -680,6 +735,11 @@ export const ClientSettingsPatch = Schema.Struct({
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  uiFontFamily: Schema.optionalKey(UiFontFamily),
+  uiFontSize: Schema.optionalKey(UiFontSize),
+  codeFontFamily: Schema.optionalKey(CodeFontFamily),
+  codeFontSize: Schema.optionalKey(CodeFontSize),
+  codeTheme: Schema.optionalKey(CodeTheme),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
@@ -707,6 +767,7 @@ export const ClientSettingsPatch = Schema.Struct({
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
   ),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
+  sidebarHiddenProjectKeys: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),

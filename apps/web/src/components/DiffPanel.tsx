@@ -33,6 +33,7 @@ import {
   getDiffLineStat,
   getRenderablePatch,
   resolveDiffThemeName,
+  resolveDiffThemeType,
   resolveFileDiffPath,
 } from "../lib/diffRendering";
 import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollapse";
@@ -73,7 +74,6 @@ import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
 
 type DiffRenderMode = "stacked" | "split";
-type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
 
 interface CollapsedDiffFilesState {
@@ -196,6 +196,7 @@ export default function DiffPanel({
 }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
+  const codeTheme = settings.codeTheme;
   const [initialGitScope] = useState(initialGitScopeProp);
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [wordWrap, setWordWrap] = useState(settings.wordWrap);
@@ -423,10 +424,10 @@ export default function DiffPanel({
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(
     () =>
-      getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
+      getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}:${codeTheme}`, {
         compactPartialHunkOffsets: selectedTurnId === null,
       }),
-    [resolvedTheme, selectedPatch, selectedTurnId],
+    [codeTheme, resolvedTheme, selectedPatch, selectedTurnId],
   );
   const renderableFiles = useMemo(() => {
     if (!renderablePatch || renderablePatch.kind !== "files") {
@@ -919,8 +920,8 @@ export default function DiffPanel({
                     diffStyle: diffRenderMode === "split" ? "split" : "unified",
                     lineDiffType: "none",
                     overflow: wordWrap ? "wrap" : "scroll",
-                    theme: resolveDiffThemeName(resolvedTheme),
-                    themeType: resolvedTheme as DiffThemeType,
+                    theme: resolveDiffThemeName(resolvedTheme, codeTheme),
+                    themeType: resolveDiffThemeType(resolvedTheme, codeTheme),
                     unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
                     stickyHeaders: true,
                     itemMetrics: { diffHeaderHeight: 33 },

@@ -74,6 +74,14 @@ describe("searchSettings", () => {
       id: "theme",
       to: "/settings/appearance",
     });
+    expect(searchSettings("UI font size")[0]).toMatchObject({
+      id: "ui-font-size",
+      to: "/settings/appearance",
+    });
+    expect(searchSettings("code theme")[0]).toMatchObject({
+      id: "code-theme",
+      to: "/settings/appearance",
+    });
     expect(searchSettings("word wrap")[0]).toMatchObject({
       id: "word-wrap",
       to: "/settings/appearance",

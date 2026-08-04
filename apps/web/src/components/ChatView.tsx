@@ -227,6 +227,9 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ThreadTabs } from "./chat/ThreadTabs";
+import { useThreadTabRouteSync } from "../hooks/useThreadTabs";
+import { projectWorkspaceKey } from "../workspaceSessions";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -276,7 +279,6 @@ import {
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   shouldWriteThreadErrorToCurrentServerThread,
-  startNewThreadForProject,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
@@ -1236,6 +1238,7 @@ function ChatViewContent(props: ChatViewProps) {
   const autoOpenPlanSidebar = settings.autoOpenPlanSidebar;
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
+  const codeTheme = settings.codeTheme;
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.runtimeMode ?? null,
@@ -1617,13 +1620,24 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, [activeThreadKey, existingOpenTerminalThreadKeys, terminalUiState.terminalOpen]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
-  const activeProjectRef = activeThread
-    ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
-    : null;
+  const activeProjectEnvironmentId = activeThread?.environmentId ?? null;
+  const activeProjectId = activeThread?.projectId ?? null;
+  const activeProjectRef = useMemo(
+    () =>
+      activeProjectEnvironmentId === null || activeProjectId === null
+        ? null
+        : scopeProjectRef(activeProjectEnvironmentId, activeProjectId),
+    [activeProjectEnvironmentId, activeProjectId],
+  );
   const activeProject = useProject(activeProjectRef);
-  const handleNewThreadInActiveProject = useCallback(() => {
-    startNewThreadForProject(activeProjectRef, handleNewThread);
-  }, [activeProjectRef, handleNewThread]);
+  const activeWorkspaceKey = activeThread
+    ? projectWorkspaceKey({
+        environmentId: activeThread.environmentId,
+        projectId: activeThread.projectId,
+        worktreePath: activeThread.worktreePath,
+      })
+    : null;
+  useThreadTabRouteSync({ environmentId, threadId, draftId, workspaceKey: activeWorkspaceKey });
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
@@ -2455,6 +2469,17 @@ function ChatViewContent(props: ChatViewProps) {
           input: { cwd: gitStatusCwd },
         }),
   );
+  const handleNewThreadInActiveWorkspace = useCallback(() => {
+    if (!activeProjectRef || !activeThread) return;
+    const worktreePath = activeThread.worktreePath;
+    void handleNewThread(activeProjectRef, {
+      branch: gitStatusQuery.data?.refName ?? activeThread.branch,
+      worktreePath,
+      envMode: worktreePath === null ? "local" : "worktree",
+      startFromOrigin: false,
+      forceNew: true,
+    });
+  }, [activeProjectRef, activeThread, gitStatusQuery.data?.refName, handleNewThread]);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
   // Prefer an instance-id match so a custom Codex instance (e.g.
@@ -5747,7 +5772,7 @@ function ChatViewContent(props: ChatViewProps) {
         <header
           data-chat-header
           className={cn(
-            "bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
+            "border-b border-border/60 bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
             isElectron
               ? cn(
                   "workspace-topbar drag-region relative px-3 sm:px-5",
@@ -5776,7 +5801,7 @@ function ChatViewContent(props: ChatViewProps) {
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
-            onNewThreadInProject={handleNewThreadInActiveProject}
+            onNewThreadInProject={handleNewThreadInActiveWorkspace}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
@@ -5784,12 +5809,25 @@ function ChatViewContent(props: ChatViewProps) {
           />
         </header>
 
+        {activeWorkspaceKey && activeProjectRef ? (
+          <ThreadTabs
+            workspaceKey={activeWorkspaceKey}
+            projectRef={activeProjectRef}
+            onNewThread={handleNewThreadInActiveWorkspace}
+            newThreadLabel={
+              activeThread.worktreePath
+                ? `New chat in ${gitStatusQuery.data?.refName ?? activeThread.branch ?? "worktree"}`
+                : `New chat in ${gitStatusQuery.data?.refName ?? "current checkout"}`
+            }
+          />
+        ) : null}
+
         <ThreadErrorBanner
           error={threadError}
           onDismiss={() => setThreadError(activeThread.id, null)}
         />
         {/* Main content area with optional plan sidebar */}
-        <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 bg-workspace-content">
           {/* Chat column */}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Provider status overlays the timeline without changing its content height. */}
@@ -5825,6 +5863,7 @@ function ChatViewContent(props: ChatViewProps) {
                 onImageExpand={onExpandTimelineImage}
                 markdownCwd={gitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}
+                codeTheme={codeTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
                 skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}

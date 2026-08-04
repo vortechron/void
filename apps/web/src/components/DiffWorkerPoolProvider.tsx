@@ -3,11 +3,12 @@ import DiffsWorker from "@pierre/diffs/worker/worker.js?worker";
 import * as Schema from "effect/Schema";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { useTheme } from "../hooks/useTheme";
+import { useClientSettings } from "../hooks/useSettings";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 
 export class DiffWorkerError extends Schema.TaggedErrorClass<DiffWorkerError>()("DiffWorkerError", {
   operation: Schema.Literals(["create-worker", "get-render-options", "set-render-options"]),
-  themeName: Schema.Literals(["pierre-light", "pierre-dark"]),
+  themeName: Schema.String,
   cause: Schema.Defect(),
 }) {
   override get message(): string {
@@ -47,7 +48,8 @@ function DiffWorkerThemeSync({ themeName }: { themeName: DiffThemeName }) {
 
 export function DiffWorkerPoolProvider({ children }: { children?: ReactNode }) {
   const { resolvedTheme } = useTheme();
-  const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const codeTheme = useClientSettings((settings) => settings.codeTheme);
+  const diffThemeName = resolveDiffThemeName(resolvedTheme, codeTheme);
   const workerPoolSize = useMemo(() => {
     const cores =
       typeof navigator === "undefined" ? 4 : Math.max(1, navigator.hardwareConcurrency || 4);
