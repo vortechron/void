@@ -11,6 +11,7 @@ import {
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "../branding";
+import { resolveAppearanceCssVariables } from "../appearancePreferences";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
@@ -101,6 +102,7 @@ function RootRouteView() {
     return (
       <>
         <DocumentTitleSync />
+        <AppearancePreferencesSync />
         <Outlet />
       </>
     );
@@ -110,6 +112,7 @@ function RootRouteView() {
     return (
       <>
         <DocumentTitleSync />
+        <AppearancePreferencesSync />
         <Outlet />
       </>
     );
@@ -127,7 +130,7 @@ function RootRouteView() {
     <ToastProvider>
       <AnchoredToastProvider>
         <DocumentTitleSync />
-        <GlassAppearanceSync />
+        <AppearancePreferencesSync />
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
         <RelayClientInstallDialog />
         <ConnectOnboardingDialog />
@@ -142,12 +145,22 @@ function RootRouteView() {
   );
 }
 
-function GlassAppearanceSync() {
-  const glassOpacity = useClientSettings((settings) => settings.glassOpacity);
+function AppearancePreferencesSync() {
+  const settings = useClientSettings();
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--glass-opacity", `${glassOpacity}%`);
-  }, [glassOpacity]);
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--glass-opacity", `${settings.glassOpacity}%`);
+    for (const [name, value] of Object.entries(resolveAppearanceCssVariables(settings))) {
+      rootStyle.setProperty(name, value);
+    }
+  }, [
+    settings.codeFontFamily,
+    settings.codeFontSize,
+    settings.glassOpacity,
+    settings.uiFontFamily,
+    settings.uiFontSize,
+  ]);
 
   return null;
 }

@@ -359,6 +359,8 @@ interface ComposerDraftStoreState {
       startFromOrigin?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
+      /** Keep the formerly active draft as another open chat session. */
+      preservePrevious?: boolean;
     },
   ) => void;
   /** Creates or updates the draft session tracked for a concrete project ref. */
@@ -374,6 +376,7 @@ interface ComposerDraftStoreState {
       startFromOrigin?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
+      preservePrevious?: boolean;
     },
   ) => void;
   /** Updates mutable draft-session metadata without touching composer content. */
@@ -2214,7 +2217,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           return get().getDraftSessionByProjectRef(projectRef);
         },
         getDraftSessionByProjectRef: (projectRef) => {
-          for (const [draftId, draftThread] of Object.entries(get().draftThreadsByThreadKey)) {
+          const state = get();
+          let newestMatch: ProjectDraftSession | null = null;
+          for (const [draftId, draftThread] of Object.entries(state.draftThreadsByThreadKey)) {
             if (isDraftThreadPromoting(draftThread)) {
               continue;
             }
@@ -2222,10 +2227,20 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               draftThread.projectId === projectRef.projectId &&
               draftThread.environmentId === projectRef.environmentId
             ) {
-              return toProjectDraftSession(DraftId.make(draftId), draftThread);
+              const match = toProjectDraftSession(DraftId.make(draftId), draftThread);
+              if (
+                state.logicalProjectDraftThreadKeyByLogicalProjectKey[
+                  draftThread.logicalProjectKey
+                ] === draftId
+              ) {
+                return match;
+              }
+              if (!newestMatch || match.createdAt > newestMatch.createdAt) {
+                newestMatch = match;
+              }
             }
           }
-          return null;
+          return newestMatch;
         },
         getDraftSession: (draftId) => get().draftThreadsByThreadKey[draftId] ?? null,
         getDraftSessionByRef: (threadRef) => {
@@ -2292,6 +2307,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             if (
               previousThreadKeyForLogicalProject &&
               previousThreadKeyForLogicalProject !== draftId &&
+              options?.preservePrevious !== true &&
               !isComposerThreadKeyInUse(
                 nextLogicalProjectDraftThreadKeyByLogicalProjectKey,
                 previousThreadKeyForLogicalProject,
@@ -2405,15 +2421,17 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         clearProjectDraftThreadId: (projectRef) => {
           set((state) => {
-            const matchingThreadEntry = Object.entries(state.draftThreadsByThreadKey).find(
-              ([, draftThread]) =>
+            const matchingThreadKeys = Object.entries(state.draftThreadsByThreadKey).flatMap(
+              ([draftId, draftThread]) =>
                 draftThread.projectId === projectRef.projectId &&
-                draftThread.environmentId === projectRef.environmentId,
+                draftThread.environmentId === projectRef.environmentId
+                  ? [draftId]
+                  : [],
             );
-            if (!matchingThreadEntry) {
+            if (matchingThreadKeys.length === 0) {
               return state;
             }
-            return removeDraftThreadReferences(state, matchingThreadEntry[0]);
+            return matchingThreadKeys.reduce(removeDraftThreadReferences, state);
           });
         },
         clearProjectDraftThreadById: (projectRef, threadRef) => {

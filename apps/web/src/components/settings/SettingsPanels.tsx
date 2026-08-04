@@ -34,8 +34,12 @@ import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
   type EnvironmentIdentificationMode,
+  MAX_CODE_FONT_SIZE,
   MAX_GLASS_OPACITY,
+  MAX_UI_FONT_SIZE,
+  MIN_CODE_FONT_SIZE,
   MIN_GLASS_OPACITY,
+  MIN_UI_FONT_SIZE,
 } from "@t3tools/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
@@ -48,6 +52,13 @@ import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Result from "effect/Result";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
+import {
+  APP_THEME_OPTIONS,
+  CODE_FONT_OPTIONS,
+  CODE_THEME_OPTIONS,
+  UI_FONT_OPTIONS,
+  isAppTheme,
+} from "../../appearancePreferences";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -117,6 +128,7 @@ import {
   type ProviderUpdateCandidate,
 } from "../ProviderUpdateLaunchNotification.logic";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
+import { FontFamilyPicker } from "./FontFamilyPicker";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import {
   backgroundActivitySharedPolicySettings,
@@ -140,26 +152,18 @@ import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { useAtomCommand } from "../../state/use-atom-command";
 
-const THEME_OPTIONS = [
-  {
-    value: "system",
-    label: "System",
-  },
-  {
-    value: "light",
-    label: "Light",
-  },
-  {
-    value: "dark",
-    label: "Dark",
-  },
-] as const;
-
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
   pill: "Version pill",
   none: "None",
 };
+
+function includesOptionValue<Value extends string>(
+  options: ReadonlyArray<{ value: Value }>,
+  value: unknown,
+): value is Value {
+  return typeof value === "string" && options.some((option) => option.value === value);
+}
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -570,6 +574,17 @@ export function useSettingsRestore(onRestored?: () => void) {
   const changedSettingLabels = useMemo(
     () => [
       ...(theme !== "system" ? ["Theme"] : []),
+      ...(settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily
+        ? ["UI font family"]
+        : []),
+      ...(settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize ? ["UI font size"] : []),
+      ...(settings.codeTheme !== DEFAULT_UNIFIED_SETTINGS.codeTheme ? ["Code theme"] : []),
+      ...(settings.codeFontFamily !== DEFAULT_UNIFIED_SETTINGS.codeFontFamily
+        ? ["Code font family"]
+        : []),
+      ...(settings.codeFontSize !== DEFAULT_UNIFIED_SETTINGS.codeFontSize
+        ? ["Code font size"]
+        : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
       ...(settings.environmentIdentificationMode !==
       DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode
@@ -628,6 +643,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
+      settings.codeFontFamily,
+      settings.codeFontSize,
+      settings.codeTheme,
       settings.environmentIdentificationMode,
       settings.glassOpacity,
       settings.enableAssistantStreaming,
@@ -635,6 +653,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
+      settings.uiFontFamily,
+      settings.uiFontSize,
       settings.wordWrap,
       theme,
     ],
@@ -652,6 +672,11 @@ export function useSettingsRestore(onRestored?: () => void) {
 
     setTheme("system");
     updateSettings({
+      uiFontFamily: DEFAULT_UNIFIED_SETTINGS.uiFontFamily,
+      uiFontSize: DEFAULT_UNIFIED_SETTINGS.uiFontSize,
+      codeFontFamily: DEFAULT_UNIFIED_SETTINGS.codeFontFamily,
+      codeFontSize: DEFAULT_UNIFIED_SETTINGS.codeFontSize,
+      codeTheme: DEFAULT_UNIFIED_SETTINGS.codeTheme,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
@@ -948,6 +973,50 @@ function BackgroundActivityAdvancedDialog({
   );
 }
 
+function FontSizeControl({
+  value,
+  min,
+  max,
+  label,
+  onChange,
+}: {
+  readonly value: number;
+  readonly min: number;
+  readonly max: number;
+  readonly label: string;
+  readonly onChange: (value: number) => void;
+}) {
+  return (
+    <div className="flex w-full items-center gap-2 sm:w-auto">
+      <NumberField
+        className="w-32"
+        max={max}
+        min={min}
+        onValueChange={(nextValue) => {
+          if (
+            typeof nextValue === "number" &&
+            Number.isInteger(nextValue) &&
+            nextValue >= min &&
+            nextValue <= max
+          ) {
+            onChange(nextValue);
+          }
+        }}
+        size="sm"
+        step={1}
+        value={value}
+      >
+        <NumberFieldGroup>
+          <NumberFieldDecrement aria-label={`Decrease ${label}`} />
+          <NumberFieldInput aria-label={`${label} in pixels`} />
+          <NumberFieldIncrement aria-label={`Increase ${label}`} />
+        </NumberFieldGroup>
+      </NumberField>
+      <span className="text-xs text-muted-foreground">px</span>
+    </div>
+  );
+}
+
 export function AppearanceSettingsPanel() {
   const { theme, setTheme } = useTheme();
   const settings = usePrimarySettings();
@@ -967,7 +1036,7 @@ export function AppearanceSettingsPanel() {
       <SettingsSection id="appearance" title="Appearance">
         <SettingsRow
           {...searchableSetting("theme")}
-          description="Choose how T3 Code looks across the app."
+          description="Choose how Void looks across the app."
           resetAction={
             theme !== "system" ? (
               <SettingResetButton label="theme" onClick={() => setTheme("system")} />
@@ -977,24 +1046,152 @@ export function AppearanceSettingsPanel() {
             <Select
               value={theme}
               onValueChange={(value) => {
-                if (value === "system" || value === "light" || value === "dark") {
+                if (isAppTheme(value)) {
                   setTheme(value);
                 }
               }}
             >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
+              <SelectTrigger className="w-full sm:w-56" aria-label="Theme preference">
                 <SelectValue>
-                  {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
+                  {APP_THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
-                {THEME_OPTIONS.map((option) => (
+                {APP_THEME_OPTIONS.map((option) => (
                   <SelectItem hideIndicator key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
                 ))}
               </SelectPopup>
             </Select>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("ui-font-family")}
+          description="Font used throughout the interface."
+          resetAction={
+            settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? (
+              <SettingResetButton
+                label="UI font family"
+                onClick={() =>
+                  updateSettings({ uiFontFamily: DEFAULT_UNIFIED_SETTINGS.uiFontFamily })
+                }
+              />
+            ) : null
+          }
+          control={
+            <FontFamilyPicker
+              label="UI font family"
+              presets={UI_FONT_OPTIONS}
+              value={settings.uiFontFamily}
+              onValueChange={(uiFontFamily) => updateSettings({ uiFontFamily })}
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("ui-font-size")}
+          description="Base size for interface text."
+          resetAction={
+            settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize ? (
+              <SettingResetButton
+                label="UI font size"
+                onClick={() => updateSettings({ uiFontSize: DEFAULT_UNIFIED_SETTINGS.uiFontSize })}
+              />
+            ) : null
+          }
+          control={
+            <FontSizeControl
+              label="UI font size"
+              max={MAX_UI_FONT_SIZE}
+              min={MIN_UI_FONT_SIZE}
+              onChange={(uiFontSize) => updateSettings({ uiFontSize })}
+              value={settings.uiFontSize}
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("code-theme")}
+          description="Syntax highlighting colors for code blocks, files, and diffs."
+          resetAction={
+            settings.codeTheme !== DEFAULT_UNIFIED_SETTINGS.codeTheme ? (
+              <SettingResetButton
+                label="code theme"
+                onClick={() => updateSettings({ codeTheme: DEFAULT_UNIFIED_SETTINGS.codeTheme })}
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.codeTheme}
+              onValueChange={(value) => {
+                if (includesOptionValue(CODE_THEME_OPTIONS, value)) {
+                  updateSettings({ codeTheme: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-56" aria-label="Code theme">
+                <SelectValue>
+                  {CODE_THEME_OPTIONS.find((option) => option.value === settings.codeTheme)?.label}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {CODE_THEME_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("code-font-family")}
+          description="Font used for code blocks, files, and diffs."
+          resetAction={
+            settings.codeFontFamily !== DEFAULT_UNIFIED_SETTINGS.codeFontFamily ? (
+              <SettingResetButton
+                label="code font family"
+                onClick={() =>
+                  updateSettings({ codeFontFamily: DEFAULT_UNIFIED_SETTINGS.codeFontFamily })
+                }
+              />
+            ) : null
+          }
+          control={
+            <FontFamilyPicker
+              label="Code font family"
+              presets={CODE_FONT_OPTIONS}
+              value={settings.codeFontFamily}
+              onValueChange={(codeFontFamily) => updateSettings({ codeFontFamily })}
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("code-font-size")}
+          description="Text size for code blocks, files, and diffs."
+          resetAction={
+            settings.codeFontSize !== DEFAULT_UNIFIED_SETTINGS.codeFontSize ? (
+              <SettingResetButton
+                label="code font size"
+                onClick={() =>
+                  updateSettings({ codeFontSize: DEFAULT_UNIFIED_SETTINGS.codeFontSize })
+                }
+              />
+            ) : null
+          }
+          control={
+            <FontSizeControl
+              label="code font size"
+              max={MAX_CODE_FONT_SIZE}
+              min={MIN_CODE_FONT_SIZE}
+              onChange={(codeFontSize) => updateSettings({ codeFontSize })}
+              value={settings.codeFontSize}
+            />
           }
         />
 

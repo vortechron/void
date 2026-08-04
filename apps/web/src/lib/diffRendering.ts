@@ -1,15 +1,36 @@
 import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import type { FileDiffMetadata } from "@pierre/diffs/types";
+import type { CodeTheme } from "@t3tools/contracts/settings";
 
 export const DIFF_THEME_NAMES = {
   light: "pierre-light",
   dark: "pierre-dark",
+  "catppuccin-latte": "catppuccin-latte",
+  "catppuccin-macchiato": "catppuccin-macchiato",
+  "catppuccin-mocha": "catppuccin-mocha",
+  dracula: "dracula",
+  nord: "nord",
+  "tokyo-night": "tokyo-night",
+  "gruvbox-dark": "gruvbox-dark-medium",
+  "solarized-dark": "solarized-dark",
 } as const;
 
 export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
+export type DiffThemeType = "light" | "dark";
 
-export function resolveDiffThemeName(theme: "light" | "dark"): DiffThemeName {
-  return theme === "dark" ? DIFF_THEME_NAMES.dark : DIFF_THEME_NAMES.light;
+export function resolveDiffThemeName(
+  theme: DiffThemeType,
+  codeTheme: CodeTheme = "default",
+): DiffThemeName {
+  return codeTheme === "default" ? DIFF_THEME_NAMES[theme] : DIFF_THEME_NAMES[codeTheme];
+}
+
+export function resolveDiffThemeType(
+  theme: DiffThemeType,
+  codeTheme: CodeTheme = "default",
+): DiffThemeType {
+  if (codeTheme === "default") return theme;
+  return codeTheme === "catppuccin-latte" ? "light" : "dark";
 }
 
 const FNV_OFFSET_BASIS_32 = 0x811c9dc5;

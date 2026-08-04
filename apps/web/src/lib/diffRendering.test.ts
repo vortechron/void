@@ -1,5 +1,44 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildPatchCacheKey, getDiffLineStat, getRenderablePatch } from "./diffRendering";
+import {
+  buildPatchCacheKey,
+  getDiffLineStat,
+  getRenderablePatch,
+  resolveDiffThemeName,
+  resolveDiffThemeType,
+} from "./diffRendering";
+
+describe("resolveDiffThemeName", () => {
+  it("follows the interface color scheme for the default code theme", () => {
+    expect(resolveDiffThemeName("light", "default")).toBe("pierre-light");
+    expect(resolveDiffThemeName("dark", "default")).toBe("pierre-dark");
+  });
+
+  it.each([
+    ["catppuccin-latte", "catppuccin-latte"],
+    ["catppuccin-macchiato", "catppuccin-macchiato"],
+    ["catppuccin-mocha", "catppuccin-mocha"],
+    ["dracula", "dracula"],
+    ["nord", "nord"],
+    ["tokyo-night", "tokyo-night"],
+    ["gruvbox-dark", "gruvbox-dark-medium"],
+    ["solarized-dark", "solarized-dark"],
+  ] as const)("maps %s to the bundled Shiki theme %s", (preference, expected) => {
+    expect(resolveDiffThemeName("light", preference)).toBe(expected);
+    expect(resolveDiffThemeName("dark", preference)).toBe(expected);
+  });
+});
+
+describe("resolveDiffThemeType", () => {
+  it("follows the interface color scheme for the default code theme", () => {
+    expect(resolveDiffThemeType("light", "default")).toBe("light");
+    expect(resolveDiffThemeType("dark", "default")).toBe("dark");
+  });
+
+  it("uses the selected code theme color scheme", () => {
+    expect(resolveDiffThemeType("dark", "catppuccin-latte")).toBe("light");
+    expect(resolveDiffThemeType("light", "tokyo-night")).toBe("dark");
+  });
+});
 
 describe("buildPatchCacheKey", () => {
   it("returns a stable cache key for identical content", () => {

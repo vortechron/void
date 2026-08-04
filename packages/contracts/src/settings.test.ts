@@ -49,6 +49,73 @@ describe("ClientSettings glass opacity", () => {
   });
 });
 
+describe("ClientSettings appearance preferences", () => {
+  it("defaults legacy configs to the current fonts, sizes, and automatic code theme", () => {
+    const settings = decodeClientSettings({});
+
+    expect(settings.uiFontFamily).toBe("dm-sans");
+    expect(settings.uiFontSize).toBe(16);
+    expect(settings.codeFontFamily).toBe("system-mono");
+    expect(settings.codeFontSize).toBe(13);
+    expect(settings.codeTheme).toBe("default");
+  });
+
+  it.each(["dm-sans", "system", "serif", "Comic Sans MS"])(
+    "accepts the UI font family %s",
+    (value) => {
+      expect(decodeClientSettingsPatch({ uiFontFamily: value }).uiFontFamily).toBe(value);
+    },
+  );
+
+  it("trims an installed UI font family before storing it", () => {
+    expect(
+      decodeClientSettingsPatch({ uiFontFamily: "  Atkinson Hyperlegible  " }).uiFontFamily,
+    ).toBe("Atkinson Hyperlegible");
+  });
+
+  it.each(["system-mono", "jetbrains-mono", "monospace", "Berkeley Mono"])(
+    "accepts the code font family %s",
+    (value) => {
+      expect(decodeClientSettingsPatch({ codeFontFamily: value }).codeFontFamily).toBe(value);
+    },
+  );
+
+  it.each([
+    ["uiFontFamily", ""],
+    ["uiFontFamily", " ".repeat(3)],
+    ["codeFontFamily", "a".repeat(257)],
+  ] as const)("rejects an invalid %s", (key, value) => {
+    expect(() => decodeClientSettingsPatch({ [key]: value })).toThrow();
+  });
+
+  it.each([
+    "default",
+    "catppuccin-latte",
+    "catppuccin-macchiato",
+    "catppuccin-mocha",
+    "dracula",
+    "nord",
+    "tokyo-night",
+    "gruvbox-dark",
+    "solarized-dark",
+  ])("accepts the code theme %s", (value) => {
+    expect(decodeClientSettingsPatch({ codeTheme: value }).codeTheme).toBe(value);
+  });
+
+  it.each([
+    ["uiFontSize", 11],
+    ["uiFontSize", 21],
+    ["codeFontSize", 9],
+    ["codeFontSize", 21],
+  ] as const)("rejects %s outside its supported range", (key, value) => {
+    expect(() => decodeClientSettingsPatch({ [key]: value })).toThrow();
+  });
+
+  it("rejects an unsupported code theme", () => {
+    expect(() => decodeClientSettingsPatch({ codeTheme: "unknown" })).toThrow();
+  });
+});
+
 describe("ClientSettings environment identification", () => {
   it("defaults to artwork and accepts each presentation mode", () => {
     expect(decodeClientSettings({}).environmentIdentificationMode).toBe("artwork");

@@ -35,6 +35,7 @@ import { type TurnDiffSummary } from "../../types";
 import {
   getRenderablePatch,
   resolveDiffThemeName,
+  resolveDiffThemeType,
   resolveFileDiffPath,
 } from "../../lib/diffRendering";
 import ChatMarkdown from "../ChatMarkdown";
@@ -97,7 +98,7 @@ import {
 } from "~/lib/previewAnnotation";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
-import { type TimestampFormat } from "@t3tools/contracts/settings";
+import { type CodeTheme, type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestampFormat";
 
 import {
@@ -127,6 +128,7 @@ interface TimelineRowSharedState {
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
+  codeTheme: CodeTheme;
   workspaceRoot: string | undefined;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
@@ -173,6 +175,7 @@ interface MessagesTimelineProps {
   activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
+  codeTheme: CodeTheme;
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
@@ -208,6 +211,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeThreadEnvironmentId,
   markdownCwd,
   resolvedTheme,
+  codeTheme,
   timestampFormat,
   workspaceRoot,
   skills = EMPTY_TIMELINE_SKILLS,
@@ -422,6 +426,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       threadRef: parseScopedThreadKey(routeThreadKey),
       markdownCwd,
       resolvedTheme,
+      codeTheme,
       workspaceRoot,
       skills,
       activeThreadEnvironmentId,
@@ -436,6 +441,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       routeThreadKey,
       markdownCwd,
       resolvedTheme,
+      codeTheme,
       workspaceRoot,
       skills,
       activeThreadEnvironmentId,
@@ -1685,7 +1691,8 @@ function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentConte
             options={{
               collapsed: false,
               diffStyle: "unified",
-              theme: resolveDiffThemeName(ctx.resolvedTheme),
+              theme: resolveDiffThemeName(ctx.resolvedTheme, ctx.codeTheme),
+              themeType: resolveDiffThemeType(ctx.resolvedTheme, ctx.codeTheme),
             }}
           />
         ))}

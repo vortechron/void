@@ -14,7 +14,7 @@ import { HostedBrowserWebview } from "./HostedBrowserWebview";
 import { previewRuntimeTabId } from "./previewRuntimeTabId";
 
 export function ElectronBrowserHost() {
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, theme } = useTheme();
   const previewByThreadKey = useActivePreviewSessions();
   const sessions = useMemo(
     () =>
@@ -54,7 +54,7 @@ export function ElectronBrowserHost() {
     const observer = new MutationObserver(syncTheme);
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["class", "style"],
+      attributeFilter: ["class", "style", "data-theme"],
     });
     const headObserver = new MutationObserver(syncTheme);
     headObserver.observe(document.head, {
@@ -67,7 +67,7 @@ export function ElectronBrowserHost() {
       observer.disconnect();
       headObserver.disconnect();
     };
-  }, [resolvedTheme]);
+  }, [resolvedTheme, theme]);
 
   useEffect(() => {
     const preview = window.desktopBridge?.preview;

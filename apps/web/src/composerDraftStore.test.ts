@@ -787,9 +787,14 @@ describe("composerDraftStore project draft thread mapping", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, { threadId });
     store.setPrompt(draftId, "hello");
+    store.setLogicalProjectDraftThreadId(scopedProjectKey(projectRef), projectRef, otherDraftId, {
+      threadId: otherThreadId,
+      preservePrevious: true,
+    });
     store.clearProjectDraftThreadId(projectRef);
     expect(useComposerDraftStore.getState().getDraftThreadByProjectRef(projectRef)).toBeNull();
     expect(useComposerDraftStore.getState().getDraftThread(draftId)).toBeNull();
+    expect(useComposerDraftStore.getState().getDraftThread(otherDraftId)).toBeNull();
     expect(draftByKey(draftId)).toBeUndefined();
   });
 
@@ -848,6 +853,23 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
     expect(useComposerDraftStore.getState().getDraftThread(draftId)).toBeNull();
     expect(draftByKey(draftId)).toBeUndefined();
+  });
+
+  it("preserves the previous draft when opening another chat tab", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setPrompt(draftId, "keep this tab");
+
+    store.setLogicalProjectDraftThreadId(scopedProjectKey(projectRef), projectRef, otherDraftId, {
+      threadId: otherThreadId,
+      preservePrevious: true,
+    });
+
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.threadId).toBe(threadId);
+    expect(draftByKey(draftId)?.prompt).toBe("keep this tab");
+    expect(useComposerDraftStore.getState().getDraftThreadByProjectRef(projectRef)?.threadId).toBe(
+      otherThreadId,
+    );
   });
 
   it("keeps composer drafts when the thread is still mapped by another project", () => {

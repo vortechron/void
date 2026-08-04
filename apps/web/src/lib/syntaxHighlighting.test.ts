@@ -1,5 +1,5 @@
 import type { DiffsHighlighter } from "@pierre/diffs";
-import { expect, it, vi } from "vite-plus/test";
+import { beforeEach, expect, it, vi } from "vite-plus/test";
 
 const { getSharedHighlighter } = vi.hoisted(() => ({
   getSharedHighlighter: vi.fn(),
@@ -10,6 +10,23 @@ vi.mock("@pierre/diffs", () => ({
 }));
 
 import { getSyntaxHighlighterPromise } from "./syntaxHighlighting";
+
+beforeEach(() => {
+  getSharedHighlighter.mockReset();
+});
+
+it("loads only the selected syntax theme", async () => {
+  const highlighter = {} as DiffsHighlighter;
+  getSharedHighlighter.mockResolvedValue(highlighter);
+
+  await expect(getSyntaxHighlighterPromise("typescript", "tokyo-night")).resolves.toBe(highlighter);
+
+  expect(getSharedHighlighter).toHaveBeenCalledWith({
+    themes: ["tokyo-night"],
+    langs: ["typescript"],
+    preferredHighlighter: "shiki-js",
+  });
+});
 
 it("caches the recovered text highlighter for unsupported languages", async () => {
   const textHighlighter = {} as DiffsHighlighter;

@@ -43,6 +43,31 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "ui-font-family",
+    title: "UI font family",
+    to: "/settings/appearance",
+  },
+  {
+    id: "ui-font-size",
+    title: "UI font size",
+    to: "/settings/appearance",
+  },
+  {
+    id: "code-theme",
+    title: "Code theme",
+    to: "/settings/appearance",
+  },
+  {
+    id: "code-font-family",
+    title: "Code font family",
+    to: "/settings/appearance",
+  },
+  {
+    id: "code-font-size",
+    title: "Code font size",
+    to: "/settings/appearance",
+  },
+  {
     // Prefixed because the slider control already owns the `glass-opacity` id.
     id: "setting-glass-opacity",
     title: "Glass opacity",
