@@ -28,8 +28,8 @@ const TRACK_COLOR = "color-mix(in oklab, var(--color-muted-foreground) 22%, tran
 /** Past this the window is nearly spent, and the ring says so regardless of brand. */
 const EXHAUSTED_PERCENT = 90;
 
-function ringColor(provider: ProviderDriverKind, usedPercent: number): string {
-  if (usedPercent >= EXHAUSTED_PERCENT) return "var(--color-red-500)";
+function ringColor(provider: ProviderDriverKind, usedPercent: number | null): string {
+  if (usedPercent !== null && usedPercent >= EXHAUSTED_PERCENT) return "var(--color-red-500)";
   return RING_COLOR_BY_PROVIDER[provider] ?? MUTED_RING_COLOR;
 }
 
@@ -40,7 +40,9 @@ const UsageRing = memo(function UsageRing({
   provider: ProviderDriverKind;
   window: UsageMeterWindow;
 }) {
-  const dashOffset = RING_CIRCUMFERENCE * (1 - window.usedPercent / 100);
+  // An unreported percentage draws the track only, so the ring never implies a
+  // fullness the provider never stated.
+  const dashOffset = RING_CIRCUMFERENCE * (1 - (window.usedPercent ?? 0) / 100);
 
   return (
     <div className="flex min-w-0 flex-col items-center gap-0.5">
@@ -146,7 +148,11 @@ export const SidebarUsageMeters = memo(function SidebarUsageMeters() {
     .map(
       (column) =>
         `${column.provider}: ${column.windows
-          .map((window) => `${window.label} ${formatUsagePercent(window.usedPercent)}% used`)
+          .map((window) =>
+            window.usedPercent === null
+              ? `${window.label} usage not reported`
+              : `${window.label} ${formatUsagePercent(window.usedPercent)}% used`,
+          )
           .join(", ")}`,
     )
     .join("; ");

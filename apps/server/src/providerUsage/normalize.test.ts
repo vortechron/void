@@ -84,6 +84,103 @@ it("returns null when the payload carries no usable window", () => {
   assert.equal(normalizeProviderUsagePayload(null, OBSERVED_AT), null);
 });
 
+// Verbatim from ~/.t3/userdata/logs/provider: Claude withholds `utilization`
+// until a threshold warning, so the common healthy event has no percentage.
+it("keeps a Claude window that reports a reset but no utilization", () => {
+  const normalized = normalizeProviderUsagePayload(
+    {
+      type: "rate_limit_event",
+      rate_limit_info: {
+        status: "allowed",
+        resetsAt: 1_785_903_600,
+        rateLimitType: "five_hour",
+        overageStatus: "rejected",
+        overageDisabledReason: "out_of_credits",
+        isUsingOverage: false,
+      },
+    },
+    OBSERVED_AT,
+  );
+
+  assert.equal(normalized?.windows.length, 1);
+  assert.equal(normalized?.windows[0]?.label, "5h");
+  assert.equal(normalized?.windows[0]?.usedPercent, undefined);
+  assert.equal(normalized?.windows[0]?.resetsAt, "2026-08-05T04:20:00.000Z");
+});
+
+it("normalizes the Codex snapshot exactly as logged in production", () => {
+  const normalized = normalizeProviderUsagePayload(
+    {
+      rateLimits: {
+        credits: { balance: "0", hasCredits: false, unlimited: false },
+        individualLimit: null,
+        limitId: "codex",
+        limitName: null,
+        planType: "prolite",
+        primary: { resetsAt: 1_786_450_195, usedPercent: 29, windowDurationMins: 10_080 },
+        rateLimitReachedType: null,
+        secondary: null,
+        spendControlReached: null,
+      },
+    },
+    OBSERVED_AT,
+  );
+
+  assert.equal(normalized?.planLabel, "prolite");
+  assert.deepEqual(
+    normalized?.windows.map((window) => [window.label, window.usedPercent]),
+    [["week", 29]],
+  );
+});
+
+it("carries a known percentage across events that omit it", () => {
+  const merged = mergeUsageWindows(
+    [
+      {
+        key: "five_hour",
+        label: "5h",
+        usedPercent: 92,
+        resetsAt: "2026-08-05T15:00:00.000Z",
+        updatedAt: OBSERVED_AT,
+      },
+    ],
+    [
+      {
+        key: "five_hour",
+        label: "5h",
+        resetsAt: "2026-08-05T15:00:00.000Z",
+        updatedAt: "2026-08-05T11:00:00.000Z",
+      },
+    ],
+  );
+
+  assert.equal(merged[0]?.usedPercent, 92);
+});
+
+it("drops a stale percentage once the window rolls over", () => {
+  const merged = mergeUsageWindows(
+    [
+      {
+        key: "five_hour",
+        label: "5h",
+        usedPercent: 92,
+        resetsAt: "2026-08-05T15:00:00.000Z",
+        updatedAt: OBSERVED_AT,
+      },
+    ],
+    [
+      {
+        key: "five_hour",
+        label: "5h",
+        resetsAt: "2026-08-05T20:00:00.000Z",
+        updatedAt: "2026-08-05T15:01:00.000Z",
+      },
+    ],
+  );
+
+  assert.equal(merged[0]?.usedPercent, undefined);
+});
+
 it("clamps percentages that overshoot the reportable range", () => {
   const normalized = normalizeProviderUsagePayload(
     { rate_limit_info: { rateLimitType: "five_hour", utilization: 1.4 } },
