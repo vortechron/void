@@ -74,6 +74,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "chat-background-effect",
+    title: "Chat background effect",
+    to: "/settings/appearance",
+  },
+  {
+    id: "chat-border-effect",
+    title: "Chat border effect",
+    to: "/settings/appearance",
+  },
+  {
     id: "environment-identification",
     title: "Environment identification",
     to: "/settings/appearance",
@@ -83,6 +93,26 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "word-wrap",
     title: "Word wrap",
+    to: "/settings/appearance",
+  },
+  {
+    id: "usage-meter-mode",
+    title: "Usage meter",
+    to: "/settings/appearance",
+  },
+  {
+    id: "usage-meter-percentages",
+    title: "Usage percentages",
+    to: "/settings/appearance",
+  },
+  {
+    id: "usage-meter-chart-style",
+    title: "Usage chart style",
+    to: "/settings/appearance",
+  },
+  {
+    id: "usage-meter-refresh",
+    title: "Usage refresh interval",
     to: "/settings/appearance",
   },
   {
@@ -154,6 +184,26 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "text-generation-model",
     title: "Text generation model",
+    to: "/settings/general",
+  },
+  {
+    id: "voice-dictation",
+    title: "Voice dictation",
+    to: "/settings/general",
+  },
+  {
+    id: "voice-dictation-api-key",
+    title: "OpenAI API key",
+    to: "/settings/general",
+  },
+  {
+    id: "voice-dictation-model",
+    title: "Dictation model",
+    to: "/settings/general",
+  },
+  {
+    id: "voice-dictation-language",
+    title: "Dictation language",
     to: "/settings/general",
   },
   {

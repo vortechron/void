@@ -32,6 +32,9 @@ import {
   DEFAULT_CLIENT_SETTINGS,
   type EnvironmentIdentificationMode,
   type UnifiedSettings,
+  type UsageMeterMode,
+  type UsageMeterSettings,
+  type VoiceDictationSettings,
 } from "@t3tools/contracts/settings";
 import { APP_STAGE_LABEL } from "~/branding";
 import { resolveSidebarV2Enabled } from "~/branding.logic";
@@ -192,6 +195,32 @@ export function useSidebarV2Enabled(): boolean {
       }),
     [settings.sidebarV2Enabled, settings.sidebarV2ConfiguredByUser, settingsHydrated],
   );
+}
+
+/** Presentation of the sidebar provider usage meter. */
+export function useUsageMeterSettings(): UsageMeterSettings {
+  return useClientSettingsValue().usageMeter;
+}
+
+/**
+ * Hold-to-talk dictation config. Held at the defaults (which are off) until
+ * client settings hydrate, so a cold load never offers dictation with an empty
+ * key and then swaps the button's meaning a frame later.
+ */
+export function useVoiceDictationSettings(): VoiceDictationSettings {
+  const settingsHydrated = useClientSettingsHydrated();
+  const voiceDictation = useClientSettingsValue().voiceDictation;
+  return settingsHydrated ? voiceDictation : DEFAULT_CLIENT_SETTINGS.voiceDictation;
+}
+
+/**
+ * The meter's display mode, held at `off` until client settings hydrate so a
+ * user who turned the meter off never sees it flash in on a cold load.
+ */
+export function useUsageMeterMode(): UsageMeterMode {
+  const settingsHydrated = useClientSettingsHydrated();
+  const mode = useClientSettingsValue().usageMeter.mode;
+  return settingsHydrated ? mode : "off";
 }
 
 /** Read current settings for one environment, merged with client-local preferences. */

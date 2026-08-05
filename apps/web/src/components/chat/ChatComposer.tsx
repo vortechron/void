@@ -89,7 +89,14 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { type ComposerDictationControls, ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { useVoiceDictationSettings } from "../../hooks/useSettings";
+import { useVoiceDictation } from "../../hooks/useVoiceDictation";
+import {
+  resolveVoiceDictationAvailability,
+  voiceDictationBlockedMessage,
+} from "../../lib/voiceDictation/availability";
+import { canCaptureAudio } from "../../lib/voiceDictation/pcmCapture";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -423,6 +430,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   isEnvironmentUnavailable: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
+  dictation: ComposerDictationControls | null;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -451,6 +459,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         isPreparingWorktree={props.isPreparingWorktree}
         hasSendableContent={props.hasSendableContent}
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
+        dictation={props.dictation}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
@@ -2494,6 +2503,97 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const handleImplementPlanInNewThreadPrimaryAction = useCallback(() => {
     void onImplementPlanInNewThread();
   }, [onImplementPlanInNewThread]);
+
+  // ------------------------------------------------------------------
+  // Hold-to-talk dictation
+  //
+  // The transcript owns one span of the prompt, remembered as an offset and a
+  // length, and every update rewrites that span. OpenAI revises what it heard
+  // as a phrase finishes, so appending would leave the first guess behind.
+  // ------------------------------------------------------------------
+  const voiceDictationSettings = useVoiceDictationSettings();
+  const dictationSpanRef = useRef<{ start: number; length: number } | null>(null);
+
+  const dictationAvailability = useMemo(
+    () =>
+      resolveVoiceDictationAvailability({
+        enabled: voiceDictationSettings.enabled,
+        apiKey: voiceDictationSettings.openaiApiKey,
+        isSecureContext: typeof window !== "undefined" && window.isSecureContext,
+        canCaptureAudio: canCaptureAudio(),
+      }),
+    [voiceDictationSettings.enabled, voiceDictationSettings.openaiApiKey],
+  );
+
+  const handleDictationStart = useCallback(() => {
+    const currentPrompt = promptRef.current;
+    const needsLeadingSpace = currentPrompt.length > 0 && !/\s$/.test(currentPrompt);
+    if (needsLeadingSpace) {
+      applyPromptReplacement(currentPrompt.length, currentPrompt.length, " ", {
+        focusEditorAfterReplace: false,
+      });
+    }
+    dictationSpanRef.current = {
+      start: currentPrompt.length + (needsLeadingSpace ? 1 : 0),
+      length: 0,
+    };
+  }, [applyPromptReplacement, promptRef]);
+
+  const handleDictationTranscript = useCallback(
+    (text: string) => {
+      const span = dictationSpanRef.current;
+      if (!span) return;
+      // Refocusing the editor on every delta would fight the caret while the
+      // user is still speaking; focus is restored once when the hold ends.
+      applyPromptReplacement(span.start, span.start + span.length, text, {
+        focusEditorAfterReplace: false,
+      });
+      dictationSpanRef.current = { start: span.start, length: text.length };
+    },
+    [applyPromptReplacement],
+  );
+
+  const handleDictationEnd = useCallback(() => {
+    dictationSpanRef.current = null;
+    focusComposer();
+  }, [focusComposer]);
+
+  const handleDictationError = useCallback((message: string) => {
+    toastManager.add({ type: "error", title: "Dictation failed", description: message });
+  }, []);
+
+  const dictation = useVoiceDictation({
+    apiKey: voiceDictationSettings.openaiApiKey,
+    model: voiceDictationSettings.model,
+    language: voiceDictationSettings.language,
+    onDictationStart: handleDictationStart,
+    onTranscript: handleDictationTranscript,
+    onDictationEnd: handleDictationEnd,
+    onError: handleDictationError,
+  });
+
+  const dictationControls = useMemo<ComposerDictationControls>(
+    () => ({
+      status: dictation.status,
+      available: dictationAvailability.available,
+      // A user who has never turned dictation on does not need to be told it
+      // is off; anything else is a surprise worth explaining on the button.
+      unavailableMessage:
+        dictationAvailability.blockedReason === null ||
+        dictationAvailability.blockedReason === "disabled"
+          ? null
+          : voiceDictationBlockedMessage(dictationAvailability.blockedReason),
+      onHoldStart: dictation.start,
+      onHoldEnd: dictation.stop,
+    }),
+    [
+      dictation.start,
+      dictation.status,
+      dictation.stop,
+      dictationAvailability.available,
+      dictationAvailability.blockedReason,
+    ],
+  );
   const scheduleComposerCollapseCheck = useCallback(() => {
     if (!isMobileViewport) {
       return;
@@ -3225,6 +3325,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   isPreparingWorktree={isPreparingWorktree}
                   hasSendableContent={composerSendState.hasSendableContent}
                   preserveComposerFocusOnPointerDown={isMobileViewport}
+                  dictation={dictationControls}
                   onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                   onInterrupt={handleInterruptPrimaryAction}
                   onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}

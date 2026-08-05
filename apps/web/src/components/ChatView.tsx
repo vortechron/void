@@ -234,6 +234,7 @@ import {
   useThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
+import { ChatBackgroundEffectLayer, ChatBorderEffectLayer } from "./chat/backgroundEffects";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
@@ -2419,6 +2420,11 @@ function ChatViewContent(props: ChatViewProps) {
     activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
   const isDraftHeroState =
     isLocalDraftThread && timelineEntries.length === 0 && !isWorking && !draftHeroDockRequested;
+  // Ambient effects, drawn only while the hero is idle so nothing animates
+  // around a live conversation. Independent settings: the background fills the
+  // chat column, the border traces the composer, and either can be on alone.
+  const chatBackgroundEffect = useClientSettings((settings) => settings.chatBackgroundEffect);
+  const chatBorderEffect = useClientSettings((settings) => settings.chatBorderEffect);
   const [
     attachDraftHeroTransitionGroupRef,
     attachDraftHeroComposerAnchorRef,
@@ -6043,6 +6049,7 @@ function ChatViewContent(props: ChatViewProps) {
         <div className="flex min-h-0 min-w-0 flex-1 bg-workspace-content">
           {/* Chat column */}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            {isDraftHeroState ? <ChatBackgroundEffectLayer effect={chatBackgroundEffect} /> : null}
             {/* Provider status overlays the timeline without changing its content height. */}
             <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
               <ProviderStatusBanner
@@ -6164,6 +6171,11 @@ function ChatViewContent(props: ChatViewProps) {
                         showComposerContextStrip && "chat-composer-glass-shell-with-context",
                       )}
                     >
+                      {/* Traces the composer's box, so it mounts inside the
+                          shell rather than behind the whole chat column. */}
+                      {isDraftHeroState ? (
+                        <ChatBorderEffectLayer effect={chatBorderEffect} />
+                      ) : null}
                       <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer

@@ -2,6 +2,8 @@ import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
+  ChevronsDownUpIcon,
+  ChevronsUpDownIcon,
   CloudIcon,
   ContainerIcon,
   EyeIcon,
@@ -212,15 +214,11 @@ import {
 } from "../sidebarProjectGrouping";
 import {
   buildProjectWorkspaces,
+  selectWorkspaceEntrySession,
   workspaceFallbackLabel,
   type ProjectWorkspace,
 } from "../workspaceSessions";
-import {
-  selectThreadTab,
-  selectWorkspaceThreadTabs,
-  threadTabRef,
-  useThreadTabsStore,
-} from "../threadTabsStore";
+import { selectWorkspaceThreadTabs, useThreadTabsStore } from "../threadTabsStore";
 import { buildWorkspaceContextMenuItems, useWorkspaceSidebarStore } from "../workspaceSidebarStore";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
@@ -1037,44 +1035,25 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
   const isActive = useThreadTabsStore((state) => state.activeWorkspaceKey === workspace.key);
   const rowButtonRender = useMemo(() => <button type="button" />, []);
 
-  const navigateToTab = useCallback(
-    (tab: ReturnType<typeof selectThreadTab>) => {
-      if (!tab) return false;
-      if (isMobile) setOpenMobile(false);
-      if (tab.draftId) {
-        void navigate({
-          to: "/draft/$draftId",
-          params: buildDraftThreadRouteParams(tab.draftId),
-        });
-      } else {
-        void navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(threadTabRef(tab)),
-        });
-      }
-      return true;
-    },
-    [isMobile, navigate, setOpenMobile],
-  );
-
   const handleClick = useCallback(() => {
     const tabs = selectWorkspaceThreadTabs(useThreadTabsStore.getState(), workspace.key);
-    if (navigateToTab(selectThreadTab(tabs, tabs.activeKey))) return;
-
-    const latestSession = workspace.sessions[0];
-    if (latestSession) {
+    const session = selectWorkspaceEntrySession({
+      sessions: workspace.sessions,
+      activeTabKey: tabs.activeKey,
+    });
+    if (session) {
       if (isMobile) setOpenMobile(false);
-      if (latestSession.draftId) {
+      if (session.draftId) {
         void navigate({
           to: "/draft/$draftId",
-          params: buildDraftThreadRouteParams(latestSession.draftId),
+          params: buildDraftThreadRouteParams(session.draftId),
         });
       } else {
         void navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams({
-            environmentId: latestSession.environmentId,
-            threadId: latestSession.threadId,
+            environmentId: session.environmentId,
+            threadId: session.threadId,
           }),
         });
       }
@@ -1088,15 +1067,7 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
       startFromOrigin: false,
       forceNew: true,
     });
-  }, [
-    gitStatus.data?.refName,
-    handleNewThread,
-    isMobile,
-    navigate,
-    navigateToTab,
-    setOpenMobile,
-    workspace,
-  ]);
+  }, [gitStatus.data?.refName, handleNewThread, isMobile, navigate, setOpenMobile, workspace]);
 
   const openRenameDialog = useCallback(() => {
     setRenameDraft(label);
@@ -1165,7 +1136,15 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
           <SidebarWorkspaceStatusIcon status={status} />
           <Tooltip>
             <TooltipTrigger
-              render={<span className="min-w-0 flex-1 truncate text-sm">{label}</span>}
+              render={
+                <span
+                  className={`min-w-0 flex-1 truncate text-xs ${
+                    isActive ? "text-sidebar-foreground/85" : "text-sidebar-foreground/55"
+                  }`}
+                >
+                  {label}
+                </span>
+              }
             />
             <TooltipPopup side="top" className="max-w-96 break-all">
               {workspace.cwd}
@@ -2921,6 +2900,8 @@ interface SidebarProjectsContentProps {
   attachThreadListAutoAnimateRef: (node: HTMLElement | null) => void;
   expandThreadListForProject: (projectKey: string) => void;
   collapseThreadListForProject: (projectKey: string) => void;
+  areAllProjectsExpanded: boolean;
+  onToggleAllProjectsExpanded: () => void;
   dragInProgressRef: React.RefObject<boolean>;
   suppressProjectClickAfterDragRef: React.RefObject<boolean>;
   suppressProjectClickForContextMenuRef: React.RefObject<boolean>;
@@ -2965,6 +2946,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     attachThreadListAutoAnimateRef,
     expandThreadListForProject,
     collapseThreadListForProject,
+    areAllProjectsExpanded,
+    onToggleAllProjectsExpanded,
     dragInProgressRef,
     suppressProjectClickAfterDragRef,
     suppressProjectClickForContextMenuRef,
@@ -3048,6 +3031,33 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
           <div className="flex items-center gap-1">
+            {sortedProjects.length > 0 ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={
+                        areAllProjectsExpanded ? "Collapse all projects" : "Expand all projects"
+                      }
+                      aria-pressed={areAllProjectsExpanded}
+                      data-testid="sidebar-toggle-all-projects"
+                      className="inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                      onClick={onToggleAllProjectsExpanded}
+                    />
+                  }
+                >
+                  {areAllProjectsExpanded ? (
+                    <ChevronsDownUpIcon className="size-3.5" />
+                  ) : (
+                    <ChevronsUpDownIcon className="size-3.5" />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup side="right">
+                  {areAllProjectsExpanded ? "Collapse all projects" : "Expand all projects"}
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
             <ProjectSortMenu
               projectSortOrder={projectSortOrder}
               onProjectSortOrderChange={handleProjectSortOrderChange}
@@ -3212,6 +3222,7 @@ export default function Sidebar() {
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
+  const setProjectExpandedInStore = useUiStateStore((store) => store.setProjectExpanded);
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const isOnSettings = pathname.startsWith("/settings");
@@ -3882,6 +3893,24 @@ export default function Sidebar() {
     });
   }, []);
 
+  // "Expand all" only stops being the next action once every visible project is open,
+  // so a single half-collapsed project keeps the button in expand mode.
+  const areAllProjectsExpanded = useMemo(
+    () =>
+      shownProjects.length > 0 &&
+      shownProjects.every((project) =>
+        resolveProjectExpanded(projectExpandedById, projectExpansionPreferenceKeys(project)),
+      ),
+    [projectExpandedById, shownProjects],
+  );
+
+  const toggleAllProjectsExpanded = useCallback(() => {
+    setProjectExpandedInStore(
+      shownProjects.flatMap((project) => projectExpansionPreferenceKeys(project)),
+      !areAllProjectsExpanded,
+    );
+  }, [areAllProjectsExpanded, setProjectExpandedInStore, shownProjects]);
+
   return (
     <>
       {prewarmedSidebarThreadRefs.map((threadRef) => (
@@ -3927,6 +3956,8 @@ export default function Sidebar() {
             attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
             expandThreadListForProject={expandThreadListForProject}
             collapseThreadListForProject={collapseThreadListForProject}
+            areAllProjectsExpanded={areAllProjectsExpanded}
+            onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
             dragInProgressRef={dragInProgressRef}
             suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
             suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}

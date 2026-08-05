@@ -119,6 +119,12 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import {
+  CHAT_BACKGROUND_EFFECT_LABELS,
+  CHAT_BACKGROUND_EFFECT_OPTIONS,
+  CHAT_BORDER_EFFECT_LABELS,
+  CHAT_BORDER_EFFECT_OPTIONS,
+} from "../chat/backgroundEffects";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { AgentCompletionSettings } from "./AgentCompletionSettings";
 import {
@@ -150,6 +156,8 @@ import {
   useRelativeTimeTick,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { UsageMeterSettingsSection } from "./UsageMeterSettingsSection";
+import { VoiceDictationSettingsSection } from "./VoiceDictationSettingsSection";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { useAtomCommand } from "../../state/use-atom-command";
 
@@ -587,6 +595,12 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Code font size"]
         : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
+      ...(settings.chatBackgroundEffect !== DEFAULT_UNIFIED_SETTINGS.chatBackgroundEffect
+        ? ["Chat background effect"]
+        : []),
+      ...(settings.chatBorderEffect !== DEFAULT_UNIFIED_SETTINGS.chatBorderEffect
+        ? ["Chat border effect"]
+        : []),
       ...(settings.environmentIdentificationMode !==
       DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode
         ? ["Environment identification"]
@@ -646,6 +660,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffIgnoreWhitespace,
       settings.codeFontFamily,
       settings.codeFontSize,
+      settings.chatBackgroundEffect,
+      settings.chatBorderEffect,
       settings.codeTheme,
       settings.environmentIdentificationMode,
       settings.glassOpacity,
@@ -678,6 +694,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       codeFontFamily: DEFAULT_UNIFIED_SETTINGS.codeFontFamily,
       codeFontSize: DEFAULT_UNIFIED_SETTINGS.codeFontSize,
       codeTheme: DEFAULT_UNIFIED_SETTINGS.codeTheme,
+      chatBackgroundEffect: DEFAULT_UNIFIED_SETTINGS.chatBackgroundEffect,
+      chatBorderEffect: DEFAULT_UNIFIED_SETTINGS.chatBorderEffect,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
@@ -1242,6 +1260,84 @@ export function AppearanceSettingsPanel() {
           }
         />
 
+        <SettingsRow
+          {...searchableSetting("chat-background-effect")}
+          description="Ambient animation filling the chat area behind the new thread screen. It stops as soon as the conversation starts, and stays off when your system asks for reduced motion."
+          resetAction={
+            settings.chatBackgroundEffect !== DEFAULT_UNIFIED_SETTINGS.chatBackgroundEffect ? (
+              <SettingResetButton
+                label="chat background effect"
+                onClick={() =>
+                  updateSettings({
+                    chatBackgroundEffect: DEFAULT_UNIFIED_SETTINGS.chatBackgroundEffect,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.chatBackgroundEffect}
+              onValueChange={(value) => {
+                if (includesOptionValue(CHAT_BACKGROUND_EFFECT_OPTIONS, value)) {
+                  updateSettings({ chatBackgroundEffect: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Chat background effect">
+                <SelectValue>
+                  {CHAT_BACKGROUND_EFFECT_LABELS[settings.chatBackgroundEffect]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {CHAT_BACKGROUND_EFFECT_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("chat-border-effect")}
+          description="Ambient animation tracing the message box on the new thread screen. Independent of the background effect, and follows the same reduced motion rule."
+          resetAction={
+            settings.chatBorderEffect !== DEFAULT_UNIFIED_SETTINGS.chatBorderEffect ? (
+              <SettingResetButton
+                label="chat border effect"
+                onClick={() =>
+                  updateSettings({
+                    chatBorderEffect: DEFAULT_UNIFIED_SETTINGS.chatBorderEffect,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.chatBorderEffect}
+              onValueChange={(value) => {
+                if (includesOptionValue(CHAT_BORDER_EFFECT_OPTIONS, value)) {
+                  updateSettings({ chatBorderEffect: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Chat border effect">
+                <SelectValue>{CHAT_BORDER_EFFECT_LABELS[settings.chatBorderEffect]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {CHAT_BORDER_EFFECT_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
         {showEnvironmentIdentification ? (
           <SettingsRow
             {...searchableSetting("environment-identification")}
@@ -1308,6 +1404,8 @@ export function AppearanceSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <UsageMeterSettingsSection />
     </SettingsPageContainer>
   );
 }
@@ -1865,6 +1963,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <VoiceDictationSettingsSection />
 
       <SettingsSection title="About">
         {isElectron || HOSTED_APP_CHANNEL ? (

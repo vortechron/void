@@ -7,6 +7,7 @@ import {
   buildProjectWorkspaces,
   projectWorkspaceKey,
   selectClosedWorkspaceSessions,
+  selectWorkspaceEntrySession,
 } from "./workspaceSessions";
 
 const environmentId = EnvironmentId.make("env-1");
@@ -203,5 +204,67 @@ describe("buildProjectWorkspaces", () => {
         title: "New thread",
       }),
     ]);
+  });
+});
+
+describe("selectWorkspaceEntrySession", () => {
+  it("opens the workspace's own active tab", () => {
+    const workspaces = buildProjectWorkspaces({
+      members: [member],
+      threads: [
+        thread({
+          id: "older",
+          branch: "main",
+          worktreePath: null,
+          updatedAt: "2024-01-01T00:00:00Z",
+        }),
+        thread({
+          id: "newer",
+          branch: "main",
+          worktreePath: null,
+          updatedAt: "2024-01-02T00:00:00Z",
+        }),
+      ],
+      drafts: [],
+    });
+    const sessions = workspaces[0]?.sessions ?? [];
+    const older = sessions.find((session) => session.threadId === "older");
+
+    expect(
+      selectWorkspaceEntrySession({ sessions, activeTabKey: older?.key ?? null })?.threadId,
+    ).toBe("older");
+  });
+
+  it("ignores a tab whose chat moved to another checkout", () => {
+    const workspaces = buildProjectWorkspaces({
+      members: [member],
+      threads: [
+        thread({
+          id: "stayed",
+          branch: "main",
+          worktreePath: null,
+          updatedAt: "2024-01-01T00:00:00Z",
+        }),
+        thread({
+          id: "moved",
+          branch: "feature",
+          worktreePath: "/repo/.worktrees/feature",
+          updatedAt: "2024-01-02T00:00:00Z",
+        }),
+      ],
+      drafts: [],
+    });
+    const base = workspaces.find((workspace) => workspace.worktreePath === null);
+    const worktree = workspaces.find((workspace) => workspace.worktreePath !== null);
+    const movedKey = worktree?.sessions[0]?.key ?? null;
+
+    expect(
+      selectWorkspaceEntrySession({ sessions: base?.sessions ?? [], activeTabKey: movedKey })
+        ?.threadId,
+    ).toBe("stayed");
+  });
+
+  it("returns null when the checkout has no chats at all", () => {
+    expect(selectWorkspaceEntrySession({ sessions: [], activeTabKey: "whatever" })).toBeNull();
   });
 });

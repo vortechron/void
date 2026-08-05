@@ -2,11 +2,21 @@ import { ProviderDriverKind, type ProviderUsageState } from "@t3tools/contracts"
 import { assert, it } from "vite-plus/test";
 
 import {
+  appendUsageSamples,
+  collectUsageSamples,
   formatResetCountdown,
+  formatResetDuration,
   formatSyncedLabel,
   formatUsagePercent,
+  isExhaustedUsage,
   latestSyncedAt,
+  MAX_USAGE_SAMPLES,
+  resolveDisplayPercent,
   selectUsageColumns,
+  sparklinePoints,
+  usageChartPlacement,
+  usageSampleSignature,
+  type UsageSampleHistory,
 } from "./SidebarUsageMeters.logic";
 
 const NOW = Date.parse("2026-08-05T12:00:00.000Z");
@@ -116,4 +126,119 @@ it("reports the freshest sync across columns", () => {
 it("rounds percentages for display", () => {
   assert.equal(formatUsagePercent(31.4), "31");
   assert.equal(formatUsagePercent(0), "0");
+});
+
+it("writes the bare countdown the minimized pill uses", () => {
+  const remaining = 5 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000;
+  assert.equal(formatResetDuration(at(remaining), NOW), "5d 4h");
+  assert.equal(formatResetDuration(at(4 * 60 * 60 * 1000), NOW), "4h");
+  assert.equal(formatResetDuration(at(-1000), NOW), "now");
+  assert.equal(formatResetDuration(undefined, NOW), null);
+});
+
+it("carries both countdown forms onto every window", () => {
+  const window = selectUsageColumns(makeState(), NOW)[1]?.windows[0];
+
+  assert.equal(window?.resetsLabel, "resets in 4h");
+  assert.equal(window?.resetsDuration, "4h");
+});
+
+it("inverts the percentage for the remaining basis", () => {
+  assert.equal(resolveDisplayPercent(27, "used"), 27);
+  assert.equal(resolveDisplayPercent(27, "remaining"), 73);
+});
+
+it("leaves an unreported percentage unreported on either basis", () => {
+  assert.equal(resolveDisplayPercent(null, "used"), null);
+  assert.equal(resolveDisplayPercent(null, "remaining"), null);
+});
+
+it("flags exhaustion from what was spent, not from what is displayed", () => {
+  assert.equal(isExhaustedUsage(92), true);
+  assert.equal(isExhaustedUsage(89.9), false);
+  assert.equal(isExhaustedUsage(null), false);
+});
+
+it("places only the ring beside the number", () => {
+  assert.equal(usageChartPlacement("ring"), "inline");
+  assert.equal(usageChartPlacement("bar"), "below");
+  assert.equal(usageChartPlacement("stepped"), "below");
+  assert.equal(usageChartPlacement("sparkline"), "below");
+  assert.equal(usageChartPlacement("numeric"), "none");
+});
+
+it("keys samples by column and window", () => {
+  const samples = collectUsageSamples(selectUsageColumns(makeState(), NOW));
+
+  assert.deepEqual(
+    samples.map((sample) => sample.key),
+    ["claudeAgent:five_hour", "claudeAgent:seven_day", "codex:window_300"],
+  );
+  assert.equal(usageSampleSignature(samples).includes("codex:window_300=31.4"), true);
+});
+
+it("distinguishes an unreported window in the signature", () => {
+  assert.equal(usageSampleSignature([{ key: "a", usedPercent: null }]), "a=");
+  assert.equal(usageSampleSignature([{ key: "a", usedPercent: 0 }]), "a=0");
+});
+
+const EMPTY_HISTORY: UsageSampleHistory = new Map();
+
+it("appends only readings that moved", () => {
+  const first = appendUsageSamples(EMPTY_HISTORY, [{ key: "a", usedPercent: 10 }]);
+  const second = appendUsageSamples(first, [{ key: "a", usedPercent: 20 }]);
+
+  assert.deepEqual(second.get("a"), [10, 20]);
+});
+
+it("returns the same history when nothing changed, so storing it cannot loop", () => {
+  const first = appendUsageSamples(EMPTY_HISTORY, [{ key: "a", usedPercent: 10 }]);
+  const repeated = appendUsageSamples(first, [{ key: "a", usedPercent: 10 }]);
+
+  assert.equal(repeated, first);
+  assert.equal(appendUsageSamples(EMPTY_HISTORY, []), EMPTY_HISTORY);
+});
+
+it("drops unreported windows and windows that stopped being reported", () => {
+  const first = appendUsageSamples(EMPTY_HISTORY, [
+    { key: "a", usedPercent: 10 },
+    { key: "b", usedPercent: 40 },
+  ]);
+  const second = appendUsageSamples(first, [{ key: "a", usedPercent: 10 }]);
+
+  assert.deepEqual([...second.keys()], ["a"]);
+  assert.equal(appendUsageSamples(first, [{ key: "a", usedPercent: null }]).size, 0);
+});
+
+it("caps the series length", () => {
+  let history: UsageSampleHistory = EMPTY_HISTORY;
+  for (let index = 0; index < MAX_USAGE_SAMPLES + 5; index += 1) {
+    history = appendUsageSamples(history, [{ key: "a", usedPercent: index }]);
+  }
+
+  const samples = history.get("a") ?? [];
+  assert.equal(samples.length, MAX_USAGE_SAMPLES);
+  assert.equal(samples[samples.length - 1], MAX_USAGE_SAMPLES + 4);
+});
+
+it("normalizes sparkline points with the highest reading on top", () => {
+  const points = sparklinePoints([10, 30, 20]);
+
+  assert.deepEqual(points, [
+    { x: 0, y: 1 },
+    { x: 0.5, y: 0 },
+    { x: 1, y: 0.5 },
+  ]);
+});
+
+it("centers a flat or single-point series instead of pinning it to an edge", () => {
+  assert.deepEqual(sparklinePoints([50, 50]), [
+    { x: 0, y: 0.5 },
+    { x: 1, y: 0.5 },
+  ]);
+  assert.deepEqual(sparklinePoints([50]), [
+    { x: 0, y: 0.5 },
+    { x: 1, y: 0.5 },
+  ]);
+  assert.deepEqual(sparklinePoints([]), []);
 });
