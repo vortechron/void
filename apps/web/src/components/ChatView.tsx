@@ -6167,7 +6167,7 @@ function ChatViewContent(props: ChatViewProps) {
                   >
                     <div
                       className={cn(
-                        "chat-composer-glass-shell relative mx-auto w-full max-w-3xl",
+                        "chat-composer-glass-shell relative mx-auto w-full max-w-[var(--chat-composer-max-width)]",
                         showComposerContextStrip && "chat-composer-glass-shell-with-context",
                       )}
                     >
@@ -6176,7 +6176,7 @@ function ChatViewContent(props: ChatViewProps) {
                       {isDraftHeroState ? (
                         <ChatBorderEffectLayer effect={chatBorderEffect} />
                       ) : null}
-                      <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
+                      <div className="chat-composer-glass-host relative z-10 w-full rounded-[var(--chat-composer-radius)]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
                             composerRef={composerRef}
