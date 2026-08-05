@@ -192,6 +192,31 @@ export const sharedServerCommandFlags = {
 
 export const authLocationFlags = sharedServerLocationFlags;
 
+export class BareWorkingDirectoryArgumentError extends Schema.TaggedErrorClass<BareWorkingDirectoryArgumentError>()(
+  "BareWorkingDirectoryArgumentError",
+  {
+    operation: Schema.Literal("resolveServerConfig"),
+    argument: Schema.String,
+    resolvedPath: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Unknown command or directory '${this.argument}'. The working directory argument only accepts an existing directory; pass './${this.argument}' to create it as a new one.`;
+  }
+}
+
+// The root `t3` command swallows any unrecognized word as its optional cwd
+// argument, and a missing cwd is created on demand. Together that turns a
+// typo like `t3 dev` into an empty ./dev directory plus a bootstrapped
+// project. A single bare word is never a path someone meant to create, so it
+// has to exist already; explicit paths (./dev, ~/dev, /tmp/dev) still create.
+export function isBareWorkingDirectoryArgument(rawCwd: string): boolean {
+  if (rawCwd.length === 0 || rawCwd === "." || rawCwd === "..") {
+    return false;
+  }
+  return !/[/\\~:]/.test(rawCwd);
+}
+
 const resolveOptionPrecedence = <Value>(
   ...values: ReadonlyArray<Option.Option<Value>>
 ): Option.Option<Value> => Option.firstSomeOf(values);
@@ -279,8 +304,18 @@ export const resolveServerConfig = (
         resolveOptionPrecedence(explicitBaseDir, Option.fromUndefinedOr(bootstrap?.t3Home)),
       ),
     );
-    const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
-    const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
+    const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd()).trim();
+    const cwd = path.resolve(yield* expandHomePath(rawCwd));
+    if (Option.isSome(normalizedFlags.cwd) && isBareWorkingDirectoryArgument(rawCwd)) {
+      const cwdExists = yield* fs.exists(cwd).pipe(Effect.orElseSucceed(() => false));
+      if (!cwdExists) {
+        return yield* new BareWorkingDirectoryArgumentError({
+          operation: "resolveServerConfig",
+          argument: rawCwd,
+          resolvedPath: cwd,
+        });
+      }
+    }
     yield* fs.makeDirectory(cwd, { recursive: true });
     const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
       baseDirIsExplicit: Option.isSome(explicitBaseDir),
