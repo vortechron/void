@@ -15,6 +15,7 @@
  * never works. Both fallbacks cost one round trip and only run when the first
  * attempt is rejected.
  */
+import { normalizeOpenAiApiKey } from "./apiKey";
 import {
   appendTranscriptDelta,
   completeTranscriptItem,
@@ -49,7 +50,10 @@ export interface TranscriptionSession {
 }
 
 function subprotocolCandidates(apiKey: string): ReadonlyArray<ReadonlyArray<string>> {
-  const auth = `openai-insecure-api-key.${apiKey}`;
+  // The key goes on the wire as a token, so it is normalized here as well as
+  // in settings: a stored value from before that normalization existed would
+  // otherwise still make the constructor throw.
+  const auth = `openai-insecure-api-key.${normalizeOpenAiApiKey(apiKey)}`;
   return [
     ["realtime", auth],
     ["realtime", auth, "openai-beta.realtime-v1"],

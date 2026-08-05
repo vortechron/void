@@ -32,6 +32,22 @@ describe("resolveVoiceDictationAvailability", () => {
     expect(result.message).toBe("Add an OpenAI API key in Settings → General");
   });
 
+  it("accepts a key pasted as a .env line", () => {
+    const result = resolveVoiceDictationAvailability({
+      ...ready,
+      apiKey: "OPENAI_API_KEY=sk-test",
+    });
+
+    expect(result.available).toBe(true);
+  });
+
+  it("blocks a key the handshake could not carry", () => {
+    const result = resolveVoiceDictationAvailability({ ...ready, apiKey: "MY_KEY=sk-test" });
+
+    expect(result.blockedReason).toBe("unusable-api-key");
+    expect(result.message).toBe("Paste only the OpenAI key itself in Settings → General");
+  });
+
   it("names the connection when the page is not a secure context", () => {
     const result = resolveVoiceDictationAvailability({ ...ready, isSecureContext: false });
 

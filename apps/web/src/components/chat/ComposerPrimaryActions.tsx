@@ -20,6 +20,9 @@ interface PendingActionState {
  * How long the send button has to be held before it starts listening. Long
  * enough that an ordinary click never trips it, short enough that a user who
  * means to dictate is not left wondering whether the press registered.
+ *
+ * The hold only opens the session. Letting go leaves it listening; the tap
+ * that ends it comes later, whenever the user is done talking.
  */
 export const DICTATION_HOLD_DELAY_MS = 280;
 
@@ -28,8 +31,31 @@ export interface ComposerDictationControls {
   readonly available: boolean;
   /** Why dictation is not on offer, for the button's label. */
   readonly unavailableMessage: string | null;
-  readonly onHoldStart: () => void;
-  readonly onHoldEnd: () => void;
+  readonly onStart: () => void;
+  readonly onStop: () => void;
+}
+
+export type DictationPressIntent = "start-hold" | "stop" | "none";
+
+/**
+ * What a press on the send button means for dictation.
+ *
+ * A press while a session is open always ends it — that is the whole of the
+ * toggle — and it wins over every condition that would otherwise turn the
+ * button back into a send, so an open microphone always has a way to close.
+ */
+export function resolveDictationPressIntent(input: {
+  isDictating: boolean;
+  canHoldToDictate: boolean;
+  isPrimaryButton: boolean;
+}): DictationPressIntent {
+  if (!input.isPrimaryButton) {
+    return "none";
+  }
+  if (input.isDictating) {
+    return "stop";
+  }
+  return input.canHoldToDictate ? "start-hold" : "none";
 }
 
 interface ComposerPrimaryActionsProps {
@@ -101,8 +127,8 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   );
 
   const holdTimerRef = useRef<number | null>(null);
-  const holdPointerRef = useRef<number | null>(null);
-  const isHoldingRef = useRef(false);
+  const pressPointerRef = useRef<number | null>(null);
+  const startedDictationRef = useRef(false);
   const suppressClickRef = useRef(false);
   useEffect(
     () => () => {
@@ -121,43 +147,64 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     !isConnecting &&
     !isEnvironmentUnavailable;
 
+  // A session outlives the press that opened it, so it can still be running
+  // when a pending question, a plan prompt, or a started turn takes the send
+  // button off screen. That button is the only way to stop listening, so the
+  // session ends with it rather than being left open with nothing to close it.
+  const rendersDictationControl = pendingAction === null && !isRunning && !showPlanFollowUpPrompt;
+  useEffect(() => {
+    if (isDictating && !rendersDictationControl) dictation?.onStop();
+  }, [dictation, isDictating, rendersDictationControl]);
+
   const clearHoldTimer = () => {
     if (holdTimerRef.current === null) return;
     window.clearTimeout(holdTimerRef.current);
     holdTimerRef.current = null;
   };
 
-  const endHold = () => {
+  const endPress = () => {
     clearHoldTimer();
-    holdPointerRef.current = null;
-    if (!isHoldingRef.current) return;
-    isHoldingRef.current = false;
-    // The pointerup that ends a hold still fires a click on the submit button.
+    pressPointerRef.current = null;
+    if (!startedDictationRef.current) return;
+    startedDictationRef.current = false;
+    // Letting go leaves the session listening, so this release is never a send;
+    // the pointerup still fires a click on a submit button, and that click has
+    // to be swallowed.
     suppressClickRef.current = true;
-    dictation?.onHoldEnd();
   };
 
   const handleSendPointerDown: PointerEventHandler<HTMLButtonElement> = (event) => {
     if (preserveComposerFocusOnPointerDown) event.preventDefault();
-    // A hold released off the button can leave the click it was suppressing
+    // A press released off the button can leave the click it was suppressing
     // unfired; clearing here means that stale flag never eats a real send.
     suppressClickRef.current = false;
-    if (!canHoldToDictate || event.button !== 0) return;
-    holdPointerRef.current = event.pointerId;
+    const intent = resolveDictationPressIntent({
+      isDictating,
+      canHoldToDictate,
+      isPrimaryButton: event.button === 0,
+    });
+    if (intent === "none") return;
+    if (intent === "stop") {
+      // The tap that closes a session must not also send what it just wrote.
+      suppressClickRef.current = true;
+      dictation?.onStop();
+      return;
+    }
+    pressPointerRef.current = event.pointerId;
     // Capture so a finger or cursor that drifts off the button still ends the
-    // hold here rather than leaving it listening forever.
+    // press here rather than leaving the hold timer armed.
     event.currentTarget.setPointerCapture(event.pointerId);
     clearHoldTimer();
     holdTimerRef.current = window.setTimeout(() => {
       holdTimerRef.current = null;
-      isHoldingRef.current = true;
-      dictation?.onHoldStart();
+      startedDictationRef.current = true;
+      dictation?.onStart();
     }, DICTATION_HOLD_DELAY_MS);
   };
 
   const handleSendPointerEnd: PointerEventHandler<HTMLButtonElement> = (event) => {
-    if (holdPointerRef.current !== event.pointerId) return;
-    endHold();
+    if (pressPointerRef.current !== event.pointerId) return;
+    endPress();
   };
 
   const handleSendClick: MouseEventHandler<HTMLButtonElement> = (event) => {
@@ -317,33 +364,38 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       onPointerUp={handleSendPointerEnd}
       onPointerCancel={handleSendPointerEnd}
       // Last resort: capture can be lost without a pointerup, which would
-      // otherwise leave the microphone listening with the button already up.
+      // otherwise leave the hold timer armed after the button came up.
       onLostPointerCapture={handleSendPointerEnd}
       onClick={handleSendClick}
       disabled={
-        isSendBusy ||
-        isSendDisabled ||
-        isConnecting ||
-        isEnvironmentUnavailable ||
-        (!hasSendableContent && !canHoldToDictate)
+        // While a session is open this button is the only way to close it, so
+        // none of the usual reasons to block a send may take it away.
+        !isDictating &&
+        (isSendBusy ||
+          isSendDisabled ||
+          isConnecting ||
+          isEnvironmentUnavailable ||
+          (!hasSendableContent && !canHoldToDictate))
       }
       aria-label={
-        isEnvironmentUnavailable
-          ? "Environment disconnected"
-          : sendDisabledReason
-            ? sendDisabledReason
-            : isConnecting
-              ? "Connecting"
-              : isPreparingWorktree
-                ? "Preparing worktree"
-                : isSendBusy
-                  ? "Sending"
-                  : dictation?.status === "listening"
-                    ? "Listening, release to stop"
-                    : dictation?.status === "starting"
-                      ? "Starting dictation"
-                      : dictation?.status === "finishing"
-                        ? "Finishing dictation"
+        // Dictation states come first: while one is open the button has stopped
+        // being a send, so what would have blocked a send no longer describes it.
+        dictation?.status === "listening"
+          ? "Listening, tap to stop"
+          : dictation?.status === "starting"
+            ? "Starting dictation"
+            : dictation?.status === "finishing"
+              ? "Finishing dictation"
+              : isEnvironmentUnavailable
+                ? "Environment disconnected"
+                : sendDisabledReason
+                  ? sendDisabledReason
+                  : isConnecting
+                    ? "Connecting"
+                    : isPreparingWorktree
+                      ? "Preparing worktree"
+                      : isSendBusy
+                        ? "Sending"
                         : canHoldToDictate
                           ? hasSendableContent
                             ? "Send message, or hold to dictate"
@@ -356,10 +408,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           <StageBackdropButtonArt variant={stageBackdropVariant} />
         </span>
       ) : null}
-      {isConnecting || isSendBusy || dictation?.status === "starting" ? (
+      {dictation?.status === "starting" ? (
         <Spinner className="size-3.5" aria-hidden="true" />
       ) : isDictating ? (
         <MicIcon className="size-3.5" aria-hidden="true" />
+      ) : isConnecting || isSendBusy ? (
+        <Spinner className="size-3.5" aria-hidden="true" />
       ) : (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path

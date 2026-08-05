@@ -47,6 +47,12 @@ function describeStartFailure(error: unknown): string {
     if (error.name === "NotFoundError") {
       return "No microphone was found.";
     }
+    // `new WebSocket()` throws this when the key cannot go in the handshake —
+    // a settings problem, and blaming the microphone sends the user looking in
+    // the wrong place entirely.
+    if (error.name === "SyntaxError") {
+      return "The OpenAI API key looks wrong. Check it in Settings → General.";
+    }
   }
   return "Could not start the microphone.";
 }

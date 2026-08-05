@@ -13,6 +13,7 @@ import {
 import { useCallback } from "react";
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { normalizeOpenAiApiKey } from "../../lib/voiceDictation/apiKey";
 import { canCaptureAudio } from "../../lib/voiceDictation/pcmCapture";
 import { resolveVoiceDictationAvailability } from "../../lib/voiceDictation/availability";
 import { DraftInput } from "../ui/draft-input";
@@ -87,7 +88,7 @@ export function VoiceDictationSettingsSection() {
             placeholder="sk-..."
             aria-label="OpenAI API key"
             value={voiceDictation.openaiApiKey}
-            onCommit={(next) => patchVoiceDictation({ openaiApiKey: next.trim() })}
+            onCommit={(next) => patchVoiceDictation({ openaiApiKey: normalizeOpenAiApiKey(next) })}
           />
         }
       />

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
+import {
+  formatPendingPrimaryActionLabel,
+  resolveDictationPressIntent,
+} from "./ComposerPrimaryActions";
 
 describe("formatPendingPrimaryActionLabel", () => {
   it("returns 'Submitting...' while responding", () => {
@@ -89,5 +92,38 @@ describe("formatPendingPrimaryActionLabel", () => {
         questionIndex: 5,
       }),
     ).toBe("Submit answers");
+  });
+});
+
+describe("resolveDictationPressIntent", () => {
+  const idle = {
+    isDictating: false,
+    canHoldToDictate: true,
+    isPrimaryButton: true,
+  } as const;
+
+  it("arms the hold when nothing is listening yet", () => {
+    expect(resolveDictationPressIntent(idle)).toBe("start-hold");
+  });
+
+  it("stops an open session", () => {
+    expect(resolveDictationPressIntent({ ...idle, isDictating: true })).toBe("stop");
+  });
+
+  it("still stops a session the button could no longer start", () => {
+    expect(
+      resolveDictationPressIntent({ ...idle, isDictating: true, canHoldToDictate: false }),
+    ).toBe("stop");
+  });
+
+  it("leaves the press alone when dictation is not on offer", () => {
+    expect(resolveDictationPressIntent({ ...idle, canHoldToDictate: false })).toBe("none");
+  });
+
+  it("ignores anything but the primary button", () => {
+    expect(resolveDictationPressIntent({ ...idle, isPrimaryButton: false })).toBe("none");
+    expect(
+      resolveDictationPressIntent({ ...idle, isDictating: true, isPrimaryButton: false }),
+    ).toBe("none");
   });
 });

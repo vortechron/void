@@ -1829,6 +1829,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     showPlanFollowUpPrompt,
   ]);
 
+  // Assigned by the dictation wiring further down. A session now outlives the
+  // press that opened it, so a send can happen with the microphone still on,
+  // and the draft it was writing into is about to be cleared.
+  const endDictationRef = useRef<() => void>(() => {});
+
   const submitComposer = useCallback(
     (event?: { preventDefault: () => void }) => {
       if (noProviderAvailable || isSendDisabled) {
@@ -1848,6 +1853,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         });
         return;
       }
+      // Sending is the end of what was being dictated: the span the transcript
+      // is replacing goes away with the draft, so the session ends with it.
+      endDictationRef.current();
       onSend(event);
       if (shouldBlurMobileComposerOnSubmit()) {
         blurMobileComposerAfterSend();
@@ -2554,8 +2562,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
 
   const handleDictationEnd = useCallback(() => {
+    // A send closes the session by clearing the span first, and the wind-down
+    // lands seconds later. Taking focus back then would fight the blur the send
+    // just did — and on a phone it would bring the keyboard back with it.
+    const wasWritingIntoTheDraft = dictationSpanRef.current !== null;
     dictationSpanRef.current = null;
-    focusComposer();
+    if (wasWritingIntoTheDraft) focusComposer();
   }, [focusComposer]);
 
   const handleDictationError = useCallback((message: string) => {
@@ -2572,6 +2584,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onError: handleDictationError,
   });
 
+  // Dropping the span matters as much as stopping does: a final transcript can
+  // still land while the session winds down, and by then it belongs to the
+  // message that was just sent rather than to the empty draft replacing it.
+  useEffect(() => {
+    endDictationRef.current = () => {
+      dictationSpanRef.current = null;
+      dictation.stop();
+    };
+  }, [dictation.stop]);
+
   const dictationControls = useMemo<ComposerDictationControls>(
     () => ({
       status: dictation.status,
@@ -2583,8 +2605,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         dictationAvailability.blockedReason === "disabled"
           ? null
           : voiceDictationBlockedMessage(dictationAvailability.blockedReason),
-      onHoldStart: dictation.start,
-      onHoldEnd: dictation.stop,
+      onStart: dictation.start,
+      onStop: dictation.stop,
     }),
     [
       dictation.start,

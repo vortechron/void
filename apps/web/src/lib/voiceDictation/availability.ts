@@ -7,9 +7,12 @@
  * app works fine, but browsers refuse microphone access outside a secure
  * context, so the reason has to name the connection rather than the feature.
  */
+import { isSendableOpenAiApiKey, normalizeOpenAiApiKey } from "./apiKey";
+
 export type VoiceDictationBlockedReason =
   | "disabled"
   | "missing-api-key"
+  | "unusable-api-key"
   | "insecure-context"
   | "unsupported-browser";
 
@@ -22,6 +25,7 @@ export interface VoiceDictationAvailability {
 const BLOCKED_MESSAGES: Readonly<Record<VoiceDictationBlockedReason, string>> = {
   disabled: "Turn on voice dictation in Settings → General",
   "missing-api-key": "Add an OpenAI API key in Settings → General",
+  "unusable-api-key": "Paste only the OpenAI key itself in Settings → General",
   "insecure-context": "Voice dictation needs an HTTPS or localhost connection",
   "unsupported-browser": "This browser cannot capture microphone audio",
 };
@@ -36,15 +40,21 @@ export function resolveVoiceDictationAvailability(input: {
   readonly isSecureContext: boolean;
   readonly canCaptureAudio: boolean;
 }): VoiceDictationAvailability {
+  // A key that cannot go in the handshake is a standing condition like the
+  // rest: it is worth saying so on the button, rather than letting the hold
+  // fail with an error that sounds like the microphone's fault.
+  const apiKey = normalizeOpenAiApiKey(input.apiKey);
   const blockedReason: VoiceDictationBlockedReason | null = !input.enabled
     ? "disabled"
-    : input.apiKey.trim().length === 0
+    : apiKey.length === 0
       ? "missing-api-key"
-      : !input.canCaptureAudio
-        ? "unsupported-browser"
-        : !input.isSecureContext
-          ? "insecure-context"
-          : null;
+      : !isSendableOpenAiApiKey(apiKey)
+        ? "unusable-api-key"
+        : !input.canCaptureAudio
+          ? "unsupported-browser"
+          : !input.isSecureContext
+            ? "insecure-context"
+            : null;
 
   return {
     available: blockedReason === null,
