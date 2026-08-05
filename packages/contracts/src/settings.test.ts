@@ -382,3 +382,36 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(encoded.providers?.codex?.launchArgs).toBe("--strict-config");
   });
 });
+
+describe("ClientSettings chat ambient effects", () => {
+  it("defaults both effects off", () => {
+    const settings = decodeClientSettings({});
+
+    expect(settings.chatBackgroundEffect).toBe("none");
+    expect(settings.chatBorderEffect).toBe("none");
+  });
+
+  it("keeps the background and the border independent", () => {
+    const settings = decodeClientSettings({
+      chatBackgroundEffect: "meteors",
+      chatBorderEffect: "ripple",
+    });
+
+    expect(settings.chatBackgroundEffect).toBe("meteors");
+    expect(settings.chatBorderEffect).toBe("ripple");
+  });
+
+  it("reads a value it does not recognise as the default", () => {
+    // `ripple` was a background value before the split, so a settings file
+    // written by an older build still says this.
+    expect(decodeClientSettings({ chatBackgroundEffect: "ripple" }).chatBackgroundEffect).toBe(
+      "none",
+    );
+    expect(decodeClientSettings({ chatBorderEffect: "meteors" }).chatBorderEffect).toBe("none");
+  });
+
+  it("still rejects an unrecognised value in a patch", () => {
+    expect(() => decodeClientSettingsPatch({ chatBackgroundEffect: "ripple" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ chatBorderEffect: "meteors" })).toThrow();
+  });
+});

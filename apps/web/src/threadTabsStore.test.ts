@@ -13,6 +13,7 @@ import {
   migratePersistedThreadTabs,
   moveThreadTab,
   openThreadTab,
+  openWorkspaceThreadTab,
   reconcileThreadTabs,
   threadTabKey,
   type ThreadTabsState,
@@ -189,5 +190,44 @@ describe("migratePersistedThreadTabs", () => {
   it("tolerates junk", () => {
     expect(migratePersistedThreadTabs(null)).toEqual(EMPTY_WORKSPACE_THREAD_TABS_STATE);
     expect(migratePersistedThreadTabs({})).toEqual(EMPTY_WORKSPACE_THREAD_TABS_STATE);
+  });
+});
+
+describe("openWorkspaceThreadTab", () => {
+  const BASE = "base-workspace";
+  const WORKTREE = "worktree-workspace";
+
+  it("moves a chat out of its old checkout when it lands in a new one", () => {
+    const inBase = openWorkspaceThreadTab(
+      EMPTY_WORKSPACE_THREAD_TABS_STATE,
+      BASE,
+      ref("a"),
+      DraftId.make("draft-1"),
+    );
+    expect(inBase.activeWorkspaceKey).toBe(BASE);
+
+    const promoted = openWorkspaceThreadTab(inBase, WORKTREE, ref("a"), null);
+    expect(promoted.activeWorkspaceKey).toBe(WORKTREE);
+    expect(promoted.byWorkspaceKey[WORKTREE]?.tabs.map((tab) => tab.threadId)).toEqual(["a"]);
+    expect(promoted.byWorkspaceKey[BASE]?.tabs).toEqual([]);
+    expect(promoted.byWorkspaceKey[BASE]?.activeKey).toBeNull();
+  });
+
+  it("leaves the other checkouts' own tabs alone", () => {
+    const seeded = openWorkspaceThreadTab(
+      openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
+      BASE,
+      ref("b"),
+      null,
+    );
+
+    const moved = openWorkspaceThreadTab(seeded, WORKTREE, ref("b"), null);
+    expect(moved.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["a"]);
+    expect(moved.byWorkspaceKey[BASE]?.activeKey).toBe(key("a"));
+  });
+
+  it("returns the same state when the tab is already open and active", () => {
+    const seeded = openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null);
+    expect(openWorkspaceThreadTab(seeded, BASE, ref("a"), null)).toBe(seeded);
   });
 });

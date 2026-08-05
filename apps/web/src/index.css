@@ -1985,6 +1985,109 @@ label:has(> select#reasoning-effort) select {
   animation: ultrathink-rainbow 10s linear infinite;
 }
 
+/* ── Chat background effect: meteors ───────────────────────────────────
+   Ambient layer behind the new-thread hero, opt-in through
+   Settings → Appearance. Only `transform` and `opacity` animate, so the
+   field stays on the compositor; the component mounts it solely while the
+   hero is idle and skips it entirely under reduced motion. */
+.chat-meteor-field {
+  position: absolute;
+  inset: 0;
+  --meteor-color: color-mix(in srgb, var(--foreground) 42%, transparent);
+}
+
+.chat-meteor {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 9999px;
+  background: var(--meteor-color);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 8%, transparent);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: chat-meteor-fall var(--meteor-duration) linear var(--meteor-delay) infinite;
+}
+
+/* Anchored at the head and rotated along the direction of travel, so the
+   trail always streams out behind the meteor. */
+.chat-meteor-tail {
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  width: var(--meteor-tail-length);
+  height: 1px;
+  transform-origin: right center;
+  rotate: var(--meteor-tilt);
+  background: linear-gradient(to right, transparent, var(--meteor-color));
+}
+
+@keyframes chat-meteor-fall {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--meteor-travel-x), var(--meteor-travel-y), 0);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-meteor {
+    animation: none;
+  }
+}
+
+/* ── Chat background effect: ripple ────────────────────────────────────
+   An aura of nested rounded rectangles tracing the composer, each one further
+   outside it than the last. Sits behind the composer's glass rather than in
+   front of it, so the rings read as light coming off the box. Only `transform`
+   animates, keeping the field on the compositor. */
+.chat-composer-effect-layer {
+  /* The shell isolates, so this stays behind the glass ::before without
+     escaping into the rest of the chat column. */
+  z-index: -1;
+}
+
+.chat-ripple-field {
+  position: absolute;
+  inset: 0;
+  --ripple-color: var(--foreground);
+}
+
+.chat-ripple-ring {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--ripple-color) 55%, transparent);
+  background: color-mix(in srgb, var(--ripple-color) 6%, transparent);
+  transform: scale(1);
+  will-change: transform;
+  animation: chat-ripple-pulse var(--ripple-duration) ease-in-out var(--ripple-delay) infinite;
+}
+
+/* Scaling the whole ring rather than re-inseting it keeps the animation on the
+   compositor; the amplitude is small so the corners do not visibly distort. */
+@keyframes chat-ripple-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-ripple-ring {
+    animation: none;
+  }
+}
+
 /* Composer chips are non-editable decorators, so the browser skips them when
    painting text selection; this overlay stands in for the native highlight. */
 .composer-inline-chip[data-composer-chip-selected]::after {

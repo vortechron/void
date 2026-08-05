@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
@@ -103,6 +104,121 @@ export const CompletionSound = Schema.Literals(["none", "chime"]);
 export type CompletionSound = typeof CompletionSound.Type;
 export const DEFAULT_COMPLETION_SOUND: CompletionSound = "chime";
 
+// ── Chat ambient effects ─────────────────────────────────────────────
+//
+// Two independent choices, because they decorate two different surfaces and
+// are not alternatives to each other: one fills the chat column behind the
+// new-thread hero, the other traces the composer's own box. Picking a
+// background never costs you the border, and vice versa.
+//
+// The names live here so the schema that validates the persisted choice and
+// the list the picker renders cannot drift apart. Adding an effect means
+// adding a value here plus a renderer in the web registry — nothing else
+// knows these names.
+
+/** Ambient animation drawn behind the new-thread hero, filling the chat column. */
+export const CHAT_BACKGROUND_EFFECT_VALUES = ["none", "meteors"] as const;
+export const ChatBackgroundEffect = Schema.Literals(CHAT_BACKGROUND_EFFECT_VALUES);
+export type ChatBackgroundEffect = typeof ChatBackgroundEffect.Type;
+/** Off by default: an ambient effect repaints continuously, so it is opt-in. */
+export const DEFAULT_CHAT_BACKGROUND_EFFECT: ChatBackgroundEffect = "none";
+
+/** Ambient animation tracing the composer's border on the new-thread hero. */
+export const CHAT_BORDER_EFFECT_VALUES = ["none", "ripple"] as const;
+export const ChatBorderEffect = Schema.Literals(CHAT_BORDER_EFFECT_VALUES);
+export type ChatBorderEffect = typeof ChatBorderEffect.Type;
+/** Off by default, for the same reason as the background effect. */
+export const DEFAULT_CHAT_BORDER_EFFECT: ChatBorderEffect = "none";
+
+// ── Provider usage meter ─────────────────────────────────────────────
+//
+// Presentation of the sidebar meter that renders the subscription usage the
+// providers report for themselves (see `providerUsage.ts`).
+
+/** Whether a window reads as the share already spent or the share still left. */
+export const UsageMeterPercentageBasis = Schema.Literals(["used", "remaining"]);
+export type UsageMeterPercentageBasis = typeof UsageMeterPercentageBasis.Type;
+export const DEFAULT_USAGE_METER_PERCENTAGE_BASIS: UsageMeterPercentageBasis = "used";
+
+export const UsageMeterChartStyle = Schema.Literals([
+  "ring",
+  "bar",
+  "stepped",
+  "numeric",
+  "sparkline",
+]);
+export type UsageMeterChartStyle = typeof UsageMeterChartStyle.Type;
+export const DEFAULT_USAGE_METER_CHART_STYLE: UsageMeterChartStyle = "ring";
+
+/** `minimized` is the one-pill-per-provider row; `off` hides the meter entirely. */
+export const UsageMeterMode = Schema.Literals(["expanded", "minimized", "off"]);
+export type UsageMeterMode = typeof UsageMeterMode.Type;
+export const DEFAULT_USAGE_METER_MODE: UsageMeterMode = "expanded";
+
+/**
+ * Allowed periodic re-sync intervals, in seconds. `0` turns the timer off and
+ * leaves the meter on the server's live push alone. A closed set rather than a
+ * free number because the control is a picker either way, and an arbitrary
+ * small value would re-establish the usage subscription in a tight loop.
+ */
+export const USAGE_METER_REFRESH_INTERVAL_SECONDS_VALUES = [0, 60, 300, 900, 1800, 3600] as const;
+export const UsageMeterRefreshIntervalSeconds = Schema.Literals(
+  USAGE_METER_REFRESH_INTERVAL_SECONDS_VALUES,
+);
+export type UsageMeterRefreshIntervalSeconds = typeof UsageMeterRefreshIntervalSeconds.Type;
+export const DEFAULT_USAGE_METER_REFRESH_INTERVAL_SECONDS: UsageMeterRefreshIntervalSeconds = 300;
+
+export const UsageMeterSettings = Schema.Struct({
+  mode: UsageMeterMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_USAGE_METER_MODE))),
+  percentageBasis: UsageMeterPercentageBasis.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_USAGE_METER_PERCENTAGE_BASIS)),
+  ),
+  chartStyle: UsageMeterChartStyle.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_USAGE_METER_CHART_STYLE)),
+  ),
+  refreshIntervalSeconds: UsageMeterRefreshIntervalSeconds.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_USAGE_METER_REFRESH_INTERVAL_SECONDS)),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type UsageMeterSettings = typeof UsageMeterSettings.Type;
+
+// ── Voice dictation ──────────────────────────────────────────────────
+//
+// Hold-to-talk on the composer's send button. The client streams
+// microphone audio straight to OpenAI's realtime transcription endpoint
+// and writes the transcript into the composer as it arrives; nothing is
+// recorded to a file and the server is not in the audio path.
+
+/**
+ * OpenAI's streaming transcription models. `gpt-live-transcribe` emits
+ * deltas while the user is still talking, which is what hold-to-talk
+ * wants; `gpt-transcribe` only returns text once the turn is committed,
+ * so it reads as a pause at the end of every hold.
+ */
+export const VOICE_DICTATION_MODEL_VALUES = ["gpt-live-transcribe", "gpt-transcribe"] as const;
+export const VoiceDictationModel = Schema.Literals(VOICE_DICTATION_MODEL_VALUES);
+export type VoiceDictationModel = typeof VoiceDictationModel.Type;
+export const DEFAULT_VOICE_DICTATION_MODEL: VoiceDictationModel = "gpt-live-transcribe";
+
+export const VoiceDictationSettings = Schema.Struct({
+  /** Off by default: the feature needs a key the user has to supply. */
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * Stored in plain text alongside the rest of the settings, and handed
+   * to every paired client, because the browser is what opens the socket
+   * to OpenAI. That is the same trust boundary a paired client already
+   * has — it can run agents on this machine — but it does mean the key
+   * is only as private as the environment's `settings.json`.
+   */
+  openaiApiKey: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  model: VoiceDictationModel.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_VOICE_DICTATION_MODEL)),
+  ),
+  /** ISO-639-1 hint, e.g. `en` or `ms`. Empty lets the model detect it. */
+  language: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type VoiceDictationSettings = typeof VoiceDictationSettings.Type;
+
 /**
  * Theme values live here rather than in the web app so the schema that
  * validates the persisted value and the list the theme picker renders cannot
@@ -128,6 +244,21 @@ export const DEFAULT_APP_THEME: AppThemePreference = "system";
 export const ClientSettingsSchema = Schema.Struct({
   agentNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // `catchDecoding` because these two used to be one setting whose value set
+  // included the other's: a settings file written before the split still says
+  // `chatBackgroundEffect: "ripple"`. Failing there would take the whole
+  // settings file down over one cosmetic preference, so a value this build
+  // does not recognise reads as the default instead. The same tolerance covers
+  // a file written by a newer build. The bare schemas stay strict, so a client
+  // sending a bogus patch is still rejected rather than silently reset.
+  chatBackgroundEffect: ChatBackgroundEffect.pipe(
+    Schema.catchDecoding(() => Effect.succeed(Option.some(DEFAULT_CHAT_BACKGROUND_EFFECT))),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_BACKGROUND_EFFECT)),
+  ),
+  chatBorderEffect: ChatBorderEffect.pipe(
+    Schema.catchDecoding(() => Effect.succeed(Option.some(DEFAULT_CHAT_BORDER_EFFECT))),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_BORDER_EFFECT)),
+  ),
   completionSound: CompletionSound.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_COMPLETION_SOUND)),
   ),
@@ -215,6 +346,12 @@ export const ClientSettingsSchema = Schema.Struct({
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
   ),
+  // Nested rather than four flat keys so the meter's presentation stays one
+  // unit here and in `ClientSettingsPatch`. Patched whole, like
+  // `providerInstances`: the settings panel always holds the full value.
+  usageMeter: UsageMeterSettings,
+  // Nested for the same reason as `usageMeter`, and patched whole.
+  voiceDictation: VoiceDictationSettings,
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
@@ -780,6 +917,8 @@ export const ClientSettingsPatch = Schema.Struct({
   glassOpacity: Schema.optionalKey(GlassOpacity),
   uiFontFamily: Schema.optionalKey(UiFontFamily),
   uiFontSize: Schema.optionalKey(UiFontSize),
+  chatBackgroundEffect: Schema.optionalKey(ChatBackgroundEffect),
+  chatBorderEffect: Schema.optionalKey(ChatBorderEffect),
   codeFontFamily: Schema.optionalKey(CodeFontFamily),
   codeFontSize: Schema.optionalKey(CodeFontSize),
   codeTheme: Schema.optionalKey(CodeTheme),
@@ -817,6 +956,11 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),
   sidebarV2ConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   timestampFormat: Schema.optionalKey(TimestampFormat),
+  // Whole-blob replacement — every field carries a decoding default, so a
+  // partial object here silently resets the fields it omits. Send all of it.
+  usageMeter: Schema.optionalKey(UsageMeterSettings),
+  // Whole-blob replacement, same as `usageMeter`.
+  voiceDictation: Schema.optionalKey(VoiceDictationSettings),
   wordWrap: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

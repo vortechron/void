@@ -1574,6 +1574,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           schemes: ["t3code", "t3code-dev"],
         },
       ],
+      // Without a usage description macOS denies the microphone outright, so
+      // hold-to-talk dictation would fail in the packaged app only.
+      extendInfo: {
+        NSMicrophoneUsageDescription:
+          "T3 Code uses the microphone to dictate messages into the chat box.",
+      },
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,

@@ -151,6 +151,34 @@ export function selectWorkspaceThreadTabs(
     : (state.byWorkspaceKey[workspaceKey] ?? EMPTY_THREAD_TABS_STATE);
 }
 
+/**
+ * A chat lives in exactly one checkout, so opening it here takes it away from
+ * wherever it was. Promoting a draft into a new worktree moves the chat, and a
+ * tab left behind in the old checkout would send that workspace's row straight
+ * back to the chat that left it.
+ */
+export function openWorkspaceThreadTab(
+  state: WorkspaceThreadTabsState,
+  workspaceKey: string,
+  ref: ScopedThreadRef,
+  draftId: DraftId | null,
+): WorkspaceThreadTabsState {
+  const key = threadTabKey(ref);
+  const opened = openThreadTab(selectWorkspaceThreadTabs(state, workspaceKey), ref, draftId);
+  const others = Object.entries(state.byWorkspaceKey).flatMap(([candidateKey, tabs]) =>
+    candidateKey === workspaceKey ? [] : [[candidateKey, closeThreadTab(tabs, key)] as const],
+  );
+  const unchanged =
+    state.activeWorkspaceKey === workspaceKey &&
+    state.byWorkspaceKey[workspaceKey] === opened &&
+    others.every(([candidateKey, tabs]) => state.byWorkspaceKey[candidateKey] === tabs);
+  if (unchanged) return state;
+  return {
+    byWorkspaceKey: { ...Object.fromEntries(others), [workspaceKey]: opened },
+    activeWorkspaceKey: workspaceKey,
+  };
+}
+
 interface ThreadTabsStore extends WorkspaceThreadTabsState {
   openTab: (workspaceKey: string, ref: ScopedThreadRef, draftId: DraftId | null) => void;
   closeTab: (workspaceKey: string, key: string) => void;
@@ -183,10 +211,7 @@ export const useThreadTabsStore = create<ThreadTabsStore>()(
       byWorkspaceKey: {},
       activeWorkspaceKey: null,
       openTab: (workspaceKey, ref, draftId) =>
-        set((state) => ({
-          ...updateWorkspace(state, workspaceKey, (tabs) => openThreadTab(tabs, ref, draftId)),
-          activeWorkspaceKey: workspaceKey,
-        })),
+        set((state) => openWorkspaceThreadTab(state, workspaceKey, ref, draftId)),
       closeTab: (workspaceKey, key) =>
         set((state) => updateWorkspace(state, workspaceKey, (tabs) => closeThreadTab(tabs, key))),
       closeOthers: (workspaceKey, key) =>

@@ -70,6 +70,23 @@ export function workspaceFallbackLabel(input: {
   return "Current checkout";
 }
 
+/**
+ * Picks the chat a workspace row should open. The saved tab strip can outlive
+ * the chat it points at — promoting a draft into a worktree moves that chat to
+ * another checkout — so only a chat this checkout still owns may win, and the
+ * most recent one is the fallback.
+ */
+export function selectWorkspaceEntrySession(input: {
+  readonly sessions: readonly WorkspaceSession[];
+  readonly activeTabKey: string | null;
+}): WorkspaceSession | null {
+  const active =
+    input.activeTabKey === null
+      ? null
+      : (input.sessions.find((session) => session.key === input.activeTabKey) ?? null);
+  return active ?? input.sessions[0] ?? null;
+}
+
 /** Closed tabs stay discoverable without mixing in another checkout's chats. */
 export function selectClosedWorkspaceSessions(
   sessions: readonly WorkspaceSession[],
