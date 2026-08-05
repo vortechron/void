@@ -1,5 +1,6 @@
 import type {
   ModelSelection,
+  ProjectActionScope,
   ProjectPromptAction,
   ProjectScript,
   ProjectScriptIcon,
@@ -9,6 +10,8 @@ import type {
 } from "@t3tools/contracts";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
+import { mergedActions } from "@t3tools/shared/projectScripts";
+import type { ProjectActionScopeChange } from "~/projectActionScopes";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -36,6 +39,7 @@ import {
 import { keybindingFromKeyboardEvent } from "~/components/settings/KeybindingsSettings.logic";
 import {
   commandForProjectScript,
+  importableFileScripts,
   nextProjectScriptId,
   primaryProjectScript,
 } from "~/projectScripts";
@@ -136,11 +140,18 @@ export type ProjectPromptActionDestination = "current" | "new";
 export type ProjectScriptActionResult = AtomCommandResult<void, unknown>;
 
 const NO_FILE_SCRIPTS: ReadonlyArray<T3ProjectFileScript> = [];
+const NO_SCRIPTS: ReadonlyArray<ProjectScript> = [];
+const NO_PROMPT_ACTIONS: ReadonlyArray<ProjectPromptAction> = [];
 
 interface ProjectScriptsControlProps {
   scripts: ReadonlyArray<ProjectScript>;
   promptActions?: ReadonlyArray<ProjectPromptAction>;
   promptActionsSupported?: boolean;
+  /** Actions from settings.json, shared by every project on this server. */
+  globalScripts?: ReadonlyArray<ProjectScript>;
+  globalPromptActions?: ReadonlyArray<ProjectPromptAction>;
+  /** Hides the scope selector when the server cannot persist global actions. */
+  globalActionsSupported?: boolean;
   /** Scripts declared in the project's checked-in t3.json, offered for import. */
   fileScripts?: ReadonlyArray<T3ProjectFileScript>;
   keybindings: ResolvedKeybindingsConfig;
@@ -148,12 +159,19 @@ interface ProjectScriptsControlProps {
   settings?: UnifiedSettings;
   preferredScriptId?: string | null;
   onRunScript: (script: ProjectScript) => void;
-  onAddScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
+  onAddScript: (
+    input: NewProjectScriptInput,
+    scope: ProjectActionScope,
+  ) => Promise<ProjectScriptActionResult>;
   onUpdateScript: (
     scriptId: string,
     input: NewProjectScriptInput,
+    scopeChange: ProjectActionScopeChange,
   ) => Promise<ProjectScriptActionResult>;
-  onDeleteScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  onDeleteScript: (
+    scriptId: string,
+    scope: ProjectActionScope,
+  ) => Promise<ProjectScriptActionResult>;
   getCurrentModelSelection?: () => ModelSelection | null;
   getPromptActionDisabledReason?: (
     action: ProjectPromptAction,
@@ -163,18 +181,28 @@ interface ProjectScriptsControlProps {
     action: ProjectPromptAction,
     destination: ProjectPromptActionDestination,
   ) => void;
-  onAddPromptAction?: (input: NewProjectPromptActionInput) => Promise<ProjectScriptActionResult>;
+  onAddPromptAction?: (
+    input: NewProjectPromptActionInput,
+    scope: ProjectActionScope,
+  ) => Promise<ProjectScriptActionResult>;
   onUpdatePromptAction?: (
     actionId: string,
     input: NewProjectPromptActionInput,
+    scopeChange: ProjectActionScopeChange,
   ) => Promise<ProjectScriptActionResult>;
-  onDeletePromptAction?: (actionId: string) => Promise<ProjectScriptActionResult>;
+  onDeletePromptAction?: (
+    actionId: string,
+    scope: ProjectActionScope,
+  ) => Promise<ProjectScriptActionResult>;
 }
 
 export default function ProjectScriptsControl({
   scripts,
-  promptActions = [],
+  promptActions = NO_PROMPT_ACTIONS,
   promptActionsSupported = false,
+  globalScripts = NO_SCRIPTS,
+  globalPromptActions = NO_PROMPT_ACTIONS,
+  globalActionsSupported = false,
   fileScripts = NO_FILE_SCRIPTS,
   keybindings,
   providerStatuses = [],
@@ -195,6 +223,9 @@ export default function ProjectScriptsControl({
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
   const [editingPromptActionId, setEditingPromptActionId] = useState<string | null>(null);
   const [actionType, setActionType] = useState<"command" | "prompt">("command");
+  const [actionScope, setActionScope] = useState<ProjectActionScope>("project");
+  /** Scope the action being edited was loaded from, so a save can move it. */
+  const [editingScope, setEditingScope] = useState<ProjectActionScope>("project");
   const [actionsMenuOpen, setActionsMenuOpen] = useState({
     scripts: false,
     imports: false,
@@ -241,23 +272,34 @@ export default function ProjectScriptsControl({
       null)
     : null;
 
+  // Project entries first, so every first-match lookup below resolves to the
+  // project's own action when both scopes define one.
+  const allScripts = useMemo(
+    () => mergedActions({ project: scripts, global: globalScripts }),
+    [globalScripts, scripts],
+  );
+  const allPromptActions = useMemo(
+    () => mergedActions({ project: promptActions, global: globalPromptActions }),
+    [globalPromptActions, promptActions],
+  );
+  /** Every id in use across both scopes and both action types. */
+  const takenActionIds = useMemo(
+    () => [
+      ...allScripts.map((script) => script.id),
+      ...allPromptActions.map((action) => action.id),
+    ],
+    [allPromptActions, allScripts],
+  );
+
   const primaryScript = useMemo(() => {
     if (preferredScriptId) {
-      const preferred = scripts.find((script) => script.id === preferredScriptId);
+      const preferred = allScripts.find((script) => script.id === preferredScriptId);
       if (preferred) return preferred;
     }
-    return primaryProjectScript(scripts);
-  }, [preferredScriptId, scripts]);
+    return primaryProjectScript(allScripts);
+  }, [allScripts, preferredScriptId]);
   const importableScripts = useMemo(
-    () =>
-      fileScripts.filter(
-        (fileScript) =>
-          !scripts.some(
-            (script) =>
-              script.command === fileScript.command ||
-              script.name.toLowerCase() === fileScript.name.toLowerCase(),
-          ),
-      ),
+    () => importableFileScripts(fileScripts, scripts),
     [fileScripts, scripts],
   );
   const isEditing = editingScriptId !== null || editingPromptActionId !== null;
@@ -300,8 +342,11 @@ export default function ProjectScriptsControl({
         modelSelection,
       };
       const result = editingPromptActionId
-        ? await onUpdatePromptAction?.(editingPromptActionId, payload)
-        : await onAddPromptAction?.(payload);
+        ? await onUpdatePromptAction?.(editingPromptActionId, payload, {
+            from: editingScope,
+            to: actionScope,
+          })
+        : await onAddPromptAction?.(payload, actionScope);
       if (!result) {
         setValidationError("Prompt actions are not supported by this server.");
         return;
@@ -328,11 +373,7 @@ export default function ProjectScriptsControl({
     let payload: NewProjectScriptInput;
     try {
       const scriptIdForValidation =
-        editingScriptId ??
-        nextProjectScriptId(
-          trimmedName,
-          scripts.map((script) => script.id),
-        );
+        editingScriptId ?? nextProjectScriptId(trimmedName, takenActionIds);
       const keybindingRule = decodeProjectScriptKeybindingRule({
         keybinding,
         command: commandForProjectScript(scriptIdForValidation),
@@ -353,8 +394,8 @@ export default function ProjectScriptsControl({
     }
 
     const result = editingScriptId
-      ? await onUpdateScript(editingScriptId, payload)
-      : await onAddScript(payload);
+      ? await onUpdateScript(editingScriptId, payload, { from: editingScope, to: actionScope })
+      : await onAddScript(payload, actionScope);
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
@@ -370,6 +411,8 @@ export default function ProjectScriptsControl({
     setEditingScriptId(null);
     setEditingPromptActionId(null);
     setActionType("command");
+    setActionScope("project");
+    setEditingScope("project");
     setName("");
     setCommand("");
     setPrompt("");
@@ -384,11 +427,13 @@ export default function ProjectScriptsControl({
     setDialogOpen(true);
   };
 
-  const openEditDialog = (script: ProjectScript) => {
+  const openEditDialog = (script: ProjectScript, scope: ProjectActionScope) => {
     setActionsMenuOpen({ scripts: false, imports: false });
     setEditingScriptId(script.id);
     setEditingPromptActionId(null);
     setActionType("command");
+    setActionScope(scope);
+    setEditingScope(scope);
     setName(script.name);
     setCommand(script.command);
     setIcon(script.icon);
@@ -401,11 +446,13 @@ export default function ProjectScriptsControl({
     setDialogOpen(true);
   };
 
-  const openEditPromptDialog = (action: ProjectPromptAction) => {
+  const openEditPromptDialog = (action: ProjectPromptAction, scope: ProjectActionScope) => {
     setActionsMenuOpen({ scripts: false, imports: false });
     setEditingScriptId(null);
     setEditingPromptActionId(action.id);
     setActionType("prompt");
+    setActionScope(scope);
+    setEditingScope(scope);
     setName(action.name);
     setPrompt(action.prompt);
     setModelSelection(action.modelSelection);
@@ -420,14 +467,16 @@ export default function ProjectScriptsControl({
     if (!editingScriptId && !editingPromptActionId) return;
     setDeleteConfirmOpen(false);
     setDialogOpen(false);
+    // Delete from where the action actually lives, not from whatever scope the
+    // selector happens to be showing.
     if (editingScriptId) {
-      void onDeleteScript(editingScriptId);
+      void onDeleteScript(editingScriptId, editingScope);
       return;
     }
     if (editingPromptActionId) {
-      void onDeletePromptAction?.(editingPromptActionId);
+      void onDeletePromptAction?.(editingPromptActionId, editingScope);
     }
-  }, [editingPromptActionId, editingScriptId, onDeletePromptAction, onDeleteScript]);
+  }, [editingPromptActionId, editingScope, editingScriptId, onDeletePromptAction, onDeleteScript]);
 
   const importFileScript = async (fileScript: T3ProjectFileScript) => {
     const payload: NewProjectScriptInput = {
@@ -439,12 +488,16 @@ export default function ProjectScriptsControl({
       previewUrl: fileScript.previewUrl ?? null,
       autoOpenPreview: fileScript.previewUrl ? (fileScript.autoOpenPreview ?? false) : false,
     };
-    const result = await onAddScript(payload);
+    // A t3.json script is declared by the repo, so importing it can only ever
+    // land on the project.
+    const result = await onAddScript(payload, "project");
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       // Surface the failure through the regular add dialog, prefilled so the
       // user can adjust and retry.
       const error = squashAtomCommandFailure(result);
       setEditingScriptId(null);
+      setActionScope("project");
+      setEditingScope("project");
       setName(payload.name);
       setCommand(payload.command);
       setIcon(payload.icon);
@@ -460,7 +513,7 @@ export default function ProjectScriptsControl({
 
   const importMenuItems = importableScripts.length > 0 && (
     <>
-      {(primaryScript || promptActions.length > 0) && <MenuSeparator />}
+      {(primaryScript || allPromptActions.length > 0) && <MenuSeparator />}
       <MenuGroup>
         <MenuGroupLabel>From t3.json</MenuGroupLabel>
         {importableScripts.map((fileScript) => (
@@ -480,66 +533,122 @@ export default function ProjectScriptsControl({
     </>
   );
 
-  const promptMenuItems = promptActions.length > 0 && (
+  const renderPromptEntry = (action: ProjectPromptAction, scope: ProjectActionScope) => {
+    const currentReason = getPromptActionDisabledReason?.(action, "current") ?? null;
+    const newReason = getPromptActionDisabledReason?.(action, "new") ?? null;
+    return (
+      <MenuSub key={`${scope}:${action.id}`}>
+        <MenuSubTrigger className={dropdownItemClassName}>
+          <ScriptIcon icon={action.icon} className="size-4" />
+          <span className="truncate">{action.name}</span>
+        </MenuSubTrigger>
+        <MenuSubPopup>
+          <MenuItem
+            className={dropdownItemClassName}
+            disabled={currentReason !== null}
+            title={currentReason ?? undefined}
+            onClick={() => onUsePromptAction?.(action, "current")}
+          >
+            <MessageSquareTextIcon className="size-4" />
+            <span className="min-w-0">
+              <span className="block">Use in current chat</span>
+              {currentReason ? (
+                <span className="block max-w-64 truncate text-xs text-muted-foreground">
+                  {currentReason}
+                </span>
+              ) : null}
+            </span>
+          </MenuItem>
+          <MenuItem
+            className={dropdownItemClassName}
+            disabled={newReason !== null}
+            title={newReason ?? undefined}
+            onClick={() => onUsePromptAction?.(action, "new")}
+          >
+            <PlusIcon className="size-4" />
+            <span className="min-w-0">
+              <span className="block">Open in new chat</span>
+              {newReason ? (
+                <span className="block max-w-64 truncate text-xs text-muted-foreground">
+                  {newReason}
+                </span>
+              ) : null}
+            </span>
+          </MenuItem>
+          <MenuSeparator />
+          <MenuItem
+            className={dropdownItemClassName}
+            onClick={() => openEditPromptDialog(action, scope)}
+          >
+            <SettingsIcon className="size-4" />
+            Edit prompt
+          </MenuItem>
+        </MenuSubPopup>
+      </MenuSub>
+    );
+  };
+
+  const renderScriptEntry = (script: ProjectScript, scope: ProjectActionScope) => {
+    const shortcutLabel = shortcutLabelForCommand(keybindings, commandForProjectScript(script.id));
+    return (
+      <MenuItem
+        key={`${scope}:${script.id}`}
+        className={`group ${dropdownItemClassName}`}
+        onClick={() => onRunScript(script)}
+      >
+        <ScriptIcon icon={script.icon} className="size-4" />
+        <span className="truncate">
+          {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
+        </span>
+        <span className="relative ms-auto flex h-6 min-w-6 items-center justify-end">
+          {shortcutLabel && (
+            <MenuShortcut className="ms-0 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">
+              {shortcutLabel}
+            </MenuShortcut>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-visible:opacity-100 group-focus-visible:pointer-events-auto"
+            aria-label={`Edit ${script.name}`}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openEditDialog(script, scope);
+            }}
+          >
+            <SettingsIcon className="size-3.5" />
+          </Button>
+        </span>
+      </MenuItem>
+    );
+  };
+
+  const promptMenuItems = allPromptActions.length > 0 && (
     <>
-      {scripts.length > 0 ? <MenuSeparator /> : null}
-      <MenuGroup>
-        <MenuGroupLabel>Prompts</MenuGroupLabel>
-        {promptActions.map((action) => {
-          const currentReason = getPromptActionDisabledReason?.(action, "current") ?? null;
-          const newReason = getPromptActionDisabledReason?.(action, "new") ?? null;
-          return (
-            <MenuSub key={action.id}>
-              <MenuSubTrigger className={dropdownItemClassName}>
-                <ScriptIcon icon={action.icon} className="size-4" />
-                <span className="truncate">{action.name}</span>
-              </MenuSubTrigger>
-              <MenuSubPopup>
-                <MenuItem
-                  className={dropdownItemClassName}
-                  disabled={currentReason !== null}
-                  title={currentReason ?? undefined}
-                  onClick={() => onUsePromptAction?.(action, "current")}
-                >
-                  <MessageSquareTextIcon className="size-4" />
-                  <span className="min-w-0">
-                    <span className="block">Use in current chat</span>
-                    {currentReason ? (
-                      <span className="block max-w-64 truncate text-xs text-muted-foreground">
-                        {currentReason}
-                      </span>
-                    ) : null}
-                  </span>
-                </MenuItem>
-                <MenuItem
-                  className={dropdownItemClassName}
-                  disabled={newReason !== null}
-                  title={newReason ?? undefined}
-                  onClick={() => onUsePromptAction?.(action, "new")}
-                >
-                  <PlusIcon className="size-4" />
-                  <span className="min-w-0">
-                    <span className="block">Open in new chat</span>
-                    {newReason ? (
-                      <span className="block max-w-64 truncate text-xs text-muted-foreground">
-                        {newReason}
-                      </span>
-                    ) : null}
-                  </span>
-                </MenuItem>
-                <MenuSeparator />
-                <MenuItem
-                  className={dropdownItemClassName}
-                  onClick={() => openEditPromptDialog(action)}
-                >
-                  <SettingsIcon className="size-4" />
-                  Edit prompt
-                </MenuItem>
-              </MenuSubPopup>
-            </MenuSub>
-          );
-        })}
-      </MenuGroup>
+      {promptActions.length > 0 ? (
+        <>
+          {allScripts.length > 0 ? <MenuSeparator /> : null}
+          <MenuGroup>
+            <MenuGroupLabel>Prompts</MenuGroupLabel>
+            {promptActions.map((action) => renderPromptEntry(action, "project"))}
+          </MenuGroup>
+        </>
+      ) : null}
+      {globalPromptActions.length > 0 ? (
+        <>
+          {allScripts.length > 0 || promptActions.length > 0 ? <MenuSeparator /> : null}
+          <MenuGroup>
+            <MenuGroupLabel>Global prompts</MenuGroupLabel>
+            {globalPromptActions.map((action) => renderPromptEntry(action, "global"))}
+          </MenuGroup>
+        </>
+      ) : null}
     </>
   );
 
@@ -578,49 +687,16 @@ export default function ProjectScriptsControl({
               <ChevronDownIcon className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end">
-              {scripts.map((script) => {
-                const shortcutLabel = shortcutLabelForCommand(
-                  keybindings,
-                  commandForProjectScript(script.id),
-                );
-                return (
-                  <MenuItem
-                    key={script.id}
-                    className={`group ${dropdownItemClassName}`}
-                    onClick={() => onRunScript(script)}
-                  >
-                    <ScriptIcon icon={script.icon} className="size-4" />
-                    <span className="truncate">
-                      {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
-                    </span>
-                    <span className="relative ms-auto flex h-6 min-w-6 items-center justify-end">
-                      {shortcutLabel && (
-                        <MenuShortcut className="ms-0 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">
-                          {shortcutLabel}
-                        </MenuShortcut>
-                      )}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        className="absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-visible:opacity-100 group-focus-visible:pointer-events-auto"
-                        aria-label={`Edit ${script.name}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          openEditDialog(script);
-                        }}
-                      >
-                        <SettingsIcon className="size-3.5" />
-                      </Button>
-                    </span>
-                  </MenuItem>
-                );
-              })}
+              {scripts.map((script) => renderScriptEntry(script, "project"))}
+              {globalScripts.length > 0 ? (
+                <>
+                  {scripts.length > 0 ? <MenuSeparator /> : null}
+                  <MenuGroup>
+                    <MenuGroupLabel>Global</MenuGroupLabel>
+                    {globalScripts.map((script) => renderScriptEntry(script, "global"))}
+                  </MenuGroup>
+                </>
+              ) : null}
               {promptMenuItems}
               {importMenuItems}
               <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
@@ -630,14 +706,14 @@ export default function ProjectScriptsControl({
             </MenuPopup>
           </Menu>
         </Group>
-      ) : promptActions.length > 0 || importableScripts.length > 0 ? (
+      ) : allPromptActions.length > 0 || importableScripts.length > 0 ? (
         <Menu
           highlightItemOnHover={false}
           open={actionsMenuOpen.imports}
           onOpenChange={(open) => setActionsMenuOpen({ scripts: false, imports: open })}
         >
           <MenuTrigger render={<Button size="xs" variant="outline" aria-label="Project actions" />}>
-            {promptActions.length > 0 ? (
+            {allPromptActions.length > 0 ? (
               <MessageSquareTextIcon className="size-3.5" />
             ) : (
               <PlusIcon className="size-3.5" />
@@ -690,6 +766,8 @@ export default function ProjectScriptsControl({
           setEditingScriptId(null);
           setEditingPromptActionId(null);
           setActionType("command");
+          setActionScope("project");
+          setEditingScope("project");
           setName("");
           setCommand("");
           setPrompt("");
@@ -740,6 +818,49 @@ export default function ProjectScriptsControl({
                   >
                     Prompt
                   </Button>
+                </div>
+              ) : null}
+              {globalActionsSupported ? (
+                <div className="space-y-1.5">
+                  {/* Two buttons standing in for a radio group, so the label,
+                      the hint, and which scope is chosen all reach assistive
+                      tech. `htmlFor` cannot do that job here — the control is
+                      a container, not a form element. */}
+                  <Label id="action-scope-label" render={<span />}>
+                    Scope
+                  </Label>
+                  <div
+                    role="radiogroup"
+                    aria-labelledby="action-scope-label"
+                    aria-describedby="action-scope-hint"
+                    className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                  >
+                    <Button
+                      type="button"
+                      role="radio"
+                      aria-checked={actionScope === "project"}
+                      variant={actionScope === "project" ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setActionScope("project")}
+                    >
+                      This project
+                    </Button>
+                    <Button
+                      type="button"
+                      role="radio"
+                      aria-checked={actionScope === "global"}
+                      variant={actionScope === "global" ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setActionScope("global")}
+                    >
+                      Global
+                    </Button>
+                  </div>
+                  <p id="action-scope-hint" className="text-xs text-muted-foreground">
+                    {actionScope === "global"
+                      ? "Available in every project on this server."
+                      : "Available only in this project."}
+                  </p>
                 </div>
               ) : null}
               <div className="space-y-1.5">
@@ -830,7 +951,14 @@ export default function ProjectScriptsControl({
                     </p>
                   </div>
                   <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
-                    <span>Run automatically on worktree creation</span>
+                    <span className="min-w-0">
+                      <span className="block">Run automatically on worktree creation</span>
+                      {actionScope === "global" ? (
+                        <span className="block text-xs text-muted-foreground">
+                          Skipped in projects that define their own setup action.
+                        </span>
+                      ) : null}
+                    </span>
                     <Switch
                       checked={runOnWorktreeCreate}
                       onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}

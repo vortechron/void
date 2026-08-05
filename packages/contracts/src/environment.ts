@@ -53,6 +53,10 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server persists promptActions on project.meta.update. Clients must not
       expose prompt-action writes when this is absent. */
   projectPromptActions: Schema.optionalKey(Schema.Boolean),
+  /** Server persists globalScripts / globalPromptActions in settings.json.
+      Clients must hide the scope selector and never send those settings keys
+      when this is absent. */
+  globalActions: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows
       foreground runs, pre-update servers). */

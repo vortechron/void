@@ -83,7 +83,18 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    * Compact UI geometry. Keep these values semantic so sidebar, palette,
    * tooltip, and toolbar controls cannot quietly drift apart.
    */
-  --control-radius: 0.5rem;
+  --control-radius: 0.25rem;
+  /* Chat composer geometry. The glass shell traces its own outline, so its
+   * corner radius and the attachment strip's notch radius are tokens rather
+   * than literals — change these two and every composer curve follows. */
+  --chat-composer-radius: 6px;
+  --chat-composer-strip-radius: 6px;
+  /* The composer's own max width. The context strip below it derives its width
+   * from this, so the two cannot drift apart. */
+  --chat-composer-max-width: 48rem;
+  /* The glass shape tucks the strip's side walls one composer radius in from
+   * each edge, so the strip element must shed exactly that much width. */
+  --chat-composer-strip-inset: calc(var(--chat-composer-radius) * 2);
   --sidebar-content-inset: 0.5rem;
   --sidebar-control-gap: 0.5rem;
   --sidebar-icon-color: color-mix(in srgb, var(--sidebar-muted-foreground) 60%, var(--sidebar));
@@ -202,7 +213,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-sidebar-row-active: var(--sidebar-row-active);
   --color-sidebar-row-selected: var(--sidebar-row-selected);
   --color-sidebar-border: var(--sidebar-border);
-  --radius-sm: calc(var(--radius) - 4px);
+  /* Floor the smallest step so a boxy --radius never collapses it to a hard 0. */
+  --radius-sm: max(2px, calc(var(--radius) - 4px));
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
@@ -445,6 +457,18 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   .chat-composer-glass-shell {
     --chat-composer-glass-surface: var(--card);
     --chat-composer-outline: rgb(0 0 0 / 8%);
+    /*
+     * Bezier handles for a circular corner sit at r * (1 - 0.5523) from the
+     * corner, so every control point below is derived, never measured.
+     */
+    --composer-r: var(--chat-composer-radius);
+    --composer-rc: calc(var(--chat-composer-radius) * 0.4477);
+    --composer-s: var(--chat-composer-strip-radius);
+    --composer-sc: calc(var(--chat-composer-strip-radius) * 0.4477);
+    --composer-notch: calc(var(--chat-composer-radius) + var(--chat-composer-strip-radius));
+    --composer-notch-c: calc(
+      var(--chat-composer-radius) + var(--chat-composer-strip-radius) * 0.4477
+    );
 
     position: relative;
     isolation: isolate;
@@ -455,7 +479,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     position: absolute;
     z-index: 0;
     inset: 0;
-    border-radius: 22px;
+    border-radius: var(--chat-composer-radius);
     background: color-mix(
       in srgb,
       var(--chat-composer-glass-surface) var(--glass-opacity),
@@ -473,28 +497,30 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   .chat-composer-glass-shell-with-context::before {
     border-radius: 0;
     /*
-     * One continuous glass layer: a 22px composer joined to a 16px strip,
+     * One continuous glass layer: the composer joined to the context strip,
      * whose visible sides align with the composer's bottom tangents.
      */
     clip-path: shape(
-      from 0 22px,
-      curve to 22px 0 with 0 9.85px / 9.85px 0,
-      line to calc(100% - 22px) 0,
-      curve to 100% 22px with calc(100% - 9.85px) 0 / 100% 9.85px,
-      line to 100% calc(100% - var(--chat-composer-context-extension) - 22px),
-      curve to calc(100% - 22px) calc(100% - var(--chat-composer-context-extension)) with 100%
-        calc(100% - var(--chat-composer-context-extension) - 9.85px) / calc(100% - 9.85px)
-        calc(100% - var(--chat-composer-context-extension)),
-      line to calc(100% - 22px) calc(100% - 16px),
-      curve to calc(100% - 38px) 100% with calc(100% - 22px) calc(100% - 7.16px) /
-        calc(100% - 29.16px) 100%,
-      line to 38px 100%,
-      curve to 22px calc(100% - 16px) with 29.16px 100% / 22px calc(100% - 7.16px),
-      line to 22px calc(100% - var(--chat-composer-context-extension)),
-      curve to 0 calc(100% - var(--chat-composer-context-extension) - 22px) with 9.85px
-        calc(100% - var(--chat-composer-context-extension)) / 0
-        calc(100% - var(--chat-composer-context-extension) - 9.85px),
-      line to 0 22px,
+      from 0 var(--composer-r),
+      curve to var(--composer-r) 0 with 0 var(--composer-rc) / var(--composer-rc) 0,
+      line to calc(100% - var(--composer-r)) 0,
+      curve to 100% var(--composer-r) with calc(100% - var(--composer-rc)) 0 / 100%
+        var(--composer-rc),
+      line to 100% calc(100% - var(--chat-composer-context-extension) - var(--composer-r)),
+      curve to calc(100% - var(--composer-r)) calc(100% - var(--chat-composer-context-extension))
+        with 100% calc(100% - var(--chat-composer-context-extension) - var(--composer-rc)) /
+        calc(100% - var(--composer-rc)) calc(100% - var(--chat-composer-context-extension)),
+      line to calc(100% - var(--composer-r)) calc(100% - var(--composer-s)),
+      curve to calc(100% - var(--composer-notch)) 100% with calc(100% - var(--composer-r))
+        calc(100% - var(--composer-sc)) / calc(100% - var(--composer-notch-c)) 100%,
+      line to var(--composer-notch) 100%,
+      curve to var(--composer-r) calc(100% - var(--composer-s)) with var(--composer-notch-c) 100% /
+        var(--composer-r) calc(100% - var(--composer-sc)),
+      line to var(--composer-r) calc(100% - var(--chat-composer-context-extension)),
+      curve to 0 calc(100% - var(--chat-composer-context-extension) - var(--composer-r)) with
+        var(--composer-rc) calc(100% - var(--chat-composer-context-extension)) / 0
+        calc(100% - var(--chat-composer-context-extension) - var(--composer-rc)),
+      line to 0 var(--composer-r),
       close
     );
   }
@@ -527,10 +553,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       0 0,
       100% 0,
       100% 100%,
-      calc(100% - 22px) 100%,
-      calc(100% - 22px) calc(100% - 2px),
-      22px calc(100% - 2px),
-      22px 100%,
+      calc(100% - var(--composer-r)) 100%,
+      calc(100% - var(--composer-r)) calc(100% - 2px),
+      var(--composer-r) calc(100% - 2px),
+      var(--composer-r) 100%,
       0 100%
     );
   }
@@ -538,6 +564,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   .chat-composer-context-strip {
     position: relative;
     isolation: isolate;
+    /* Must match the side walls the glass shape carves for it, or the shell
+     * shows shoulders where the strip stops short. */
+    width: calc(100% - var(--chat-composer-strip-inset));
+    max-width: calc(var(--chat-composer-max-width) - var(--chat-composer-strip-inset));
   }
 
   .chat-composer-context-strip::before {
@@ -545,8 +575,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     z-index: -1;
     inset: 0;
     border: 1px solid var(--chat-composer-outline);
-    border-radius: 0 0 16px 16px;
-    /* Start the strip outline exactly where the composer's 22px curve reaches its tangent. */
+    border-radius: 0 0 var(--chat-composer-strip-radius) var(--chat-composer-strip-radius);
+    /* Start the strip outline below the 1rem overlap it sits under. */
     -webkit-mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
     mask-image: linear-gradient(to bottom, transparent 0 1rem, black 1rem);
     box-shadow: 0 12px 28px -18px rgb(0 0 0 / 40%);
@@ -583,7 +613,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   @supports not (clip-path: shape(from 0 0, line to 1px 1px)) {
     .chat-composer-glass-shell-with-context::before {
       inset-block-end: var(--chat-composer-context-extension);
-      border-radius: 22px;
+      border-radius: var(--chat-composer-radius);
       clip-path: none;
     }
 
@@ -877,7 +907,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 :root {
   color-scheme: light;
-  --radius: 0.625rem;
+  --radius: 0.25rem;
   --background: var(--color-zinc-25);
   --app-chrome-background: var(--background);
   --surface-raised: color-mix(in srgb, var(--card) 20%, transparent);

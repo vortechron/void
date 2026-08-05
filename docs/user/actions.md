@@ -1,16 +1,42 @@
-# Project actions
+# Actions
 
-Project actions save repeatable commands and prompts on a project. Open the action control in a
-chat's top bar to run or edit them.
+Actions save repeatable commands and prompts. Open the action control in a chat's top bar to run
+or edit them.
+
+## Scope
+
+Each action is either global or project-only, chosen when you add it and changeable whenever you
+edit it.
+
+- **This project** is the default. The action appears only in the project you created it in.
+- **Global** stores the action on the server instead, so it appears in every project on that
+  server.
+
+Global means one server. Connecting to a second server does not carry your global actions across,
+and a global prompt action's saved provider and model must exist on the server that holds it.
+
+Moving an action between scopes saves it in the new scope first, then removes the old copy. If the
+removal fails you are told about it and the action briefly exists twice; delete whichever copy you
+do not want.
+
+The scope selector is hidden when the server is too old to store global actions. Everything stays
+project-only there.
+
+Adding and editing actions is a web and desktop job. The mobile app runs and uses both scopes but
+does not create, edit, or delete them.
 
 ## Command actions
 
 A command action runs its saved shell command in a project terminal. It can also have a
 keybinding, start automatically when a worktree is created, and open a desktop preview URL.
 
-Only command actions can use keybindings or appear as `script.{id}.run` commands. A project's
-checked-in `t3.json` file can declare command actions for import, but it does not declare prompt
-actions.
+Only command actions can use keybindings or appear as `script.{id}.run` commands. A keybinding
+follows its action across a scope change, and a global action's keybinding works in every project.
+A project's checked-in `t3.json` file can declare command actions for import; imported actions are
+always project-only, and `t3.json` does not declare prompt actions.
+
+Each scope can have one action that runs on worktree creation. When both a project action and a
+global one are set to run, only the project's runs.
 
 ## Prompt actions
 

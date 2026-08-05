@@ -46,6 +46,7 @@ import {
   type ComposerDraftWorkspaceSelection,
   updateComposerDraftSettings,
 } from "../../state/use-composer-drafts";
+import { mergedActions } from "@t3tools/shared/projectScripts";
 import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
 import { buildModelMenuActions, resolveSelectableModelSelection } from "../../lib/modelOptions";
 import { deriveThreadTitleFromPrompt } from "../../lib/projectThreadStartTurn";
@@ -95,14 +96,24 @@ export function NewTaskDraftScreen(props: {
       ) ?? null,
     [projects, props.initialProjectRef?.environmentId, props.initialProjectRef?.projectId],
   );
+  // A saved prompt may be the project's own or one of the server's global
+  // ones, so resolve the id against both lists.
+  const promptActionServerConfig = useEnvironmentServerConfig(
+    promptActionProject?.environmentId ?? null,
+  );
   const promptAction = useMemo(
     () =>
       props.promptActionId
-        ? (promptActionProject?.promptActions?.find(
-            (action) => action.id === props.promptActionId,
-          ) ?? null)
+        ? (mergedActions({
+            project: promptActionProject?.promptActions,
+            global: promptActionServerConfig?.settings.globalPromptActions,
+          }).find((action) => action.id === props.promptActionId) ?? null)
         : null,
-    [promptActionProject?.promptActions, props.promptActionId],
+    [
+      promptActionProject?.promptActions,
+      promptActionServerConfig?.settings.globalPromptActions,
+      props.promptActionId,
+    ],
   );
   const promptActionPrompt = promptAction?.prompt ?? null;
   const promptActionModelSelectionKey = JSON.stringify(promptAction?.modelSelection ?? null);

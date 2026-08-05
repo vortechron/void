@@ -14,7 +14,11 @@ import {
   type ProjectScript,
   type ServerConfig,
 } from "@t3tools/contracts";
-import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
+import {
+  mergedActions,
+  projectScriptCwd,
+  projectScriptRuntimeEnv,
+} from "@t3tools/shared/projectScripts";
 import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
@@ -330,6 +334,24 @@ function ThreadRouteContent(
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
   const routeConnectionError = routeEnvironmentRuntime?.connectionError ?? null;
+  // Global actions ride along in the server config's settings blob. Mobile only
+  // reads them — creating and editing stays on web and desktop.
+  const scopedProjectScripts = useMemo(
+    () =>
+      mergedActions({
+        project: selectedThreadProject?.scripts,
+        global: serverConfig?.settings.globalScripts,
+      }),
+    [selectedThreadProject?.scripts, serverConfig?.settings.globalScripts],
+  );
+  const scopedProjectPromptActions = useMemo(
+    () =>
+      mergedActions({
+        project: selectedThreadProject?.promptActions,
+        global: serverConfig?.settings.globalPromptActions,
+      }),
+    [selectedThreadProject?.promptActions, serverConfig?.settings.globalPromptActions],
+  );
   const selectedThreadWithDraftSettings = useMemo(
     () =>
       selectedThread
@@ -723,8 +745,8 @@ function ThreadRouteContent(
     gitOperationLabel: gitState.gitOperationLabel,
     canOpenTerminal: Boolean(selectedThreadProject?.workspaceRoot),
     canOpenFiles: Boolean(selectedThreadProject?.workspaceRoot),
-    projectScripts: selectedThreadProject?.scripts ?? [],
-    projectPromptActions: selectedThreadProject?.promptActions ?? [],
+    projectScripts: scopedProjectScripts,
+    projectPromptActions: scopedProjectPromptActions,
     terminalSessions: terminalMenuSessions,
     showDirectFileControl: layout.usesSplitView,
     onOpenTerminal: handleOpenTerminal,

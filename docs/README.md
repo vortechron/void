@@ -5,7 +5,7 @@
 - [Install and first run](./user/install.md)
 - [Permission modes](./user/permission-modes.md)
 - [Keyboard shortcuts](./user/keybindings.md)
-- [Project actions](./user/actions.md)
+- [Actions](./user/actions.md)
 - [Voice dictation](./user/voice-dictation.md)
 - [Remote access](./user/remote-access.md)
 - [Keeping app and server in sync](./user/updating.md)

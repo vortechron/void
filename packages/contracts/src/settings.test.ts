@@ -415,3 +415,55 @@ describe("ClientSettings chat ambient effects", () => {
     expect(() => decodeClientSettingsPatch({ chatBorderEffect: "meteors" })).toThrow();
   });
 });
+
+describe("ServerSettings global actions", () => {
+  const globalScript = {
+    id: "install",
+    name: "Install",
+    command: "pnpm install",
+    icon: "configure" as const,
+    runOnWorktreeCreate: true,
+  };
+  const globalPromptAction = {
+    id: "review",
+    name: "Review",
+    icon: "test" as const,
+    prompt: "Review the diff.",
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+  };
+
+  it("defaults both lists to empty for a settings file that predates them", () => {
+    const settings = decodeServerSettings({});
+
+    expect(settings.globalScripts).toEqual([]);
+    expect(settings.globalPromptActions).toEqual([]);
+  });
+
+  it("round-trips both lists", () => {
+    const settings = decodeServerSettings({
+      globalScripts: [globalScript],
+      globalPromptActions: [globalPromptAction],
+    });
+
+    expect(settings.globalScripts).toEqual([globalScript]);
+    expect(settings.globalPromptActions[0]?.id).toBe("review");
+    expect(encodeServerSettings(settings).globalScripts).toEqual([globalScript]);
+  });
+
+  it("accepts both lists in a patch", () => {
+    const patch = decodeServerSettingsPatch({
+      globalScripts: [globalScript],
+      globalPromptActions: [globalPromptAction],
+    });
+
+    expect(patch.globalScripts).toEqual([globalScript]);
+    expect(patch.globalPromptActions).toHaveLength(1);
+  });
+
+  it("omits the keys from a patch that does not mention them", () => {
+    const patch = decodeServerSettingsPatch({ enableAssistantStreaming: true });
+
+    expect(patch.globalScripts).toBeUndefined();
+    expect(patch.globalPromptActions).toBeUndefined();
+  });
+});

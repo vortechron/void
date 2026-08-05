@@ -2,6 +2,7 @@ import {
   type EnvironmentId,
   type EditorId,
   type ModelSelection,
+  type ProjectActionScope,
   type ProjectPromptAction,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
@@ -20,6 +21,7 @@ import ProjectScriptsControl, {
   type ProjectPromptActionDestination,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
+import type { ProjectActionScopeChange } from "~/projectActionScopes";
 import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
@@ -37,6 +39,9 @@ interface ChatHeaderProps {
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
   activeProjectPromptActions: ReadonlyArray<ProjectPromptAction> | undefined;
   promptActionsSupported: boolean;
+  globalScripts: ReadonlyArray<ProjectScript>;
+  globalPromptActions: ReadonlyArray<ProjectPromptAction>;
+  globalActionsSupported: boolean;
   providerStatuses: ReadonlyArray<ServerProvider>;
   settings: UnifiedSettings;
   preferredScriptId: string | null;
@@ -46,12 +51,19 @@ interface ChatHeaderProps {
   gitCwd: string | null;
   onNewThreadInProject: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
-  onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
+  onAddProjectScript: (
+    input: NewProjectScriptInput,
+    scope: ProjectActionScope,
+  ) => Promise<ProjectScriptActionResult>;
   onUpdateProjectScript: (
     scriptId: string,
     input: NewProjectScriptInput,
+    scopeChange: ProjectActionScopeChange,
   ) => Promise<ProjectScriptActionResult>;
-  onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  onDeleteProjectScript: (
+    scriptId: string,
+    scope: ProjectActionScope,
+  ) => Promise<ProjectScriptActionResult>;
   getCurrentModelSelection: () => ModelSelection | null;
   getPromptActionDisabledReason: (
     action: ProjectPromptAction,
@@ -63,12 +75,17 @@ interface ChatHeaderProps {
   ) => void;
   onAddProjectPromptAction: (
     input: NewProjectPromptActionInput,
+    scope: ProjectActionScope,
   ) => Promise<ProjectScriptActionResult>;
   onUpdateProjectPromptAction: (
     actionId: string,
     input: NewProjectPromptActionInput,
+    scopeChange: ProjectActionScopeChange,
   ) => Promise<ProjectScriptActionResult>;
-  onDeleteProjectPromptAction: (actionId: string) => Promise<ProjectScriptActionResult>;
+  onDeleteProjectPromptAction: (
+    actionId: string,
+    scope: ProjectActionScope,
+  ) => Promise<ProjectScriptActionResult>;
 }
 
 export function shouldShowOpenInPicker(input: {
@@ -94,6 +111,9 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectScripts,
   activeProjectPromptActions,
   promptActionsSupported,
+  globalScripts,
+  globalPromptActions,
+  globalActionsSupported,
   providerStatuses,
   settings,
   preferredScriptId,
@@ -182,6 +202,9 @@ export const ChatHeader = memo(function ChatHeader({
             scripts={activeProjectScripts}
             promptActions={activeProjectPromptActions ?? []}
             promptActionsSupported={promptActionsSupported}
+            globalScripts={globalScripts}
+            globalPromptActions={globalPromptActions}
+            globalActionsSupported={globalActionsSupported}
             fileScripts={fileScripts}
             keybindings={keybindings}
             providerStatuses={providerStatuses}
