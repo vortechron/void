@@ -1,18 +1,7 @@
 import type { CodeFontFamily, CodeTheme, UiFontFamily } from "@t3tools/contracts/settings";
+import { APP_THEME_VALUES } from "@t3tools/contracts/settings";
 
-export const APP_THEME_VALUES = [
-  "system",
-  "light",
-  "dark",
-  "catppuccin-latte",
-  "catppuccin-macchiato",
-  "catppuccin-mocha",
-  "dracula",
-  "nord",
-  "tokyo-night",
-  "gruvbox-dark",
-  "solarized-dark",
-] as const;
+export { APP_THEME_VALUES };
 
 export type AppTheme = (typeof APP_THEME_VALUES)[number];
 export type ResolvedAppTheme = "light" | "dark";

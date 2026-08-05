@@ -1,15 +1,22 @@
 /**
  * Environment-scoped settings hooks.
  *
- * Abstracts the split between server-authoritative settings (persisted in
- * `settings.json` on the server, fetched via `server.getConfig`) and
- * client-only settings (persisted in localStorage).
+ * Every setting is server-authoritative, persisted in `settings.json` and
+ * fetched via `server.getConfig`. UI preferences (`ClientSettings`) are stored
+ * there too, under the nested `clientSettings` key.
+ *
+ * They used to live in the browser's localStorage, which is scoped per origin:
+ * reaching the same server through a different hostname (a tailnet name rather
+ * than localhost) or from a second device presented a fresh, empty set of
+ * preferences. Storing them next to the server settings makes them follow the
+ * server instead of the browser. localStorage survives only as a one-time
+ * migration source, read by `useClientSettingsMigration` below.
  *
  * Live server settings always require an environment id. Primary-environment
  * access is intentionally named as such so environment-sensitive consumers
  * cannot silently read the wrong server's settings.
  */
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -18,131 +25,54 @@ import {
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
 import {
+  APP_THEME_VALUES,
+  type AppThemePreference,
   type ClientSettingsPatch,
   type ClientSettings,
   DEFAULT_CLIENT_SETTINGS,
   type EnvironmentIdentificationMode,
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
-import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import { APP_STAGE_LABEL } from "~/branding";
 import { resolveSidebarV2Enabled } from "~/branding.logic";
-import { ensureLocalApi } from "~/localApi";
+import {
+  clearBrowserClientSettings,
+  readBrowserClientSettings,
+  readBrowserThemePreference,
+} from "~/clientPersistenceStorage";
 import * as Struct from "effect/Struct";
-import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
+import {
+  primaryServerConfigAtom,
+  primaryServerSettingsAtom,
+  serverEnvironment,
+} from "~/state/server";
 import { usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
 
-const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
-
 type UnifiedSettingsPatch = ServerSettingsPatch & ClientSettingsPatch;
 
-const clientSettingsListeners = new Set<() => void>();
-const clientSettingsHydrationListeners = new Set<() => void>();
-let clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
-let clientSettingsHydrated = false;
-let clientSettingsHydrationPromise: Promise<void> | null = null;
-let clientSettingsHydrationGeneration = 0;
+/**
+ * Test-only override. Tests that need a specific `ClientSettings` without
+ * standing up a server config stream set this instead of the atom.
+ */
+let clientSettingsTestOverride: ClientSettings | null = null;
 
-function emitClientSettingsChange() {
-  for (const listener of clientSettingsListeners) {
-    listener();
+/**
+ * Imperative read for the non-React call sites. Reading straight out of the
+ * atom registry keeps a single source of truth — there is no second copy that
+ * can drift from what the hooks render.
+ */
+function readClientSettingsSnapshot(): ClientSettings {
+  if (clientSettingsTestOverride) {
+    return clientSettingsTestOverride;
   }
-}
-
-function emitClientSettingsHydrationChange() {
-  for (const listener of clientSettingsHydrationListeners) {
-    listener();
+  try {
+    return appAtomRegistry.get(primaryServerSettingsAtom).clientSettings;
+  } catch {
+    // No registry yet (module loaded outside the app tree, or during teardown).
+    return DEFAULT_CLIENT_SETTINGS;
   }
-}
-
-function getClientSettingsSnapshot(): ClientSettings {
-  return clientSettingsSnapshot;
-}
-
-function replaceClientSettingsSnapshot(settings: ClientSettings): void {
-  clientSettingsSnapshot = settings;
-  emitClientSettingsChange();
-}
-
-function setClientSettingsHydrated(nextHydrated: boolean): void {
-  if (clientSettingsHydrated === nextHydrated) {
-    return;
-  }
-  clientSettingsHydrated = nextHydrated;
-  emitClientSettingsHydrationChange();
-}
-
-function subscribeClientSettings(listener: () => void): () => void {
-  clientSettingsListeners.add(listener);
-  void hydrateClientSettings();
-  return () => {
-    clientSettingsListeners.delete(listener);
-  };
-}
-
-function getClientSettingsHydratedSnapshot(): boolean {
-  return clientSettingsHydrated;
-}
-
-function subscribeClientSettingsHydration(listener: () => void): () => void {
-  clientSettingsHydrationListeners.add(listener);
-  void hydrateClientSettings();
-  return () => {
-    clientSettingsHydrationListeners.delete(listener);
-  };
-}
-
-async function hydrateClientSettings(): Promise<void> {
-  if (clientSettingsHydrated) {
-    return;
-  }
-  if (clientSettingsHydrationPromise) {
-    return clientSettingsHydrationPromise;
-  }
-
-  const hydrationGeneration = clientSettingsHydrationGeneration;
-  const nextHydration = (async () => {
-    try {
-      const persistedSettings = await ensureLocalApi().persistence.getClientSettings();
-      if (hydrationGeneration !== clientSettingsHydrationGeneration) {
-        return;
-      }
-      if (persistedSettings) {
-        replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
-      }
-    } catch (error) {
-      console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, {
-        operation: "hydrate",
-        ...safeErrorLogAttributes(error),
-      });
-    } finally {
-      if (hydrationGeneration === clientSettingsHydrationGeneration) {
-        setClientSettingsHydrated(true);
-      }
-    }
-  })();
-
-  const hydrationPromise = nextHydration.finally(() => {
-    if (clientSettingsHydrationPromise === hydrationPromise) {
-      clientSettingsHydrationPromise = null;
-    }
-  });
-  clientSettingsHydrationPromise = hydrationPromise;
-
-  return clientSettingsHydrationPromise;
-}
-
-function persistClientSettings(settings: ClientSettings): void {
-  replaceClientSettingsSnapshot(settings);
-  void ensureLocalApi()
-    .persistence.setClientSettings(settings)
-    .catch((error) => {
-      console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, {
-        operation: "persist",
-        ...safeErrorLogAttributes(error),
-      });
-    });
 }
 
 // ── Key sets for routing patches ─────────────────────────────────────
@@ -176,23 +106,24 @@ function splitPatch(patch: UnifiedSettingsPatch): {
  * settings without subscribing.
  */
 export function getClientSettings(): ClientSettings {
-  return getClientSettingsSnapshot();
+  return readClientSettingsSnapshot();
 }
 
+/**
+ * Whether the server's settings have actually arrived. Consumers use this to
+ * hold off on rendering a persisted choice, so a stored value never loses a
+ * race with the schema default and swaps under the user a frame later.
+ *
+ * The server config is the signal now that these preferences come down the
+ * config stream rather than out of localStorage.
+ */
 export function useClientSettingsHydrated(): boolean {
-  return useSyncExternalStore(
-    subscribeClientSettingsHydration,
-    getClientSettingsHydratedSnapshot,
-    () => false,
-  );
+  return useAtomValue(primaryServerConfigAtom) !== null;
 }
 
 function useClientSettingsValue(): ClientSettings {
-  return useSyncExternalStore(
-    subscribeClientSettings,
-    getClientSettingsSnapshot,
-    () => DEFAULT_CLIENT_SETTINGS,
-  );
+  const fromServer = useAtomValue(primaryServerSettingsAtom).clientSettings;
+  return clientSettingsTestOverride ?? fromServer;
 }
 
 export function mergeEnvironmentSettings(
@@ -280,10 +211,12 @@ export function usePrimarySettings<T = UnifiedSettings>(
 }
 
 /**
- * Returns an updater that routes each key to the correct backing store.
+ * Returns an updater for one environment's settings.
  *
- * Server keys are optimistically patched in atom-backed server state, then
- * persisted via RPC. Client keys go through client persistence.
+ * UI-preference keys are folded into the nested `clientSettings` blob and ride
+ * the same patch as the flat server keys, so a change touching both lands as
+ * one write rather than two racing ones. The blob is replaced whole — see the
+ * note on `ServerSettingsPatch.clientSettings`.
  */
 function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   const persistServerSettings = useAtomCommand(
@@ -292,22 +225,22 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   );
   const updateSettings = useCallback(
     (patch: UnifiedSettingsPatch) => {
+      if (!environmentId) {
+        return;
+      }
       const { serverPatch, clientPatch } = splitPatch(patch);
+      const merged: ServerSettingsPatch =
+        Object.keys(clientPatch).length > 0
+          ? {
+              ...serverPatch,
+              clientSettings: { ...readClientSettingsSnapshot(), ...clientPatch },
+            }
+          : serverPatch;
 
-      if (Object.keys(serverPatch).length > 0) {
-        if (environmentId) {
-          void persistServerSettings({
-            environmentId,
-            input: { patch: serverPatch },
-          });
-        }
+      if (Object.keys(merged).length === 0) {
+        return;
       }
-      if (Object.keys(clientPatch).length > 0) {
-        persistClientSettings({
-          ...getClientSettingsSnapshot(),
-          ...clientPatch,
-        });
-      }
+      void persistServerSettings({ environmentId, input: { patch: merged } });
     },
     [environmentId, persistServerSettings],
   );
@@ -324,26 +257,70 @@ export function useUpdatePrimarySettings() {
 }
 
 export function useUpdateClientSettings() {
-  return useCallback((patch: ClientSettingsPatch) => {
-    persistClientSettings({
-      ...getClientSettingsSnapshot(),
-      ...patch,
-    });
-  }, []);
+  const updateSettings = useUpdatePrimarySettings();
+  return useCallback(
+    (patch: ClientSettingsPatch) => {
+      updateSettings(patch);
+    },
+    [updateSettings],
+  );
+}
+
+/**
+ * One-time lift of the pre-move localStorage blob into server settings.
+ *
+ * Runs once the primary server's settings have arrived, and only while the
+ * server still holds untouched defaults: a server that already has stored
+ * preferences is the newer source of truth, and a stale blob left behind in
+ * some browser must not overwrite it. The local key is cleared either way, so
+ * this cannot fire twice on the same origin.
+ */
+export function useClientSettingsMigration(): void {
+  const updateSettings = useUpdatePrimarySettings();
+  const serverConfig = useAtomValue(primaryServerConfigAtom);
+  const serverSettings = useAtomValue(primaryServerSettingsAtom);
+  const attempted = useRef(false);
+
+  useEffect(() => {
+    if (attempted.current || serverConfig === null) {
+      return;
+    }
+    attempted.current = true;
+
+    // Theme was persisted under its own key, so it has to be picked up
+    // separately rather than arriving inside the blob.
+    const storedTheme = readBrowserThemePreference();
+    const stored = readBrowserClientSettings();
+    if (stored === null && storedTheme === null) {
+      return;
+    }
+
+    if (isDefaultClientSettings(serverSettings.clientSettings)) {
+      updateSettings({
+        ...stored,
+        ...(isAppThemeValue(storedTheme) ? { theme: storedTheme } : {}),
+      });
+    }
+    clearBrowserClientSettings();
+    // The theme cache is deliberately kept: `useTheme` reads it before first
+    // paint, and dropping it here would reintroduce the flash it prevents.
+  }, [serverConfig, serverSettings, updateSettings]);
+}
+
+function isAppThemeValue(value: string | null): value is AppThemePreference {
+  return value !== null && (APP_THEME_VALUES as ReadonlyArray<string>).includes(value);
+}
+
+function isDefaultClientSettings(settings: ClientSettings): boolean {
+  return Struct.keys(DEFAULT_CLIENT_SETTINGS).every(
+    (key) => JSON.stringify(settings[key]) === JSON.stringify(DEFAULT_CLIENT_SETTINGS[key]),
+  );
 }
 
 export function __resetClientSettingsPersistenceForTests(): void {
-  clientSettingsHydrationGeneration += 1;
-  clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
-  clientSettingsHydrated = false;
-  clientSettingsHydrationPromise = null;
-  clientSettingsListeners.clear();
-  clientSettingsHydrationListeners.clear();
+  clientSettingsTestOverride = null;
 }
 
 export function __setClientSettingsForTests(settings: ClientSettings): void {
-  clientSettingsHydrationGeneration += 1;
-  clientSettingsSnapshot = settings;
-  clientSettingsHydrated = true;
-  clientSettingsHydrationPromise = null;
+  clientSettingsTestOverride = settings;
 }
