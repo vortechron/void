@@ -67,14 +67,14 @@ export const formatWindowLabel = (windowMinutes: number | undefined, fallback: s
 const makeWindow = (input: {
   readonly key: string;
   readonly label: string;
-  readonly usedPercent: number;
+  readonly usedPercent: number | undefined;
   readonly resetsAt: string | undefined;
   readonly windowMinutes: number | undefined;
   readonly observedAt: string;
 }): ProviderUsageWindow => ({
   key: input.key,
   label: input.label,
-  usedPercent: clampPercent(input.usedPercent),
+  ...(input.usedPercent === undefined ? {} : { usedPercent: clampPercent(input.usedPercent) }),
   ...(input.resetsAt ? { resetsAt: input.resetsAt } : {}),
   ...(input.windowMinutes !== undefined && input.windowMinutes >= 1
     ? { windowMinutes: Math.round(input.windowMinutes) }
@@ -95,16 +95,20 @@ const normalizeClaude = (
   observedAt: string,
 ): ReadonlyArray<ProviderUsageWindow> => {
   const rateLimitType = readString(info.rateLimitType);
-  const utilization = readNumber(info.utilization);
-  if (rateLimitType === undefined || utilization === undefined) return [];
+  if (rateLimitType === undefined) return [];
 
+  // `utilization` only accompanies a threshold warning. A plain "allowed"
+  // event still pins down which window is live and when it resets, which is
+  // worth showing, so the window is emitted with no percentage rather than
+  // dropped.
+  const utilization = readNumber(info.utilization);
   const descriptor = CLAUDE_WINDOWS[rateLimitType];
   return [
     makeWindow({
       key: rateLimitType,
       label: descriptor?.label ?? rateLimitType.replaceAll("_", " "),
       // Claude reports a 0-1 fraction, unlike every other percentage on the wire.
-      usedPercent: utilization * 100,
+      usedPercent: utilization === undefined ? undefined : utilization * 100,
       resetsAt: epochToIso(info.resetsAt),
       windowMinutes: descriptor?.minutes,
       observedAt,
@@ -184,13 +188,28 @@ export const normalizeProviderUsagePayload = (
  * window id. Claude only ever reports the window it just crossed, so dropping
  * the unmentioned windows would blank half the meter on every event.
  */
+/**
+ * A percentage the provider stopped repeating is still true for as long as the
+ * window is, so it carries forward. A changed reset time means a new window
+ * began and the old percentage no longer describes it.
+ */
+const carryPercentForward = (
+  previous: ProviderUsageWindow | undefined,
+  incoming: ProviderUsageWindow,
+): ProviderUsageWindow => {
+  if (incoming.usedPercent !== undefined) return incoming;
+  if (previous?.usedPercent === undefined) return incoming;
+  if (previous.resetsAt !== incoming.resetsAt) return incoming;
+  return { ...incoming, usedPercent: previous.usedPercent };
+};
+
 export const mergeUsageWindows = (
   previous: ReadonlyArray<ProviderUsageWindow>,
   incoming: ReadonlyArray<ProviderUsageWindow>,
 ): ReadonlyArray<ProviderUsageWindow> => {
   const merged = new Map(previous.map((window) => [window.key, window]));
   for (const window of incoming) {
-    merged.set(window.key, window);
+    merged.set(window.key, carryPercentForward(merged.get(window.key), window));
   }
   return [...merged.values()].sort(
     (left, right) => (left.windowMinutes ?? 0) - (right.windowMinutes ?? 0),

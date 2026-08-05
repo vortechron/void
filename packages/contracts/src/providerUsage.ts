@@ -14,7 +14,10 @@ export const ProviderUsageWindow = Schema.Struct({
   key: TrimmedNonEmptyString,
   // Short display label, e.g. "5h" or "week".
   label: TrimmedNonEmptyString,
-  usedPercent: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
+  // Absent when the provider reported the window without a number. Claude only
+  // sends `utilization` once a warning threshold is crossed, so a healthy 5h
+  // window arrives as a reset time and nothing else.
+  usedPercent: Schema.optional(Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 100 }))),
   resetsAt: Schema.optional(IsoDateTime),
   windowMinutes: Schema.optional(PositiveInt),
   updatedAt: IsoDateTime,

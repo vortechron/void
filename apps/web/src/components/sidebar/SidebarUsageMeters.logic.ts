@@ -15,7 +15,8 @@ const PROVIDER_DISPLAY_ORDER: ReadonlyArray<string> = ["claudeAgent", "codex"];
 export interface UsageMeterWindow {
   readonly key: string;
   readonly label: string;
-  readonly usedPercent: number;
+  /** Null when the provider named the window but not how much of it is spent. */
+  readonly usedPercent: number | null;
   readonly resetsLabel: string | null;
 }
 
@@ -73,7 +74,8 @@ const providerRank = (provider: string): number => {
 const toMeterWindow = (window: ProviderUsageWindow, nowMs: number): UsageMeterWindow => ({
   key: window.key,
   label: window.label,
-  usedPercent: Math.min(100, Math.max(0, window.usedPercent)),
+  usedPercent:
+    window.usedPercent === undefined ? null : Math.min(100, Math.max(0, window.usedPercent)),
   resetsLabel: formatResetCountdown(window.resetsAt, nowMs),
 });
 
@@ -118,7 +120,11 @@ export function latestSyncedAt(columns: ReadonlyArray<UsageMeterColumn>): string
   return latest;
 }
 
-/** Percentages render without decimals; the ring carries the finer detail. */
-export function formatUsagePercent(usedPercent: number): string {
-  return `${Math.round(usedPercent)}`;
+/**
+ * Percentages render without decimals; the ring carries the finer detail. An
+ * unreported percentage shows an em dash rather than a zero, which would read
+ * as "nothing used" when the truth is "not told".
+ */
+export function formatUsagePercent(usedPercent: number | null): string {
+  return usedPercent === null ? "—" : `${Math.round(usedPercent)}`;
 }
