@@ -20,6 +20,7 @@ import {
   ProviderUsageState,
   type ProviderUsageSnapshot,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -41,6 +42,39 @@ import { subscribeBeforeSnapshot } from "../utils/subscribeBeforeSnapshot.ts";
 import { mergeUsageWindows, normalizeProviderUsagePayload } from "./normalize.ts";
 
 export const PROVIDER_USAGE_CACHE_FILENAME = "provider-usage.json";
+
+/** How often an unchanged snapshot is rebroadcast so "synced" stays truthful. */
+const UNCHANGED_REPUBLISH_INTERVAL_MS = 60_000;
+
+/**
+ * Compares the numbers the meter actually renders, ignoring `updatedAt`. A
+ * provider repeating the same snapshot is not a change worth broadcasting.
+ */
+export const usageWindowsEqual = (left: ProviderUsageState, right: ProviderUsageState): boolean => {
+  if (left.providers.length !== right.providers.length) return false;
+  return left.providers.every((leftSnapshot, index) => {
+    const rightSnapshot = right.providers[index];
+    if (!rightSnapshot) return false;
+    if (
+      leftSnapshot.provider !== rightSnapshot.provider ||
+      leftSnapshot.providerInstanceId !== rightSnapshot.providerInstanceId ||
+      leftSnapshot.planLabel !== rightSnapshot.planLabel ||
+      leftSnapshot.windows.length !== rightSnapshot.windows.length
+    ) {
+      return false;
+    }
+    return leftSnapshot.windows.every((leftWindow, windowIndex) => {
+      const rightWindow = rightSnapshot.windows[windowIndex];
+      return (
+        rightWindow !== undefined &&
+        leftWindow.key === rightWindow.key &&
+        leftWindow.label === rightWindow.label &&
+        leftWindow.usedPercent === rightWindow.usedPercent &&
+        leftWindow.resetsAt === rightWindow.resetsAt
+      );
+    });
+  });
+};
 
 export class ProviderUsage extends Context.Service<
   ProviderUsage,
@@ -136,26 +170,43 @@ const make = Effect.fn("ProviderUsage.make")(function* () {
       Effect.provide(platform),
     );
 
+  const lastPublishedAtRef = yield* Ref.make<number>(0);
+
   const recordEvent = (event: ProviderRuntimeEvent) =>
-    publishMutex.withPermits(1)(
-      Effect.gen(function* () {
-        if (event.type !== "account.rate-limits.updated") return;
+    // Checked before taking the semaphore: every runtime event passes through
+    // here, including per-token content deltas, and they must not queue behind
+    // a cache write.
+    event.type !== "account.rate-limits.updated"
+      ? Effect.void
+      : publishMutex.withPermits(1)(
+          Effect.gen(function* () {
+            const observedAt = event.createdAt || DateTime.formatIso(yield* DateTime.now);
+            const current = yield* Ref.get(stateRef);
+            const next = applyUsageEvent(current, {
+              provider: event.provider,
+              providerInstanceId: event.providerInstanceId,
+              payload: event.payload.rateLimits,
+              observedAt,
+            });
+            if (!next) return;
 
-        const observedAt = event.createdAt || DateTime.formatIso(yield* DateTime.now);
-        const current = yield* Ref.get(stateRef);
-        const next = applyUsageEvent(current, {
-          provider: event.provider,
-          providerInstanceId: event.providerInstanceId,
-          payload: event.payload.rateLimits,
-          observedAt,
-        });
-        if (!next) return;
+            yield* Ref.set(stateRef, next);
 
-        yield* Ref.set(stateRef, next);
-        yield* PubSub.publish(changes, next);
-        yield* persist(next);
-      }),
-    );
+            // Providers re-send an unchanged snapshot every few seconds during
+            // a turn. Broadcasting each one would push identical payloads to
+            // every connected client and rewrite the cache file for nothing,
+            // so an unchanged snapshot only goes out on the heartbeat that
+            // keeps the "synced" label honest.
+            const nowMs = yield* Clock.currentTimeMillis;
+            const lastPublishedAt = yield* Ref.get(lastPublishedAtRef);
+            const changed = !usageWindowsEqual(current, next);
+            if (!changed && nowMs - lastPublishedAt < UNCHANGED_REPUBLISH_INTERVAL_MS) return;
+
+            yield* Ref.set(lastPublishedAtRef, nowMs);
+            yield* PubSub.publish(changes, next);
+            yield* persist(next);
+          }),
+        );
 
   yield* forkParked(Stream.runForEach(providerService.streamEvents, recordEvent));
 
