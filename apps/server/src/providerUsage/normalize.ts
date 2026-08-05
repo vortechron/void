@@ -41,6 +41,16 @@ const readString = (value: unknown): string | undefined => {
 const clampPercent = (value: number): number =>
   Math.round(Math.min(100, Math.max(0, value)) * 100) / 100;
 
+/** The `/usage` snapshot dates its windows in ISO, not epoch seconds. */
+const readIsoDate = (value: unknown): string | undefined => {
+  const text = readString(value);
+  if (text === undefined) return undefined;
+  return Option.match(DateTime.make(text), {
+    onNone: () => undefined,
+    onSome: (dateTime) => DateTime.formatIso(dateTime),
+  });
+};
+
 /** Provider epochs arrive in seconds; tolerate milliseconds defensively. */
 export const epochToIso = (value: unknown): string | undefined => {
   const epoch = readNumber(value);
@@ -116,6 +126,56 @@ const normalizeClaude = (
   ];
 };
 
+/**
+ * The windows Claude's `/usage` snapshot reports that the meter draws. Two
+ * fields of that snapshot are left out on purpose: `seven_day_oauth_apps` is
+ * usage spent by other OAuth apps rather than by this client, and `extra_usage`
+ * counts dollar credits, which is not a percentage of a window.
+ */
+const CLAUDE_PLAN_USAGE_WINDOWS = [
+  "five_hour",
+  "seven_day",
+  "seven_day_opus",
+  "seven_day_sonnet",
+] as const;
+
+/**
+ * Reads the `/usage` control snapshot, which names every window at once with
+ * `utilization` already scaled 0-100 and reset times in ISO. This is the only
+ * source of a live percentage: the `rate_limit_event` stream withholds
+ * `utilization` until a warning threshold is crossed.
+ */
+const normalizeClaudePlanUsage = (
+  rateLimits: Record<string, unknown>,
+  observedAt: string,
+): ReadonlyArray<ProviderUsageWindow> => {
+  const windows: Array<ProviderUsageWindow> = [];
+  for (const field of CLAUDE_PLAN_USAGE_WINDOWS) {
+    const value = rateLimits[field];
+    if (!isRecord(value)) continue;
+
+    // Both members are nullable, and a window described by neither says
+    // nothing the meter can draw.
+    const usedPercent = readNumber(value.utilization);
+    const resetsAt = readIsoDate(value.resets_at);
+    if (usedPercent === undefined && resetsAt === undefined) continue;
+
+    const descriptor = CLAUDE_WINDOWS[field];
+    windows.push(
+      makeWindow({
+        key: field,
+        label: descriptor?.label ?? field.replaceAll("_", " "),
+        // Already a percentage here, unlike the 0-1 fraction on the event.
+        usedPercent,
+        resetsAt,
+        windowMinutes: descriptor?.minutes,
+        observedAt,
+      }),
+    );
+  }
+  return windows;
+};
+
 const normalizeCodexWindow = (
   value: unknown,
   fallbackKey: string,
@@ -156,6 +216,11 @@ export interface NormalizedProviderUsage {
   readonly planLabel: string | undefined;
 }
 
+const toNormalized = (
+  windows: ReadonlyArray<ProviderUsageWindow>,
+  planLabel: string | undefined,
+): NormalizedProviderUsage | null => (windows.length === 0 ? null : { windows, planLabel });
+
 /**
  * Reads the `rateLimits` payload of an `account.rate-limits.updated` event.
  * Returns `null` when the payload carries no usable window, so callers can
@@ -167,20 +232,26 @@ export const normalizeProviderUsagePayload = (
 ): NormalizedProviderUsage | null => {
   if (!isRecord(payload)) return null;
 
-  // Claude forwards the whole SDK message; Codex nests its snapshot one level
-  // deeper than the adapter's own `rateLimits` wrapper.
-  const claudeInfo = isRecord(payload.rate_limit_info) ? payload.rate_limit_info : null;
+  // Claude forwards the whole SDK message for a threshold event...
+  if (isRecord(payload.rate_limit_info)) {
+    return toNormalized(normalizeClaude(payload.rate_limit_info, observedAt), undefined);
+  }
+
+  // ...and the snapshot itself for a polled `/usage` reply.
+  if (isRecord(payload.rate_limits)) {
+    return toNormalized(
+      normalizeClaudePlanUsage(payload.rate_limits, observedAt),
+      readString(payload.subscription_type),
+    );
+  }
+
+  // Codex nests its snapshot one level deeper than the adapter's own
+  // `rateLimits` wrapper.
   const codexSnapshot = isRecord(payload.rateLimits) ? payload.rateLimits : payload;
-
-  const windows = claudeInfo
-    ? normalizeClaude(claudeInfo, observedAt)
-    : normalizeCodex(codexSnapshot, observedAt);
-  if (windows.length === 0) return null;
-
-  return {
-    windows,
-    planLabel: claudeInfo ? undefined : readString(codexSnapshot.planType),
-  };
+  return toNormalized(
+    normalizeCodex(codexSnapshot, observedAt),
+    readString(codexSnapshot.planType),
+  );
 };
 
 /**

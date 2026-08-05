@@ -108,6 +108,105 @@ it("keeps a Claude window that reports a reset but no utilization", () => {
   assert.equal(normalized?.windows[0]?.resetsAt, "2026-08-05T04:20:00.000Z");
 });
 
+it("reads the percentage the Claude /usage snapshot reports for every window", () => {
+  const normalized = normalizeProviderUsagePayload(
+    {
+      subscription_type: "max",
+      rate_limits: {
+        five_hour: { utilization: 41, resets_at: "2026-08-05T07:40:00Z" },
+        seven_day: { utilization: 18.5, resets_at: "2026-08-09T00:00:00Z" },
+        seven_day_opus: { utilization: 2, resets_at: "2026-08-09T00:00:00Z" },
+      },
+    },
+    OBSERVED_AT,
+  );
+
+  assert.equal(normalized?.planLabel, "max");
+  assert.deepEqual(
+    normalized?.windows.map((window) => [window.key, window.label, window.usedPercent]),
+    [
+      ["five_hour", "5h", 41],
+      ["seven_day", "week", 18.5],
+      ["seven_day_opus", "opus", 2],
+    ],
+  );
+  assert.equal(normalized?.windows[0]?.resetsAt, "2026-08-05T07:40:00.000Z");
+});
+
+// The percentage arrives scaled here, unlike the 0-1 fraction on the event, so
+// a full window must survive as 100 rather than being clamped from 10000.
+it("does not rescale the Claude /usage percentage", () => {
+  const normalized = normalizeProviderUsagePayload(
+    { rate_limits: { five_hour: { utilization: 100, resets_at: null } } },
+    OBSERVED_AT,
+  );
+
+  assert.equal(normalized?.windows[0]?.usedPercent, 100);
+  assert.equal(normalized?.windows[0]?.resetsAt, undefined);
+});
+
+it("skips Claude /usage windows the plan does not describe", () => {
+  const normalized = normalizeProviderUsagePayload(
+    {
+      rate_limits: {
+        five_hour: { utilization: 7, resets_at: "2026-08-05T07:40:00Z" },
+        seven_day_sonnet: { utilization: null, resets_at: null },
+        seven_day_opus: null,
+      },
+    },
+    OBSERVED_AT,
+  );
+
+  assert.deepEqual(
+    normalized?.windows.map((window) => window.key),
+    ["five_hour"],
+  );
+});
+
+// Dollar credits and other apps' spend are not windows of this plan's limits.
+it("ignores the extra usage and oauth app fields of the Claude /usage snapshot", () => {
+  assert.equal(
+    normalizeProviderUsagePayload(
+      {
+        rate_limits: {
+          seven_day_oauth_apps: { utilization: 12, resets_at: "2026-08-09T00:00:00Z" },
+          extra_usage: { is_enabled: true, monthly_limit: 50, used_credits: 10, utilization: 20 },
+        },
+      },
+      OBSERVED_AT,
+    ),
+    null,
+  );
+});
+
+// `rate_limits` is null for API key, Bedrock and Vertex sessions.
+it("returns null when the Claude /usage snapshot reports no plan limits", () => {
+  assert.equal(
+    normalizeProviderUsagePayload(
+      { subscription_type: null, rate_limits_available: false, rate_limits: null },
+      OBSERVED_AT,
+    ),
+    null,
+  );
+});
+
+it("merges a polled percentage onto the window an event already reported", () => {
+  const fromEvent = normalizeProviderUsagePayload(
+    { rate_limit_info: { rateLimitType: "five_hour", resetsAt: 1_785_915_600 } },
+    OBSERVED_AT,
+  );
+  const fromSnapshot = normalizeProviderUsagePayload(
+    { rate_limits: { five_hour: { utilization: 63, resets_at: "2026-08-05T07:40:00Z" } } },
+    OBSERVED_AT,
+  );
+
+  const merged = mergeUsageWindows(fromEvent?.windows ?? [], fromSnapshot?.windows ?? []);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.key, "five_hour");
+  assert.equal(merged[0]?.usedPercent, 63);
+});
+
 it("normalizes the Codex snapshot exactly as logged in production", () => {
   const normalized = normalizeProviderUsagePayload(
     {
