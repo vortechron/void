@@ -678,6 +678,10 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.subscribeResourceTelemetry,
       idleTtlMs: 0,
     }),
+    providerUsage: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:provider-usage",
+      tag: WS_METHODS.subscribeProviderUsage,
+    }),
     resourceTelemetryHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:resource-telemetry-history",
       tag: WS_METHODS.serverGetResourceTelemetryHistory,

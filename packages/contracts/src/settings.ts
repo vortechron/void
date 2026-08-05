@@ -103,6 +103,28 @@ export const CompletionSound = Schema.Literals(["none", "chime"]);
 export type CompletionSound = typeof CompletionSound.Type;
 export const DEFAULT_COMPLETION_SOUND: CompletionSound = "chime";
 
+/**
+ * Theme values live here rather than in the web app so the schema that
+ * validates the persisted value and the list the theme picker renders cannot
+ * drift apart. `appearancePreferences` re-exports this array.
+ */
+export const APP_THEME_VALUES = [
+  "system",
+  "light",
+  "dark",
+  "catppuccin-latte",
+  "catppuccin-macchiato",
+  "catppuccin-mocha",
+  "dracula",
+  "nord",
+  "tokyo-night",
+  "gruvbox-dark",
+  "solarized-dark",
+] as const;
+export const AppThemePreference = Schema.Literals(APP_THEME_VALUES);
+export type AppThemePreference = typeof AppThemePreference.Type;
+export const DEFAULT_APP_THEME: AppThemePreference = "system";
+
 export const ClientSettingsSchema = Schema.Struct({
   agentNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -182,6 +204,7 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
   ),
+  theme: AppThemePreference.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_APP_THEME))),
   sidebarV2Enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // Whether `sidebarV2Enabled` reflects an explicit choice in Settings → Beta.
   // Client settings persist as a whole blob, so every user who has ever touched
@@ -592,6 +615,13 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  // UI preferences that used to live only in the browser's localStorage, and
+  // therefore reset on every new origin (localhost vs a tailnet hostname) and
+  // every new device. Stored here so they follow the server instead of the
+  // browser. Kept as one nested blob rather than 30 flat fields so the
+  // client/server schema split stays intact and `ClientSettingsSchema` remains
+  // the single definition of the field set.
+  clientSettings: ClientSettingsSchema.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -732,6 +762,10 @@ export const ServerSettingsPatch = Schema.Struct({
   // patches risk leaving driver-specific config in a half-merged state.
   // The web UI sends a fully-formed map every time it edits this field.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
+  // Whole-blob replacement, for the same reason as `providerInstances`: the
+  // web UI always holds a fully-formed `ClientSettings` and sends all of it,
+  // so a partial merge here would only add a way to half-write the blob.
+  clientSettings: Schema.optionalKey(ClientSettingsSchema),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
@@ -779,6 +813,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarHiddenProjectKeys: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
+  theme: Schema.optionalKey(AppThemePreference),
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),
   sidebarV2ConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   timestampFormat: Schema.optionalKey(TimestampFormat),

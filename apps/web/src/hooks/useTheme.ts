@@ -8,6 +8,7 @@ import {
   isAppTheme,
   resolveAppTheme,
 } from "../appearancePreferences";
+import { THEME_STORAGE_KEY } from "../clientPersistenceStorage";
 
 const ThemePreference = Schema.Literals(APP_THEME_VALUES);
 type Theme = AppTheme;
@@ -18,7 +19,7 @@ type ThemeSnapshot = {
 
 type DesktopThemeBridge = Pick<DesktopBridge, "setTheme">;
 
-const STORAGE_KEY = "t3code:theme";
+const STORAGE_KEY = THEME_STORAGE_KEY;
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
   theme: "system",
@@ -292,6 +293,38 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
+/**
+ * Writes the local cache and repaints, without touching server settings.
+ *
+ * `useThemeServerSync` calls this when adopting a value that came *from* the
+ * server, where echoing it straight back would be pointless write traffic.
+ */
+export function applyThemeLocally(next: Theme): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    writeThemePreference(next);
+  } catch (cause) {
+    const error = isThemeStorageError(cause)
+      ? cause
+      : new ThemeStorageError({
+          operation: "write",
+          storageKey: STORAGE_KEY,
+          theme: next,
+          cause,
+        });
+    console.error(error.message, {
+      operation: error.operation,
+      storageKey: error.storageKey,
+      theme: next,
+      ...safeErrorLogAttributes(error),
+    });
+    return false;
+  }
+  applyTheme(next, true);
+  emitChange();
+  return true;
+}
+
 export function useTheme() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const theme = snapshot.theme;
@@ -299,28 +332,7 @@ export function useTheme() {
   const resolvedTheme = resolveAppTheme(theme, snapshot.systemDark);
 
   const setTheme = useCallback((next: Theme) => {
-    if (typeof window === "undefined") return;
-    try {
-      writeThemePreference(next);
-    } catch (cause) {
-      const error = isThemeStorageError(cause)
-        ? cause
-        : new ThemeStorageError({
-            operation: "write",
-            storageKey: STORAGE_KEY,
-            theme: next,
-            cause,
-          });
-      console.error(error.message, {
-        operation: error.operation,
-        storageKey: error.storageKey,
-        theme: next,
-        ...safeErrorLogAttributes(error),
-      });
-      return;
-    }
-    applyTheme(next, true);
-    emitChange();
+    applyThemeLocally(next);
   }, []);
 
   // Keep DOM in sync on mount/change

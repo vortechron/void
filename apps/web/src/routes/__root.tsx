@@ -29,7 +29,8 @@ import {
   toastManager,
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useClientSettingsMigration } from "../hooks/useSettings";
+import { useThemeServerSync } from "../hooks/useThemeServerSync";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKeyFromPath,
@@ -103,6 +104,8 @@ function RootRouteView() {
     return (
       <>
         <DocumentTitleSync />
+        <ClientSettingsMigration />
+        <ThemePreferenceSync />
         <AppearancePreferencesSync />
         <Outlet />
       </>
@@ -113,6 +116,8 @@ function RootRouteView() {
     return (
       <>
         <DocumentTitleSync />
+        <ClientSettingsMigration />
+        <ThemePreferenceSync />
         <AppearancePreferencesSync />
         <Outlet />
       </>
@@ -131,6 +136,8 @@ function RootRouteView() {
     <ToastProvider>
       <AnchoredToastProvider>
         <DocumentTitleSync />
+        <ClientSettingsMigration />
+        <ThemePreferenceSync />
         <AppearancePreferencesSync />
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
         <RelayClientInstallDialog />
@@ -145,6 +152,16 @@ function RootRouteView() {
       </AnchoredToastProvider>
     </ToastProvider>
   );
+}
+
+function ThemePreferenceSync() {
+  useThemeServerSync();
+  return null;
+}
+
+function ClientSettingsMigration() {
+  useClientSettingsMigration();
+  return null;
 }
 
 function AppearancePreferencesSync() {
