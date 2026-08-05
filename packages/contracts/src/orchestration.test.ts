@@ -173,6 +173,41 @@ it.effect("decodes historical project.created payloads with a default provider",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.defaultModelSelection?.instanceId, "codex");
+    assert.strictEqual(parsed.promptActions, undefined);
+  }),
+);
+
+it.effect("decodes project prompt actions with their exact model options", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeProjectMetaUpdatedPayload({
+      projectId: "project-1",
+      promptActions: [
+        {
+          id: "review",
+          name: "Review changes",
+          icon: "lint",
+          prompt: "Review the current changes.",
+          modelSelection: {
+            instanceId: "codex-personal",
+            model: "gpt-5.4",
+            options: [
+              { id: "effort", value: "high" },
+              { id: "fastMode", value: true },
+            ],
+          },
+        },
+      ],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.deepStrictEqual(parsed.promptActions?.[0]?.modelSelection, {
+      instanceId: ProviderInstanceId.make("codex-personal"),
+      model: "gpt-5.4",
+      options: [
+        { id: "effort", value: "high" },
+        { id: "fastMode", value: true },
+      ],
+    });
   }),
 );
 

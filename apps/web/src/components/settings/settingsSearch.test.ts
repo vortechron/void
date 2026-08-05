@@ -92,4 +92,15 @@ describe("searchSettings", () => {
       targetId: "appearance",
     });
   });
+
+  it("routes agent completion alerts to General", () => {
+    expect(searchSettings("agent notifications")[0]).toMatchObject({
+      id: "agent-notifications",
+      to: "/settings/general",
+    });
+    expect(searchSettings("completion sound")[0]).toMatchObject({
+      id: "completion-sound",
+      to: "/settings/general",
+    });
+  });
 });

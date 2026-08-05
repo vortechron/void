@@ -34,6 +34,9 @@ Void works with the platforms your team already uses:
 - Selecting a workspace restores its own chat tabs above the conversation. Tabs never mix chats
   from different checkouts. Use **+** to start another chat in that same workspace, or use
   **Chat history** to reopen a closed chat from that workspace.
+- Tab and workspace indicators show when an agent is working, needs approval or input, has a plan
+  ready, failed, or completed while you were elsewhere. Opening a completed chat clears only that
+  chat; the workspace stays marked until every completed chat in it has been opened.
 - The original-checkout workspace follows whichever branch is currently checked out there, so you
   can work directly on `main` or another current branch without creating a worktree first.
 - Uncommitted additions and deletions appear on the workspace that owns that checkout, including

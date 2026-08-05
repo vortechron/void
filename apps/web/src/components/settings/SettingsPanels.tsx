@@ -120,6 +120,7 @@ import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
+import { AgentCompletionSettings } from "./AgentCompletionSettings";
 import {
   canOneClickUpdateProviderCandidate,
   collectProviderUpdateCandidates,
@@ -1366,6 +1367,7 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <AgentCompletionSettings />
       <SettingsSection title="General">
         <SettingsRow
           {...searchableSetting("project-grouping")}

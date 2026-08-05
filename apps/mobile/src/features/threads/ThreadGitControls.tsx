@@ -1,6 +1,7 @@
 import {
   EnvironmentId,
   type GitRunStackedActionResult,
+  type ProjectPromptAction,
   type ProjectScript,
   ThreadId,
   type VcsStatusResult,
@@ -98,12 +99,21 @@ type ThreadGitControlsProps = ThreadGitMenuProps & {
   readonly canOpenTerminal: boolean;
   readonly canOpenFiles: boolean;
   readonly projectScripts: ReadonlyArray<ProjectScript>;
+  readonly projectPromptActions: ReadonlyArray<ProjectPromptAction>;
   readonly terminalSessions: ReadonlyArray<TerminalMenuSession>;
   readonly showActionControls?: boolean;
   readonly showDirectFileControl?: boolean;
   readonly onOpenTerminal: (terminalId?: string | null) => void;
   readonly onOpenNewTerminal: () => void;
   readonly onRunProjectScript: (script: ProjectScript) => Promise<void>;
+  readonly onUseProjectPromptAction: (
+    action: ProjectPromptAction,
+    destination: "current" | "new",
+  ) => void;
+  readonly getProjectPromptActionDisabledReason: (
+    action: ProjectPromptAction,
+    destination: "current" | "new",
+  ) => string | null;
 };
 
 function useThreadGitControlModel(props: ThreadGitMenuProps) {
@@ -266,7 +276,34 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
               onPress: () => void props.onRunProjectScript(script),
               type: "action" as const,
             })),
-            ...(props.projectScripts.length === 0
+            ...props.projectPromptActions.map((action) => {
+              const currentReason = props.getProjectPromptActionDisabledReason(action, "current");
+              const newReason = props.getProjectPromptActionDisabledReason(action, "new");
+              return {
+                icon: { name: projectScriptMenuIcon(action.icon), type: "sfSymbol" as const },
+                items: [
+                  {
+                    description: currentReason ?? "Fill the current composer without sending",
+                    disabled: currentReason !== null,
+                    icon: { name: "text.bubble", type: "sfSymbol" as const },
+                    label: "Use in current chat",
+                    onPress: () => props.onUseProjectPromptAction(action, "current"),
+                    type: "action" as const,
+                  },
+                  {
+                    description: newReason ?? "Open a fresh composer without sending",
+                    disabled: newReason !== null,
+                    icon: { name: "plus.bubble", type: "sfSymbol" as const },
+                    label: "Open in new chat",
+                    onPress: () => props.onUseProjectPromptAction(action, "new"),
+                    type: "action" as const,
+                  },
+                ],
+                label: action.name,
+                type: "submenu" as const,
+              };
+            }),
+            ...(props.projectScripts.length === 0 && props.projectPromptActions.length === 0
               ? [
                   {
                     description: "This project has no saved scripts yet",
@@ -384,6 +421,9 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
       props.onOpenNewTerminal,
       props.onOpenTerminal,
       props.onRunProjectScript,
+      props.onUseProjectPromptAction,
+      props.getProjectPromptActionDisabledReason,
+      props.projectPromptActions,
       props.projectScripts,
       props.terminalSessions,
     ],
@@ -443,7 +483,7 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
                 </NativeHeaderToolbar.Label>
               </NativeHeaderToolbar.MenuAction>
             ))
-          ) : (
+          ) : props.projectPromptActions.length === 0 ? (
             <NativeHeaderToolbar.MenuAction
               icon="play"
               disabled
@@ -452,7 +492,35 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
             >
               <NativeHeaderToolbar.Label>No project scripts</NativeHeaderToolbar.Label>
             </NativeHeaderToolbar.MenuAction>
-          )}
+          ) : null}
+          {props.projectPromptActions.map((action) => {
+            const currentReason = props.getProjectPromptActionDisabledReason(action, "current");
+            const newReason = props.getProjectPromptActionDisabledReason(action, "new");
+            return (
+              <NativeHeaderToolbar.Menu
+                key={action.id}
+                icon={projectScriptMenuIcon(action.icon)}
+                title={action.name}
+              >
+                <NativeHeaderToolbar.MenuAction
+                  icon="text.bubble"
+                  disabled={currentReason !== null}
+                  onPress={() => props.onUseProjectPromptAction(action, "current")}
+                  subtitle={currentReason ?? "Fill the current composer without sending"}
+                >
+                  <NativeHeaderToolbar.Label>Use in current chat</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
+                <NativeHeaderToolbar.MenuAction
+                  icon="plus.bubble"
+                  disabled={newReason !== null}
+                  onPress={() => props.onUseProjectPromptAction(action, "new")}
+                  subtitle={newReason ?? "Open a fresh composer without sending"}
+                >
+                  <NativeHeaderToolbar.Label>Open in new chat</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
+              </NativeHeaderToolbar.Menu>
+            );
+          })}
           {props.terminalSessions.map((session) => (
             <NativeHeaderToolbar.MenuAction
               key={session.terminalId}

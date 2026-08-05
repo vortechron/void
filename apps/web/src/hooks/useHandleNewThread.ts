@@ -4,7 +4,11 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_RUNTIME_MODE, type ScopedProjectRef } from "@t3tools/contracts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  type ModelSelection,
+  type ScopedProjectRef,
+} from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
@@ -53,6 +57,11 @@ export function useNewThreadHandler() {
         replace?: boolean;
         /** Always allocate another chat session instead of reopening a draft. */
         forceNew?: boolean;
+        /** Seed a fresh draft without sending it. Applied after sticky/carry state. */
+        composerSeed?: {
+          prompt: string;
+          modelSelection: ModelSelection;
+        };
       },
     ): Promise<void> => {
       const {
@@ -64,6 +73,7 @@ export function useNewThreadHandler() {
         setDraftThreadContext,
         setLogicalProjectDraftThreadId,
         setModelSelection,
+        setPrompt,
       } = useComposerDraftStore.getState();
       const currentRouteTarget = getCurrentRouteTarget();
       // A new thread carries the user's *working mode* from the thread being
@@ -273,6 +283,12 @@ export function useNewThreadHandler() {
           // complete snapshot — absent options mean "no options", not "keep
           // whatever sticky state just wrote".
           setModelSelection(draftId, carryModelSelection, { replaceOptions: true });
+        }
+        if (options?.composerSeed) {
+          setPrompt(draftId, options.composerSeed.prompt);
+          setModelSelection(draftId, options.composerSeed.modelSelection, {
+            replaceOptions: true,
+          });
         }
 
         await router.navigate({

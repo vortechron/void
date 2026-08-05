@@ -16,6 +16,24 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 
+describe("ClientSettings agent completion alerts", () => {
+  it("defaults notifications off and the completion sound to chime", () => {
+    const settings = decodeClientSettings({});
+
+    expect(settings.agentNotificationsEnabled).toBe(false);
+    expect(settings.completionSound).toBe("chime");
+  });
+
+  it.each(["none", "chime"] as const)("accepts the completion sound %s", (value) => {
+    expect(decodeClientSettingsPatch({ completionSound: value }).completionSound).toBe(value);
+  });
+
+  it("rejects unsupported completion sounds", () => {
+    expect(() => decodeClientSettings({ completionSound: "alarm" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ completionSound: "alarm" })).toThrow();
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);

@@ -210,6 +210,17 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
+export const ProjectPromptAction = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  icon: ProjectScriptIcon,
+  prompt: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+});
+export type ProjectPromptAction = typeof ProjectPromptAction.Type;
+
+const OptionalProjectPromptActions = Schema.optionalKey(Schema.Array(ProjectPromptAction));
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -217,6 +228,7 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  promptActions: OptionalProjectPromptActions,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -402,6 +414,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  promptActions: OptionalProjectPromptActions,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -542,6 +555,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  promptActions: Schema.optional(Schema.Array(ProjectPromptAction)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -944,6 +958,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  promptActions: Schema.optionalKey(Schema.Array(ProjectPromptAction)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -955,6 +970,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  promptActions: Schema.optional(Schema.Array(ProjectPromptAction)),
   updatedAt: IsoDateTime,
 });
 

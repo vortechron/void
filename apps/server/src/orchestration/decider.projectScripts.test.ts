@@ -94,6 +94,61 @@ it.layer(NodeServices.layer)("decider project scripts", (it) => {
     }),
   );
 
+  it.effect("propagates prompt actions in project.meta.update payload", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const initial = createEmptyReadModel(now);
+      const readModel = yield* projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-project-create-prompt-actions"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("project-prompt-actions"),
+        type: "project.created",
+        occurredAt: now,
+        commandId: CommandId.make("cmd-project-create-prompt-actions"),
+        causationEventId: null,
+        correlationId: CommandId.make("cmd-project-create-prompt-actions"),
+        metadata: {},
+        payload: {
+          projectId: asProjectId("project-prompt-actions"),
+          title: "Prompts",
+          workspaceRoot: "/tmp/prompts",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      const promptActions = [
+        {
+          id: "review",
+          name: "Review",
+          icon: "lint",
+          prompt: "Review the current changes.",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex-personal"),
+            model: "gpt-5.4",
+            options: [{ id: "effort", value: "high" }],
+          },
+        },
+      ] as const;
+
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "project.meta.update",
+          commandId: CommandId.make("cmd-project-update-prompt-actions"),
+          projectId: asProjectId("project-prompt-actions"),
+          promptActions,
+        },
+        readModel,
+      });
+
+      const event = Array.isArray(result) ? result[0] : result;
+      expect(event.type).toBe("project.meta-updated");
+      expect((event.payload as { promptActions?: unknown[] }).promptActions).toEqual(promptActions);
+    }),
+  );
+
   it.effect("rejects project.create for an active workspace root that already exists", () =>
     Effect.gen(function* () {
       const now = "2026-01-01T00:00:00.000Z";

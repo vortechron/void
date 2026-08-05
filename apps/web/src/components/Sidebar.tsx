@@ -9,8 +9,8 @@ import {
   FolderPlusIcon,
   Globe2Icon,
   LoaderIcon,
+  PlusIcon,
   SearchIcon,
-  SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -279,6 +279,7 @@ function projectGroupingModeDescription(mode: SidebarProjectGroupingMode): strin
 function resolveWorkspaceStatusByKey(
   workspaces: readonly ProjectWorkspace[],
   workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>,
+  lastVisitedAtByThreadKey: ReadonlyMap<string, string | null>,
 ) {
   return new Map(
     workspaces.map((workspace) => [
@@ -286,10 +287,36 @@ function resolveWorkspaceStatusByKey(
       resolveSidebarWorkspaceStatus(
         workspace.sessions.flatMap((session) => {
           const thread = workspaceThreadByKey.get(session.key);
-          return thread ? [thread] : [];
+          return thread
+            ? [{ ...thread, lastVisitedAt: lastVisitedAtByThreadKey.get(session.key) ?? undefined }]
+            : [];
         }),
       ),
     ]),
+  );
+}
+
+function useWorkspaceStatusByKey(
+  workspaces: readonly ProjectWorkspace[],
+  workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>,
+) {
+  const threadKeys = useMemo(
+    () => workspaces.flatMap((workspace) => workspace.sessions.map((session) => session.key)),
+    [workspaces],
+  );
+  const lastVisitedAts = useUiStateStore(
+    useShallow((state) =>
+      threadKeys.map((threadKey) => state.threadLastVisitedAtById[threadKey] ?? null),
+    ),
+  );
+  const lastVisitedAtByThreadKey = useMemo(
+    () => new Map(threadKeys.map((threadKey, index) => [threadKey, lastVisitedAts[index] ?? null])),
+    [lastVisitedAts, threadKeys],
+  );
+
+  return useMemo(
+    () => resolveWorkspaceStatusByKey(workspaces, workspaceThreadByKey, lastVisitedAtByThreadKey),
+    [lastVisitedAtByThreadKey, workspaces, workspaceThreadByKey],
   );
 }
 
@@ -1199,10 +1226,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     () => workspaces.filter((workspace) => !archivedWorkspaceKeys.includes(workspace.key)),
     [archivedWorkspaceKeys, workspaces],
   );
-  const workspaceStatusByKey = useMemo(
-    () => resolveWorkspaceStatusByKey(visibleWorkspaces, workspaceThreadByKey),
-    [visibleWorkspaces, workspaceThreadByKey],
-  );
+  const workspaceStatusByKey = useWorkspaceStatusByKey(visibleWorkspaces, workspaceThreadByKey);
 
   return (
     <SidebarMenuSub className="mx-0.5 my-0 w-full translate-x-0 gap-0.5 overflow-hidden border-l-0 px-1 py-0 sm:mx-1 sm:px-1.5">
@@ -1227,10 +1251,7 @@ const SidebarWorkspaceList = memo(function SidebarWorkspaceList(props: {
   showProjectIcon?: boolean;
 }) {
   const { workspaces, workspaceThreadByKey, handleNewThread, showProjectIcon = false } = props;
-  const workspaceStatusByKey = useMemo(
-    () => resolveWorkspaceStatusByKey(workspaces, workspaceThreadByKey),
-    [workspaces, workspaceThreadByKey],
-  );
+  const workspaceStatusByKey = useWorkspaceStatusByKey(workspaces, workspaceThreadByKey);
 
   return (
     <SidebarMenuSub className="mx-0.5 my-0 w-full translate-x-0 gap-0.5 overflow-hidden border-l-0 px-1 py-0 sm:mx-1 sm:px-1.5">
@@ -2431,9 +2452,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       <div className="group/project-header relative">
         <SidebarMenuButton
           ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
-          className={`pr-8 group-hover/project-header:bg-sidebar-row-hover group-hover/project-header:text-sidebar-foreground max-sm:pr-14 ${
-            isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : ""
-          }`}
+          className={`group-hover/project-header:bg-sidebar-row-hover group-hover/project-header:text-sidebar-foreground max-sm:pr-14 ${
+            // The "new thread" button is always visible, so the title always
+            // reserves room for it — plus extra room when the environment
+            // badge sits alongside it.
+            project.environmentPresence === "remote-only" ? "pr-14" : "pr-8"
+          } ${isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : ""}`}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
           onPointerDownCapture={handleProjectButtonPointerDownCapture}
@@ -2481,9 +2505,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             ) : null}
           </span>
         </SidebarMenuButton>
-        {/* Environment badge – visible by default, crossfades with the
-            "new thread" button on hover using the same pointer-events +
-            opacity pattern as the thread row archive/timestamp swap. */}
+        {/* Environment badge – always visible, parked to the left of the
+            always-on "new thread" button instead of crossfading with it. */}
         {project.environmentPresence === "remote-only" && (
           <Tooltip>
             <TooltipTrigger
@@ -2494,7 +2517,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                       ? "Local sandbox project"
                       : "Remote project"
                   }
-                  className="pointer-events-none absolute top-1 right-1.5 inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/60 transition-opacity duration-150 max-sm:right-7 group-hover/project-header:opacity-0 group-focus-within/project-header:opacity-0 max-sm:group-hover/project-header:opacity-100 max-sm:group-focus-within/project-header:opacity-100"
+                  className="pointer-events-none absolute top-1 right-7 inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/60"
                 />
               }
             >
@@ -2514,7 +2537,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         <Tooltip>
           <TooltipTrigger
             render={
-              <div className="pointer-events-none absolute top-[calc(50%+1px)] right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+              <div className="pointer-events-auto absolute top-[calc(50%+1px)] right-0.5 -translate-y-1/2">
                 <button
                   type="button"
                   aria-label={`Create new thread in ${project.displayName}`}
@@ -2522,7 +2545,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                   className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
                   onClick={handleCreateThreadClick}
                 >
-                  <SquarePenIcon className="size-3.5" />
+                  <PlusIcon className="size-3.5" />
                 </button>
               </div>
             }
