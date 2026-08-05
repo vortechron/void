@@ -22,6 +22,69 @@ This publishes the server over Tailscale Serve HTTPS (configuring the mapping if
 
 If no server is running, `t3 pair` says so and points you at `npx t3 serve` or `npx t3 connect`.
 
+## Pairing From a Source Checkout
+
+`pnpm start` runs the prebuilt `apps/server/dist/bin.mjs`. It does not build, so merging or
+editing source changes nothing until you rebuild and restart:
+
+```bash
+vp run --filter @t3tools/web build
+vp run --filter t3 build:bundle
+```
+
+Both are needed, in that order: the first produces the UI assets, the second produces
+`dist/bin.mjs`. Note that `apps/server` has no `build` script — it is `build:bundle` — so the
+root `build` script does not cover it. Node reads the bundle once at boot, so restart the server
+afterwards.
+
+Run `t3 pair` from `apps/server` as `node dist/bin.mjs pair`, since a source checkout has no `t3`
+binary on `PATH`. The command does not care about the working directory; it locates the server
+through the runtime state file.
+
+### Check Which Server You Paired
+
+`t3 pair` prints the origin it paired with on its first line. Confirm it is the port you expect
+before opening the URL.
+
+Discovery tries the `userdata` (normal) server before the `dev` one and skips any whose recorded
+PID is dead. So if your normal server is not running, pairing silently succeeds against a dev
+server on a different port instead of failing — and the URL then serves a blank page.
+
+A dev server's HTTP port serves no HTML; its UI comes from the Vite dev server. If Vite is bound
+to IPv6 loopback only (`[::1]`), the mapping's IPv4 target has nothing listening and the page
+stays blank.
+
+### Repointing an Existing Mapping
+
+`t3 pair --tailscale` refuses to repoint a Tailscale Serve mapping that already fronts a
+_different_ environment, and fails rather than silently replacing it. Dev and normal servers have
+separate environment ids, so switching between them needs the mapping cleared first:
+
+```bash
+tailscale serve --https=443 off
+```
+
+## Pairing Ahead of Time
+
+A pairing token is single use — it is stamped consumed the moment a device redeems it, and a
+second device gets an unknown-credential error. A device only needs to pair once, though: the
+session it receives lasts 30 days.
+
+Before travelling, or before you otherwise lose access to the machine:
+
+- pair each device you are taking, one `t3 pair --tailscale` per device
+- mint spare long-lived tokens for devices you do not have yet, one per future pairing, and store
+  them like passwords — anyone on the tailnet holding one gets a full session
+
+```bash
+npx t3 pair --tailscale --ttl 90d --label "spare 1"
+```
+
+`--ttl` accepts values like `5m`, `1h`, `30d`, or `15 minutes`.
+
+None of this helps if the machine sleeps: a sleeping host drops off the tailnet and Tailscale
+Serve answers nothing. Keep it awake for the trip.
+
 ## Recommended Setup
 
 Use a trusted private network that meshes your devices together, such as a tailnet.
