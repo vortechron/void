@@ -57,6 +57,7 @@ import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -94,6 +95,12 @@ const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJ
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.UnknownFromJsonString);
 
 const PROVIDER = ProviderDriverKind.make("claudeAgent");
+
+/**
+ * Upper bound on the optional context-usage lookup performed while a turn is
+ * being completed. Turn completion must never be blocked by it.
+ */
+const CONTEXT_USAGE_QUERY_TIMEOUT = Duration.seconds(10);
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
@@ -1780,13 +1787,22 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return undefined;
     }
 
+    // `getContextUsage` is a control round-trip over the same transport the
+    // turn just used. When that transport is wedged the promise never settles,
+    // and an unbounded wait here strands `completeTurn` — the turn then never
+    // reports completion and the thread shows "Working for ..." forever.
+    // Usage is cosmetic, so give up quickly and let the caller fall back to the
+    // last known snapshot.
     const usage = yield* Effect.promise(async () => {
       try {
         return await context.query.getContextUsage?.();
       } catch {
         return undefined;
       }
-    });
+    }).pipe(
+      Effect.timeout(CONTEXT_USAGE_QUERY_TIMEOUT),
+      Effect.orElseSucceed(() => undefined),
+    );
     if (!usage) {
       return undefined;
     }

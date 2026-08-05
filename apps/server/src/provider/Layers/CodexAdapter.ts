@@ -24,6 +24,7 @@ import {
   ThreadId,
   ProviderSendTurnInput,
 } from "@t3tools/contracts";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
 import * as Exit from "effect/Exit";
@@ -70,6 +71,13 @@ const isCodexSessionRuntimeThreadIdMissingError = Schema.is(
 const isCodexResumeCursorSchema = Schema.is(CodexResumeCursorSchema);
 
 const PROVIDER = ProviderDriverKind.make("codex");
+
+/**
+ * Upper bound on how long a stopping session may hold the caller while its
+ * event fibre forwards the buffered tail. Draining is normally instant; the
+ * bound only guards against a wedged consumer.
+ */
+const SESSION_EVENT_DRAIN_TIMEOUT = Duration.seconds(5);
 
 export interface CodexAdapterLiveOptions {
   readonly instanceId?: ProviderInstanceId;
@@ -1663,6 +1671,15 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     sessions.delete(session.threadId);
     yield* session.runtime.close.pipe(Effect.ignore);
     yield* Effect.ignore(Scope.close(session.scope, Exit.void));
+    // `runtime.close` ends the runtime event queue, so the forwarding fibre
+    // finishes on its own once the buffered tail — which carries the closing
+    // `session/closed` event — has been forwarded. Interrupting straight away
+    // dropped that event whenever the fibre was still behind on a burst of
+    // output, and orchestration then never learned the session had ended.
+    yield* Fiber.await(session.eventFiber).pipe(
+      Effect.timeout(SESSION_EVENT_DRAIN_TIMEOUT),
+      Effect.ignore,
+    );
     yield* Fiber.interrupt(session.eventFiber).pipe(Effect.ignore);
   });
 

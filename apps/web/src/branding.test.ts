@@ -26,9 +26,9 @@ describe("branding", () => {
       value: {
         desktopBridge: {
           getAppBranding: () => ({
-            baseName: "Void",
+            baseName: "T3 Code",
             stageLabel: "Nightly",
-            displayName: "Void (Nightly)",
+            displayName: "T3 Code (Nightly)",
           }),
         },
       },
@@ -36,9 +36,9 @@ describe("branding", () => {
 
     const branding = await import("./branding");
 
-    expect(branding.APP_BASE_NAME).toBe("Void");
+    expect(branding.APP_BASE_NAME).toBe("T3 Code");
     expect(branding.APP_STAGE_LABEL).toBe("Nightly");
-    expect(branding.APP_DISPLAY_NAME).toBe("Void (Nightly)");
+    expect(branding.APP_DISPLAY_NAME).toBe("T3 Code (Nightly)");
   });
 
   it("normalizes hosted app channel metadata", async () => {
@@ -49,7 +49,7 @@ describe("branding", () => {
     expect(branding.HOSTED_APP_CHANNEL).toBe("nightly");
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBe("Nightly");
     expect(branding.APP_STAGE_LABEL).toBe("Nightly");
-    expect(branding.APP_DISPLAY_NAME).toBe("Void (Nightly)");
+    expect(branding.APP_DISPLAY_NAME).toBe("T3 Code (Nightly)");
   });
 
   it("does not label the latest hosted app channel", async () => {
@@ -60,7 +60,7 @@ describe("branding", () => {
     expect(branding.HOSTED_APP_CHANNEL).toBe("latest");
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBe("Latest");
     expect(branding.APP_STAGE_LABEL).toBe("Latest");
-    expect(branding.APP_DISPLAY_NAME).toBe("Void");
+    expect(branding.APP_DISPLAY_NAME).toBe("T3 Code");
   });
 
   it("ignores unknown hosted app channels", async () => {
@@ -86,34 +86,34 @@ describe("branding logic", () => {
   it("updates the display name for nightly primary server versions", () => {
     expect(
       resolveServerBackedAppDisplayName({
-        baseName: "Void",
-        fallbackDisplayName: "Void (Alpha)",
+        baseName: "T3 Code",
+        fallbackDisplayName: "T3 Code (Alpha)",
         fallbackStageLabel: "Alpha",
         primaryServerVersion: "0.0.28-nightly.20260616.12",
       }),
-    ).toBe("Void (Nightly)");
+    ).toBe("T3 Code (Nightly)");
   });
 
   it("keeps the fallback display name for stable primary server versions", () => {
     expect(
       resolveServerBackedAppDisplayName({
-        baseName: "Void",
-        fallbackDisplayName: "Void (Alpha)",
+        baseName: "T3 Code",
+        fallbackDisplayName: "T3 Code (Alpha)",
         fallbackStageLabel: "Alpha",
         primaryServerVersion: "0.0.27",
       }),
-    ).toBe("Void (Alpha)");
+    ).toBe("T3 Code (Alpha)");
   });
 
   it("keeps the fallback display name for malformed nightly primary server versions", () => {
     expect(
       resolveServerBackedAppDisplayName({
-        baseName: "Void",
-        fallbackDisplayName: "Void (Alpha)",
+        baseName: "T3 Code",
+        fallbackDisplayName: "T3 Code (Alpha)",
         fallbackStageLabel: "Alpha",
         primaryServerVersion: "0.0.28-nightly.20260616",
       }),
-    ).toBe("Void (Alpha)");
+    ).toBe("T3 Code (Alpha)");
   });
 });
 

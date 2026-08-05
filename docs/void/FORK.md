@@ -37,21 +37,37 @@ git switch main
 git merge --no-ff feature/advanced
 ```
 
-Merge, never rebase. The fork rewrites branding across ~200 files, so most
-upstream syncs conflict. Merging resolves each conflict one time; rebasing
+Merge, never rebase. Merging resolves each conflict one time; rebasing
 re-resolves the same conflicts on every future sync. The fork does not send
 changes back upstream, so a linear history buys nothing.
 
 Sync weekly rather than monthly. Conflict cost grows faster than linearly with
 the size of the gap.
 
-## Keeping conflicts cheap
+## Branding is deliberately minimal
 
-The fork's largest conflict surface is renaming T3 Code to Void. To keep that
-surface small:
+The fork does **not** rename T3 Code to Void in code, docs, CLI output, dialogs
+or error messages. A repo-wide rename touched ~200 upstream files and conflicted
+on nearly every sync, for no benefit the daily driver could see.
 
-- Route user-visible names through `apps/web/src/branding.ts` and the brand asset
-  paths rather than hardcoding "Void" at each call site.
+The entire rebrand is now three references to one asset:
+
+| Where        | File                                                             |
+| ------------ | ---------------------------------------------------------------- |
+| Sidebar logo | `apps/web/src/components/sidebar/SidebarChrome.tsx` (`VoidMark`) |
+| Startup icon | `apps/web/index.html` (`#boot-shell-logo`)                       |
+| Splash icon  | `apps/web/src/components/SplashScreen.tsx`                       |
+
+The mark itself lives in `apps/web/public/void-mark.svg`, with
+`void-apple-touch-icon.png` for the touch icon. Both are fork-only files, so
+they never conflict.
+
+Everything else stays upstream's: the window title, the About panel, `t3`
+CLI output, the marketing site, and `docs/user/*`. If a new Void-branded string
+feels tempting, it is almost certainly not worth the recurring merge cost.
+
+To keep the rest of the fork cheap to sync:
+
 - Prefer new files over edits to upstream files. A new file never conflicts.
   Fork-only web modules already follow this: `threadTabsStore.ts`,
   `workspaceSidebarStore.ts`, `appearancePreferences.ts`, `installedFonts.ts`.

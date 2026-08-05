@@ -61,7 +61,7 @@ const RELEASE_ASSETS = {
 
 const VARIANT_CONFIG = {
   development: {
-    appName: "Void Dev",
+    appName: "T3 Code Dev",
     scheme: "t3code-dev",
     iosBundleIdentifier: "com.t3tools.t3code.dev",
     androidPackage: "com.t3tools.t3code.dev",
@@ -69,7 +69,7 @@ const VARIANT_CONFIG = {
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
-    appName: "Void Preview",
+    appName: "T3 Code Preview",
     scheme: "t3code-preview",
     iosBundleIdentifier: "com.t3tools.t3code.preview",
     androidPackage: "com.t3tools.t3code.preview",
@@ -77,7 +77,7 @@ const VARIANT_CONFIG = {
     assets: PREVIEW_ASSETS,
   },
   production: {
-    appName: "Void",
+    appName: "T3 Code",
     scheme: "t3code",
     iosBundleIdentifier: "com.t3tools.t3code",
     androidPackage: "com.t3tools.t3code",
@@ -121,7 +121,7 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
       {
         name: "AgentActivity",
         displayName: "Agent Activity",
-        description: "Shows the current state of active Void agents.",
+        description: "Shows the current state of active T3 Code agents.",
         supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular"],
       },
     ],
@@ -198,7 +198,7 @@ const config: ExpoConfig = {
         NSAllowsArbitraryLoads: true,
       },
       NSLocalNetworkUsageDescription:
-        "Allow Void to connect to Void servers on your local network or tailnet.",
+        "Allow T3 Code to connect to T3 Code servers on your local network or tailnet.",
       ITSAppUsesNonExemptEncryption: false,
       // The App Store screenshot harness rotates the iPad interface from
       // inside the app (CI denies osascript the Accessibility access that
@@ -292,7 +292,7 @@ const config: ExpoConfig = {
     [
       "expo-camera",
       {
-        cameraPermission: "Allow Void to access your camera so you can scan pairing QR codes.",
+        cameraPermission: "Allow T3 Code to access your camera so you can scan pairing QR codes.",
         microphonePermission: false,
         barcodeScannerEnabled: true,
         recordAudioAndroid: false,

@@ -1,6 +1,6 @@
 # Appearance
 
-Open **Settings → Appearance** to customize how Void looks in the web and desktop apps.
+Open **Settings → Appearance** to customize how T3 Code looks in the web and desktop apps.
 
 ## Themes
 
@@ -24,5 +24,5 @@ These preferences are saved for the current client. **Restore defaults** resets 
 with the other settings listed in the confirmation dialog.
 
 Your browser may ask for permission before showing installed fonts. A local font is available only
-on the device where it is installed; Void does not upload or copy the font file. If your browser
+on the device where it is installed; T3 Code does not upload or copy the font file. If your browser
 cannot list installed fonts, type the exact font family name in the picker.

@@ -18,6 +18,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { normalizeModelSlug } from "@t3tools/shared/model";
+import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -150,6 +151,12 @@ export interface CodexSessionRuntimeShape {
     answers: ProviderUserInputAnswers,
   ) => Effect.Effect<void, CodexSessionRuntimeError>;
   readonly events: Stream.Stream<ProviderEvent, never>;
+  /**
+   * Emits the closing lifecycle event and then *ends* `events` so a consumer
+   * can drain the buffered tail and observe stream completion. Implementations
+   * must never discard the buffer (`Queue.shutdown`) — the closing event would
+   * go with it and the thread would stay pinned at "running".
+   */
   readonly close: Effect.Effect<void>;
 }
 
@@ -718,7 +725,11 @@ export const makeCodexSessionRuntime = (
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const runtimeScope = yield* Scope.Scope;
     const crypto = yield* Crypto.Crypto;
-    const events = yield* Queue.unbounded<ProviderEvent>();
+    // Completed with `Queue.end` (never `Queue.shutdown`) so the consumer
+    // drains the buffered tail — `Queue.shutdown` clears the buffer, which
+    // used to discard the closing `session/closed` event and leave the read
+    // model pinned at "running" forever.
+    const events = yield* Queue.unbounded<ProviderEvent, Cause.Done<void>>();
     const pendingApprovalsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingApproval>());
     const approvalCorrelationsRef = yield* Ref.make(new Map<string, ApprovalCorrelation>());
     const pendingUserInputsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingUserInput>());
@@ -1271,7 +1282,7 @@ export const makeCodexSessionRuntime = (
       );
       yield* Scope.close(runtimeScope, Exit.void);
       yield* Queue.shutdown(serverNotifications);
-      yield* Queue.shutdown(events);
+      yield* Queue.end(events);
     });
 
     return {

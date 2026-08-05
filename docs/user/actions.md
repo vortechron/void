@@ -27,6 +27,6 @@ Both choices fill the composer without sending. Existing attachments and other s
 preserved. Prompt actions are also available from the mobile chat action menu; a mobile new-chat
 prompt uses a temporary draft so the project's regular new-task draft is not replaced.
 
-Void never substitutes another model for a prompt action. If its saved provider or model is no
+T3 Code never substitutes another model for a prompt action. If its saved provider or model is no
 longer available, the choice is disabled until you edit the action. A provider may also require a
 new chat when its model cannot be changed in the current conversation.
