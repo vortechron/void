@@ -75,9 +75,18 @@ const UsageRing = memo(function UsageRing({
         </svg>
         <span className="flex min-w-0 flex-col leading-none">
           <span className="truncate text-[9px] text-muted-foreground">{window.label}</span>
-          <span className="font-semibold text-[13px] text-foreground tabular-nums">
+          <span
+            className={cn(
+              "font-semibold text-[13px] tabular-nums",
+              // An unknown value is dimmed so it reads as "not reported"
+              // rather than as a number worth looking at.
+              window.usedPercent === null ? "text-muted-foreground" : "text-foreground",
+            )}
+          >
             {formatUsagePercent(window.usedPercent)}
-            <span className="ml-px font-normal text-[9px] text-muted-foreground">%</span>
+            {window.usedPercent === null ? null : (
+              <span className="ml-px font-normal text-[9px] text-muted-foreground">%</span>
+            )}
           </span>
         </span>
       </div>

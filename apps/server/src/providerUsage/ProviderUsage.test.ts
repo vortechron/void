@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, it } from "vite-plus/test";
 
-import { applyUsageEvent } from "./ProviderUsage.ts";
+import { applyUsageEvent, usageWindowsEqual } from "./ProviderUsage.ts";
 
 const CLAUDE = ProviderDriverKind.make("claudeAgent");
 const CODEX = ProviderDriverKind.make("codex");
@@ -107,6 +107,36 @@ it("carries a previously reported plan through a payload that omits it", () => {
     observedAt: LATER,
   });
   assert.equal(withoutPlan?.providers[0]?.planLabel, "pro");
+});
+
+it("treats a repeated snapshot as unchanged so it is not rebroadcast", () => {
+  const payload = { rateLimits: { primary: { usedPercent: 29, windowDurationMins: 10_080 } } };
+  const first = applyUsageEvent(EMPTY_PROVIDER_USAGE_STATE, {
+    provider: CODEX,
+    providerInstanceId: undefined,
+    payload,
+    observedAt: OBSERVED_AT,
+  });
+  assert.ok(first);
+
+  // Same numbers, later timestamp: exactly what Codex re-sends every few seconds.
+  const repeated = applyUsageEvent(first, {
+    provider: CODEX,
+    providerInstanceId: undefined,
+    payload,
+    observedAt: LATER,
+  });
+  assert.ok(repeated);
+  assert.equal(usageWindowsEqual(first, repeated), true);
+
+  const moved = applyUsageEvent(repeated, {
+    provider: CODEX,
+    providerInstanceId: undefined,
+    payload: { rateLimits: { primary: { usedPercent: 30, windowDurationMins: 10_080 } } },
+    observedAt: LATER,
+  });
+  assert.ok(moved);
+  assert.equal(usageWindowsEqual(repeated, moved), false);
 });
 
 it("leaves the state untouched when a payload reports nothing usable", () => {
