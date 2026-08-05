@@ -130,6 +130,40 @@ it.effect("launches an installed editor with platform-safe arguments", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+it.effect("opens VS Code workspace directories in a new window", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+    const workspaceDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-workspace-" });
+    const codePath = path.join(binDir, "code");
+    yield* fileSystem.writeFileString(codePath, "#!/bin/sh\n");
+    yield* fileSystem.chmod(codePath, 0o755);
+
+    let spawned: ChildProcess.StandardCommand | undefined;
+    yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      yield* launcher.launchEditor({
+        editor: "vscode",
+        cwd: workspaceDir,
+      });
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "darwin",
+          env: { PATH: binDir },
+          onSpawn: (command) => {
+            spawned = command;
+          },
+        }),
+      ),
+    );
+
+    assert.ok(spawned);
+    assert.deepEqual(spawned.args, ["--new-window", workspaceDir]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 it.effect("discovers editors through the service API", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;

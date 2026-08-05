@@ -152,9 +152,11 @@ function resolveCommandEditorArgs(
 function resolveEditorArgs(
   editor: (typeof EDITORS)[number],
   target: string,
+  isDirectory: boolean,
 ): ReadonlyArray<string> {
   const baseArgs = "baseArgs" in editor ? editor.baseArgs : [];
-  return [...baseArgs, ...resolveCommandEditorArgs(editor, target)];
+  const folderArgs = isDirectory && "folderArgs" in editor ? editor.folderArgs : [];
+  return [...baseArgs, ...folderArgs, ...resolveCommandEditorArgs(editor, target)];
 }
 
 const resolveAvailableCommand = Effect.fn("externalLauncher.resolveAvailableCommand")(function* (
@@ -324,6 +326,7 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
   input: LaunchEditorInput,
 ): Effect.fn.Return<EditorLaunch, ExternalLauncherError, FileSystem.FileSystem | Path.Path> {
   const platform = yield* HostProcessPlatform;
+  const fileSystem = yield* FileSystem.FileSystem;
   const env = yield* readCommandLookupEnv;
   yield* Effect.annotateCurrentSpan({
     "externalLauncher.editor": input.editor,
@@ -340,11 +343,19 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
       yield* resolveAvailableCommand(editorDef.commands, env),
       () => editorDef.commands[0],
     );
+    const targetInfo =
+      "folderArgs" in editorDef
+        ? yield* fileSystem.stat(input.cwd).pipe(Effect.option)
+        : Option.none();
     return {
       editor: editorDef.id,
       target: input.cwd,
       command,
-      args: resolveEditorArgs(editorDef, input.cwd),
+      args: resolveEditorArgs(
+        editorDef,
+        input.cwd,
+        Option.isSome(targetInfo) && targetInfo.value.type === "Directory",
+      ),
     };
   }
 

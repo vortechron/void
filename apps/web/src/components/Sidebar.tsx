@@ -78,6 +78,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform } from "../lib/utils";
 import {
   readThreadShell,
+  useAllEnvironmentShellsBootstrapped,
   useProject,
   useProjects,
   useThreadShells,
@@ -3199,6 +3200,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
 export default function Sidebar() {
   const projects = useProjects();
+  const allEnvironmentShellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const sidebarThreads = useThreadShells();
   const draftThreadsByThreadKey = useComposerDraftStore((state) => state.draftThreadsByThreadKey);
   const { pinnedWorkspaceKeys, archivedWorkspaceKeys } = useWorkspaceSidebarStore(
@@ -3576,13 +3578,16 @@ export default function Sidebar() {
     [archivedWorkspaceKeys, workspaceByKey],
   );
   // A repository that is removed and re-added must not come back invisible.
+  // Wait for every environment to bootstrap first: a project belonging to an
+  // environment that is still connecting is missing from `sortedProjects`, and
+  // pruning then would silently unhide it the moment that environment lands.
   useEffect(() => {
-    if (hiddenProjectKeys.length === 0 || sortedProjects.length === 0) return;
+    if (!allEnvironmentShellsBootstrapped || hiddenProjectKeys.length === 0) return;
     const knownKeys = new Set(sortedProjects.map((project) => project.projectKey));
     const pruned = pruneHiddenProjectKeys(hiddenProjectKeys, knownKeys);
     if (pruned === hiddenProjectKeys) return;
     updateSettings({ sidebarHiddenProjectKeys: pruned });
-  }, [hiddenProjectKeys, sortedProjects, updateSettings]);
+  }, [allEnvironmentShellsBootstrapped, hiddenProjectKeys, sortedProjects, updateSettings]);
   // Collapsing the shelf while everything is visible again would leave a
   // dangling "Hide hidden repositories" button with nothing behind it.
   useEffect(() => {
