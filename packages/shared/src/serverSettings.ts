@@ -187,6 +187,12 @@ export function applyServerSettingsPatch(
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
       : {}),
+    // Arrays must replace, not merge: deepMerge splices them element-wise, so
+    // removing an action would leave the tail of the old list behind.
+    ...(patch.globalScripts !== undefined ? { globalScripts: patch.globalScripts } : {}),
+    ...(patch.globalPromptActions !== undefined
+      ? { globalPromptActions: patch.globalPromptActions }
+      : {}),
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }
       : {}),

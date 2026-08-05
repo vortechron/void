@@ -28,6 +28,16 @@ The root filesystem path for a project. In [the orchestration model][1], it is t
 
 A Git worktree used as an isolated workspace for a thread. If a thread has a `worktreePath` in [the contracts][1], it runs there instead of in the main working tree. Git operations live behind the VCS driver contract in `apps/server/src/vcs/VcsDriver.ts`, implemented by [GitVcsDriverCore.ts][3].
 
+#### Action
+
+A saved command or prompt a user can rerun from a chat's top bar. A command action runs a shell command in a project terminal and may carry a keybinding, a preview URL, and a setup flag; a prompt action fills the composer with a saved prompt and model selection. Both are typed in [the orchestration contracts][1].
+
+#### Action scope
+
+Which store an action lives in. A **project** action is on the `OrchestrationProject` record and appears only in that project. A **global** action is in the server's `settings.json` ([server settings][25]) and appears in every project on that server. `ProjectActionScope` in [the orchestration contracts][1] names the two.
+
+Lookups merge the two lists project-first (`mergedActions` in [projectScripts.ts][26]), so a project action shadows a global one with the same id — that is what makes a project's setup action win over the server's. Web and desktop create and edit actions in either scope; mobile reads both and edits neither.
+
 ### Thread timeline
 
 #### Thread
@@ -179,3 +189,5 @@ The file patch and changed-file summary for one turn. It is usually computed in 
 [22]: ../../apps/server/src/checkpointing/Utils.ts
 [23]: ../../apps/server/src/checkpointing/Diffs.ts
 [24]: ./overview.md
+[25]: ../../packages/shared/src/serverSettings.ts
+[26]: ../../packages/shared/src/projectScripts.ts

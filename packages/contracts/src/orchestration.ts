@@ -219,6 +219,17 @@ export const ProjectPromptAction = Schema.Struct({
 });
 export type ProjectPromptAction = typeof ProjectPromptAction.Type;
 
+/**
+ * Where an action is stored, and therefore where it is visible.
+ *
+ * "project" actions live on the project row; "global" actions live in the
+ * server's settings.json and apply to every project on that server. Never
+ * persisted on the action itself — a stored copy could disagree with the store
+ * the action actually came from. Attached when the two lists are merged.
+ */
+export const ProjectActionScope = Schema.Literals(["global", "project"]);
+export type ProjectActionScope = typeof ProjectActionScope.Type;
+
 const OptionalProjectPromptActions = Schema.optionalKey(Schema.Array(ProjectPromptAction));
 
 export const OrchestrationProject = Schema.Struct({

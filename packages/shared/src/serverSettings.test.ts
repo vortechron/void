@@ -513,3 +513,56 @@ describe("serverSettings helpers", () => {
     expect(resolved.pauseWhenOnBattery).toBe(false);
   });
 });
+
+describe("applyServerSettingsPatch global actions", () => {
+  const script = (id: string) => ({
+    id,
+    name: id,
+    command: `run ${id}`,
+    icon: "play" as const,
+    runOnWorktreeCreate: false,
+  });
+  const promptAction = (id: string) => ({
+    id,
+    name: id,
+    icon: "play" as const,
+    prompt: `prompt ${id}`,
+    modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5"),
+  });
+
+  it("replaces the script list instead of merging it element-wise", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      globalScripts: [script("build"), script("test")],
+    };
+
+    const next = applyServerSettingsPatch(current, { globalScripts: [script("build")] });
+
+    // A deep merge would leave "test" behind at index 1.
+    expect(next.globalScripts).toEqual([script("build")]);
+  });
+
+  it("replaces the prompt action list instead of merging it element-wise", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      globalPromptActions: [promptAction("review"), promptAction("explain")],
+    };
+
+    const next = applyServerSettingsPatch(current, { globalPromptActions: [] });
+
+    expect(next.globalPromptActions).toEqual([]);
+  });
+
+  it("leaves both lists untouched when the patch does not mention them", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      globalScripts: [script("build")],
+      globalPromptActions: [promptAction("review")],
+    };
+
+    const next = applyServerSettingsPatch(current, { enableAssistantStreaming: true });
+
+    expect(next.globalScripts).toEqual([script("build")]);
+    expect(next.globalPromptActions).toEqual([promptAction("review")]);
+  });
+});

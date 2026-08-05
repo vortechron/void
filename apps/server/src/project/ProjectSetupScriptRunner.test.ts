@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 
@@ -64,10 +65,12 @@ const makeTerminalManagerLayer = (
 const testLayer = (
   project: OrchestrationProject,
   terminal: Pick<TerminalManager.TerminalManager["Service"], "open" | "write">,
+  globalScripts: OrchestrationProject["scripts"] = [],
 ) =>
   ProjectSetupScriptRunner.layer.pipe(
     Layer.provideMerge(makeProjectionSnapshotQueryLayer(project)),
     Layer.provideMerge(makeTerminalManagerLayer(terminal)),
+    Layer.provideMerge(ServerSettings.layerTest({ globalScripts })),
   );
 
 describe("ProjectSetupScriptRunner", () => {
@@ -196,5 +199,86 @@ describe("ProjectSetupScriptRunner", () => {
         }),
       ),
     );
+  });
+
+  const openedTerminal = (terminalId: string) =>
+    Effect.succeed({
+      threadId: "thread-1",
+      terminalId,
+      cwd: "/repo/worktrees/a",
+      worktreePath: "/repo/worktrees/a",
+      status: "running" as const,
+      pid: 123,
+      history: "",
+      exitCode: null,
+      exitSignal: null,
+      label: terminalId,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+  const globalSetup = {
+    id: "global-setup",
+    name: "Global setup",
+    command: "pnpm install",
+    icon: "configure" as const,
+    runOnWorktreeCreate: true,
+  };
+
+  it.effect("runs a global setup script when the project declares none", () => {
+    const open = vi.fn(() => openedTerminal("setup-global-setup"));
+    const write = vi.fn(() => Effect.void);
+    const project = makeProject([]);
+
+    return Effect.gen(function* () {
+      const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const result = yield* runner.runForThread({
+        threadId: "thread-1",
+        projectId: "project-1",
+        worktreePath: "/repo/worktrees/a",
+      });
+
+      expect(result).toEqual({
+        status: "started",
+        scriptId: "global-setup",
+        scriptName: "Global setup",
+        terminalId: "setup-global-setup",
+        cwd: "/repo/worktrees/a",
+      });
+      expect(write).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        terminalId: "setup-global-setup",
+        data: "pnpm install\r",
+      });
+    }).pipe(Effect.provide(testLayer(project, { open, write }, [globalSetup])));
+  });
+
+  it.effect("lets the project's own setup script shadow the global one", () => {
+    const open = vi.fn(() => openedTerminal("setup-setup"));
+    const write = vi.fn(() => Effect.void);
+    const project = makeProject([
+      {
+        id: "setup",
+        name: "Setup",
+        command: "bun install",
+        icon: "configure",
+        runOnWorktreeCreate: true,
+      },
+    ]);
+
+    return Effect.gen(function* () {
+      const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const result = yield* runner.runForThread({
+        threadId: "thread-1",
+        projectId: "project-1",
+        worktreePath: "/repo/worktrees/a",
+      });
+
+      expect(result).toMatchObject({ status: "started", scriptId: "setup" });
+      expect(write).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        terminalId: "setup-setup",
+        data: "bun install\r",
+      });
+    }).pipe(Effect.provide(testLayer(project, { open, write }, [globalSetup])));
   });
 });

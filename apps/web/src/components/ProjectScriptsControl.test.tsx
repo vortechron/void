@@ -13,10 +13,15 @@ const PRIMARY_SCRIPT: ProjectScript = {
   runOnWorktreeCreate: false,
 };
 
-function renderControl(scripts: ReadonlyArray<ProjectScript>) {
+function renderControl(
+  scripts: ReadonlyArray<ProjectScript>,
+  globalScripts: ReadonlyArray<ProjectScript> = [],
+) {
   return renderToStaticMarkup(
     <ProjectScriptsControl
       scripts={scripts}
+      globalScripts={globalScripts}
+      globalActionsSupported={globalScripts.length > 0}
       keybindings={EMPTY_KEYBINDINGS}
       onRunScript={() => {}}
       onAddScript={async () => undefined as never}
@@ -61,5 +66,29 @@ describe("ProjectScriptsControl compact controls", () => {
     expect(html).toContain(
       'class="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5"',
     );
+  });
+});
+
+describe("ProjectScriptsControl action scopes", () => {
+  const GLOBAL_SCRIPT: ProjectScript = {
+    id: "install",
+    name: "Install",
+    command: "pnpm install",
+    icon: "configure",
+    runOnWorktreeCreate: false,
+  };
+
+  it("promotes a global script to the primary Run control when the project has none", () => {
+    const html = renderControl([], [GLOBAL_SCRIPT]);
+
+    expect(buttonTag(html, "Run Install")).toBeDefined();
+    expect(buttonTag(html, "Add action")).toBeUndefined();
+  });
+
+  it("keeps the project's own script primary when both scopes have one", () => {
+    const html = renderControl([PRIMARY_SCRIPT], [GLOBAL_SCRIPT]);
+
+    expect(buttonTag(html, "Run Dev")).toBeDefined();
+    expect(buttonTag(html, "Run Install")).toBeUndefined();
   });
 });

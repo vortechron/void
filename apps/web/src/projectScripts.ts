@@ -3,8 +3,10 @@ import {
   SCRIPT_RUN_COMMAND_PATTERN,
   type KeybindingCommand,
   type ProjectScript,
+  type T3ProjectFileScript,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import { upsertById } from "~/projectActionScopes";
 const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
 
 export interface ProjectScriptInput {
@@ -84,4 +86,45 @@ export function nextProjectScriptId(name: string, existingIds: Iterable<string>)
 export function primaryProjectScript(scripts: ReadonlyArray<ProjectScript>): ProjectScript | null {
   const regular = scripts.find((script) => !script.runOnWorktreeCreate);
   return regular ?? scripts[0] ?? null;
+}
+
+/**
+ * The `t3.json` scripts this project has not imported yet.
+ *
+ * Matched against the project's own actions only. Importing always lands on the
+ * project, so a global action that happens to share a name lives somewhere else
+ * entirely and must not hide the import from every project on the server.
+ */
+export function importableFileScripts(
+  fileScripts: ReadonlyArray<T3ProjectFileScript>,
+  projectScripts: ReadonlyArray<ProjectScript>,
+): ReadonlyArray<T3ProjectFileScript> {
+  return fileScripts.filter(
+    (fileScript) =>
+      !projectScripts.some(
+        (script) =>
+          script.command === fileScript.command ||
+          script.name.toLowerCase() === fileScript.name.toLowerCase(),
+      ),
+  );
+}
+
+/**
+ * Add or replace a script in one scope's list, keeping at most one setup
+ * script in it.
+ *
+ * Exclusivity is per-list on purpose: a project and the server may each define
+ * a setup action, and the project's wins when a worktree is created.
+ */
+export function withScriptUpsert(
+  scripts: ReadonlyArray<ProjectScript>,
+  next: ProjectScript,
+): ReadonlyArray<ProjectScript> {
+  const merged = upsertById(scripts, next);
+  if (!next.runOnWorktreeCreate) return merged;
+  return merged.map((script) =>
+    script.id === next.id || !script.runOnWorktreeCreate
+      ? script
+      : { ...script, runOnWorktreeCreate: false },
+  );
 }

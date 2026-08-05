@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
-import { ModelSelection } from "./orchestration.ts";
+import { ModelSelection, ProjectPromptAction, ProjectScript } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
@@ -759,6 +759,15 @@ export const ServerSettings = Schema.Struct({
   // client/server schema split stays intact and `ClientSettingsSchema` remains
   // the single definition of the field set.
   clientSettings: ClientSettingsSchema.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  // Actions that apply to every project on this server, as opposed to the
+  // per-project lists on the project row. They live here rather than in the
+  // projection because "global" means "this server", which is exactly the
+  // scope settings.json already has — and because ServerConfig ships the whole
+  // settings blob, every client sees them without a new fetch.
+  globalScripts: Schema.Array(ProjectScript).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  globalPromptActions: Schema.Array(ProjectPromptAction).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -903,6 +912,11 @@ export const ServerSettingsPatch = Schema.Struct({
   // web UI always holds a fully-formed `ClientSettings` and sends all of it,
   // so a partial merge here would only add a way to half-write the blob.
   clientSettings: Schema.optionalKey(ClientSettingsSchema),
+  // Whole-array replacement, same reason again. The editing client holds the
+  // full list and sends all of it; a deep merge would splice entries together
+  // element-wise and corrupt the list on any removal.
+  globalScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
+  globalPromptActions: Schema.optionalKey(Schema.Array(ProjectPromptAction)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

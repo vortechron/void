@@ -5,6 +5,7 @@ import {
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
+  type ProjectActionScope,
   type ProjectPromptAction,
   type ProjectScript,
   type ProjectId,
@@ -39,7 +40,11 @@ import {
   resolvePromptInjectedEffort,
 } from "@t3tools/shared/model";
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
-import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
+import {
+  mergedActions,
+  projectScriptCwd,
+  projectScriptRuntimeEnv,
+} from "@t3tools/shared/projectScripts";
 import { truncate } from "@t3tools/shared/String";
 import { nextTerminalId, resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { Debouncer } from "@tanstack/react-pacer";
@@ -163,10 +168,16 @@ import {
   type ProjectPromptActionDestination,
 } from "./ProjectScriptsControl";
 import {
+  moveProjectAction,
+  upsertById,
+  type ProjectActionScopeChange,
+} from "~/projectActionScopes";
+import {
   buildProjectScript,
   commandForProjectScript,
   nextProjectScriptId,
   projectScriptIdFromCommand,
+  withScriptUpsert,
 } from "~/projectScripts";
 import { appendProjectPrompt, buildProjectPromptAction } from "~/projectPromptActions";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
@@ -327,6 +338,8 @@ import { useAssetUrls } from "../assets/assetUrls";
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
+const NO_GLOBAL_SCRIPTS: ReadonlyArray<ProjectScript> = [];
+const NO_GLOBAL_PROMPT_ACTIONS: ReadonlyArray<ProjectPromptAction> = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
@@ -1180,6 +1193,12 @@ function ChatViewContent(props: ChatViewProps) {
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
   });
+  // Global actions live in settings.json. The command is used directly rather
+  // than through `useUpdateEnvironmentSettings` because the action dialog needs
+  // the write's result to report failure and to know a scope move landed.
+  const updateServerSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    reportFailure: false,
+  });
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
@@ -1683,11 +1702,6 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeProjectKey],
   );
-  const configuredPreviewUrls = useMemo(
-    () => getConfiguredPreviewUrls(activeProject?.scripts),
-    [activeProject?.scripts],
-  );
-
   useEffect(() => {
     if (!activeThreadRef || !activeEnvironmentBootstrapComplete) return;
     useRightPanelStore.getState().reconcileFileSurfaces(activeThreadRef, activeProject !== null);
@@ -2954,124 +2968,204 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const persistProjectScripts = useCallback(
-    async (input: {
-      projectId: ProjectId;
-      projectCwd: string;
-      previousScripts: ReadonlyArray<ProjectScript>;
-      nextScripts: ReadonlyArray<ProjectScript>;
-      keybinding?: string | null;
-      keybindingCommand: KeybindingCommand;
-    }): Promise<AtomCommandResult<void, unknown>> => {
-      const updateResult = mapAtomCommandResult(
-        await updateProject({
-          environmentId,
-          input: {
-            projectId: input.projectId,
-            scripts: input.nextScripts,
-          },
-        }),
-        () => undefined,
-      );
-      if (updateResult._tag === "Failure") {
-        return updateResult;
-      }
+  const globalActionsSupported = serverConfig?.environment.capabilities.globalActions === true;
+  // A server without the capability may still be sending decoded defaults, so
+  // pin the lists to empty rather than rendering actions we could never write.
+  const globalScripts = globalActionsSupported ? settings.globalScripts : NO_GLOBAL_SCRIPTS;
+  const globalPromptActions = globalActionsSupported
+    ? settings.globalPromptActions
+    : NO_GLOBAL_PROMPT_ACTIONS;
+  // Global command actions open previews in every project, so the preview
+  // panel lists their URLs alongside the project's own.
+  const configuredPreviewUrls = useMemo(
+    () =>
+      getConfiguredPreviewUrls(
+        mergedActions({ project: activeProject?.scripts, global: globalScripts }),
+      ),
+    [activeProject?.scripts, globalScripts],
+  );
 
-      const keybindingRule = decodeProjectScriptKeybindingRule({
-        keybinding: input.keybinding,
-        command: input.keybindingCommand,
-      });
+  const reportOrphanedActionCopy = useCallback((input: { title: string; description: string }) => {
+    toastManager.add(stackedThreadToast({ type: "error", ...input }));
+  }, []);
 
-      if (isElectron && keybindingRule) {
+  /** Replace one scope's whole command-action list. */
+  const writeScriptsForScope = useCallback(
+    async (
+      scope: ProjectActionScope,
+      nextScripts: ReadonlyArray<ProjectScript>,
+    ): Promise<AtomCommandResult<void, unknown>> => {
+      if (scope === "global") {
+        if (!globalActionsSupported) {
+          return AsyncResult.failure(
+            Cause.fail(new Error("This server does not support global actions.")),
+          );
+        }
         return mapAtomCommandResult(
-          await upsertKeybinding({
+          await updateServerSettings({
             environmentId,
-            input: keybindingRule,
+            input: { patch: { globalScripts: nextScripts } },
           }),
           () => undefined,
         );
       }
-      return updateResult;
-    },
-    [environmentId, updateProject, upsertKeybinding],
-  );
-  const saveProjectScript = useCallback(
-    async (input: NewProjectScriptInput): Promise<AtomCommandResult<void, unknown>> => {
       if (!activeProject) {
         return AsyncResult.success(undefined);
       }
-      const nextId = nextProjectScriptId(
-        input.name,
-        activeProject.scripts.map((script) => script.id),
+      return mapAtomCommandResult(
+        await updateProject({
+          environmentId,
+          input: { projectId: activeProject.id, scripts: nextScripts },
+        }),
+        () => undefined,
       );
-      const nextScript = buildProjectScript(nextId, input);
-      const nextScripts = input.runOnWorktreeCreate
-        ? [
-            ...activeProject.scripts.map((script) =>
-              script.runOnWorktreeCreate ? { ...script, runOnWorktreeCreate: false } : script,
-            ),
-            nextScript,
-          ]
-        : [...activeProject.scripts, nextScript];
+    },
+    [activeProject, environmentId, globalActionsSupported, updateProject, updateServerSettings],
+  );
 
-      return persistProjectScripts({
-        projectId: activeProject.id,
-        projectCwd: activeProject.workspaceRoot,
-        previousScripts: activeProject.scripts,
-        nextScripts,
+  /**
+   * Point a command action's keybinding rule at its id.
+   *
+   * Kept apart from the list write so a scope move can apply it once, after
+   * both halves of the move have landed.
+   */
+  const applyScriptKeybinding = useCallback(
+    async (input: {
+      keybinding?: string | null;
+      keybindingCommand: KeybindingCommand;
+    }): Promise<AtomCommandResult<void, unknown>> => {
+      const keybindingRule = decodeProjectScriptKeybindingRule({
+        keybinding: input.keybinding,
+        command: input.keybindingCommand,
+      });
+      if (!isElectron || !keybindingRule) {
+        return AsyncResult.success(undefined);
+      }
+      return mapAtomCommandResult(
+        await upsertKeybinding({ environmentId, input: keybindingRule }),
+        () => undefined,
+      );
+    },
+    [environmentId, upsertKeybinding],
+  );
+
+  /** The ordinary single-scope save: list first, then the keybinding. */
+  const saveScriptsForScope = useCallback(
+    async (
+      scope: ProjectActionScope,
+      input: {
+        nextScripts: ReadonlyArray<ProjectScript>;
+        keybinding?: string | null;
+        keybindingCommand: KeybindingCommand;
+      },
+    ): Promise<AtomCommandResult<void, unknown>> => {
+      const writeResult = await writeScriptsForScope(scope, input.nextScripts);
+      if (writeResult._tag === "Failure") {
+        return writeResult;
+      }
+      return applyScriptKeybinding(input);
+    },
+    [applyScriptKeybinding, writeScriptsForScope],
+  );
+
+  /** Every action id in use, so a new id is unique across scopes and types. */
+  const takenActionIds = useMemo(
+    () => [
+      ...(activeProject?.scripts ?? []).map((script) => script.id),
+      ...(activeProject?.promptActions ?? []).map((action) => action.id),
+      ...globalScripts.map((script) => script.id),
+      ...globalPromptActions.map((action) => action.id),
+    ],
+    [activeProject?.promptActions, activeProject?.scripts, globalPromptActions, globalScripts],
+  );
+
+  const saveProjectScript = useCallback(
+    async (
+      input: NewProjectScriptInput,
+      scope: ProjectActionScope,
+    ): Promise<AtomCommandResult<void, unknown>> => {
+      if (!activeProject) {
+        return AsyncResult.success(undefined);
+      }
+      const nextId = nextProjectScriptId(input.name, takenActionIds);
+      const nextScript = buildProjectScript(nextId, input);
+      const currentScripts = scope === "global" ? globalScripts : activeProject.scripts;
+
+      return saveScriptsForScope(scope, {
+        nextScripts: withScriptUpsert(currentScripts, nextScript),
         keybinding: input.keybinding,
         keybindingCommand: commandForProjectScript(nextId),
       });
     },
-    [activeProject, persistProjectScripts],
+    [activeProject, globalScripts, saveScriptsForScope, takenActionIds],
   );
   const updateProjectScript = useCallback(
     async (
       scriptId: string,
       input: NewProjectScriptInput,
+      scopeChange: ProjectActionScopeChange,
     ): Promise<AtomCommandResult<void, unknown>> => {
       if (!activeProject) {
         return AsyncResult.success(undefined);
       }
-      const existingScript = activeProject.scripts.find((script) => script.id === scriptId);
+      const sourceScripts = scopeChange.from === "global" ? globalScripts : activeProject.scripts;
+      const existingScript = sourceScripts.find((script) => script.id === scriptId);
       if (!existingScript) {
         return AsyncResult.failure(Cause.fail(new Error("Script not found.")));
       }
 
       const updatedScript = buildProjectScript(existingScript.id, input);
-      const nextScripts = activeProject.scripts.map((script) =>
-        script.id === scriptId
-          ? updatedScript
-          : input.runOnWorktreeCreate
-            ? { ...script, runOnWorktreeCreate: false }
-            : script,
-      );
+      const keybindingCommand = commandForProjectScript(scriptId);
+      const destinationScripts =
+        scopeChange.to === "global" ? globalScripts : activeProject.scripts;
+      const nextScripts = withScriptUpsert(destinationScripts, updatedScript);
 
-      return persistProjectScripts({
-        projectId: activeProject.id,
-        projectCwd: activeProject.workspaceRoot,
-        previousScripts: activeProject.scripts,
-        nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(scriptId),
+      if (scopeChange.from === scopeChange.to) {
+        return saveScriptsForScope(scopeChange.to, {
+          nextScripts,
+          keybinding: input.keybinding,
+          keybindingCommand,
+        });
+      }
+
+      const moveResult = await moveProjectAction({
+        name: updatedScript.name,
+        writeDestination: () => writeScriptsForScope(scopeChange.to, nextScripts),
+        removeSource: () =>
+          writeScriptsForScope(
+            scopeChange.from,
+            sourceScripts.filter((script) => script.id !== scriptId),
+          ),
+        reportOrphan: reportOrphanedActionCopy,
       });
+      if (moveResult._tag === "Failure") {
+        return moveResult;
+      }
+      // The id survives the move, so the rule still points at the right action.
+      return applyScriptKeybinding({ keybinding: input.keybinding, keybindingCommand });
     },
-    [activeProject, persistProjectScripts],
+    [
+      activeProject,
+      applyScriptKeybinding,
+      globalScripts,
+      reportOrphanedActionCopy,
+      saveScriptsForScope,
+      writeScriptsForScope,
+    ],
   );
   const deleteProjectScript = useCallback(
-    async (scriptId: string): Promise<AtomCommandResult<void, unknown>> => {
+    async (
+      scriptId: string,
+      scope: ProjectActionScope,
+    ): Promise<AtomCommandResult<void, unknown>> => {
       if (!activeProject) {
         return AsyncResult.success(undefined);
       }
-      const nextScripts = activeProject.scripts.filter((script) => script.id !== scriptId);
+      const currentScripts = scope === "global" ? globalScripts : activeProject.scripts;
+      const deletedName = currentScripts.find((script) => script.id === scriptId)?.name;
 
-      const deletedName = activeProject.scripts.find((s) => s.id === scriptId)?.name;
-
-      const result = await persistProjectScripts({
-        projectId: activeProject.id,
-        projectCwd: activeProject.workspaceRoot,
-        previousScripts: activeProject.scripts,
-        nextScripts,
+      const result = await saveScriptsForScope(scope, {
+        nextScripts: currentScripts.filter((script) => script.id !== scriptId),
         keybinding: null,
         keybindingCommand: commandForProjectScript(scriptId),
       });
@@ -3092,7 +3186,7 @@ function ChatViewContent(props: ChatViewProps) {
       }
       return result;
     },
-    [activeProject, persistProjectScripts],
+    [activeProject, globalScripts, saveScriptsForScope],
   );
 
   const promptActionsSupported =
@@ -3152,67 +3246,113 @@ function ChatViewContent(props: ChatViewProps) {
       null,
     [activeProject?.defaultModelSelection, activeThread?.modelSelection, composerRef],
   );
-  const persistProjectPromptActions = useCallback(
+  /** Replace one scope's whole prompt-action list. */
+  const writePromptActionsForScope = useCallback(
     async (
-      projectId: ProjectId,
+      scope: ProjectActionScope,
       promptActions: ReadonlyArray<ProjectPromptAction>,
     ): Promise<AtomCommandResult<void, unknown>> => {
+      if (scope === "global") {
+        if (!globalActionsSupported) {
+          return AsyncResult.failure(
+            Cause.fail(new Error("This server does not support global actions.")),
+          );
+        }
+        return mapAtomCommandResult(
+          await updateServerSettings({
+            environmentId,
+            input: { patch: { globalPromptActions: promptActions } },
+          }),
+          () => undefined,
+        );
+      }
       if (!promptActionsSupported) {
         return AsyncResult.failure(
           Cause.fail(new Error("This server does not support prompt actions.")),
         );
       }
+      if (!activeProject) {
+        return AsyncResult.success(undefined);
+      }
       return mapAtomCommandResult(
         await updateProject({
           environmentId,
-          input: { projectId, promptActions },
+          input: { projectId: activeProject.id, promptActions },
         }),
         () => undefined,
       );
     },
-    [environmentId, promptActionsSupported, updateProject],
+    [
+      activeProject,
+      environmentId,
+      globalActionsSupported,
+      promptActionsSupported,
+      updateProject,
+      updateServerSettings,
+    ],
   );
   const saveProjectPromptAction = useCallback(
-    async (input: NewProjectPromptActionInput): Promise<AtomCommandResult<void, unknown>> => {
+    async (
+      input: NewProjectPromptActionInput,
+      scope: ProjectActionScope,
+    ): Promise<AtomCommandResult<void, unknown>> => {
       if (!activeProject) return AsyncResult.success(undefined);
-      const currentPromptActions = activeProject.promptActions ?? [];
-      const nextId = nextProjectScriptId(input.name, [
-        ...activeProject.scripts.map((script) => script.id),
-        ...currentPromptActions.map((action) => action.id),
-      ]);
-      return persistProjectPromptActions(activeProject.id, [
-        ...currentPromptActions,
-        buildProjectPromptAction(nextId, input),
-      ]);
+      const nextId = nextProjectScriptId(input.name, takenActionIds);
+      const currentPromptActions =
+        scope === "global" ? globalPromptActions : (activeProject.promptActions ?? []);
+      return writePromptActionsForScope(
+        scope,
+        upsertById(currentPromptActions, buildProjectPromptAction(nextId, input)),
+      );
     },
-    [activeProject, persistProjectPromptActions],
+    [activeProject, globalPromptActions, takenActionIds, writePromptActionsForScope],
   );
   const updateProjectPromptAction = useCallback(
     async (
       actionId: string,
       input: NewProjectPromptActionInput,
+      scopeChange: ProjectActionScopeChange,
     ): Promise<AtomCommandResult<void, unknown>> => {
       if (!activeProject) return AsyncResult.success(undefined);
-      const currentPromptActions = activeProject.promptActions ?? [];
-      if (!currentPromptActions.some((action) => action.id === actionId)) {
+      const sourcePromptActions =
+        scopeChange.from === "global" ? globalPromptActions : (activeProject.promptActions ?? []);
+      if (!sourcePromptActions.some((action) => action.id === actionId)) {
         return AsyncResult.failure(Cause.fail(new Error("Prompt action not found.")));
       }
-      return persistProjectPromptActions(
-        activeProject.id,
-        currentPromptActions.map((action) =>
-          action.id === actionId ? buildProjectPromptAction(action.id, input) : action,
-        ),
-      );
+      const updatedAction = buildProjectPromptAction(actionId, input);
+      const destinationPromptActions =
+        scopeChange.to === "global" ? globalPromptActions : (activeProject.promptActions ?? []);
+
+      const nextPromptActions = upsertById(destinationPromptActions, updatedAction);
+
+      if (scopeChange.from === scopeChange.to) {
+        return writePromptActionsForScope(scopeChange.to, nextPromptActions);
+      }
+
+      return moveProjectAction({
+        name: updatedAction.name,
+        writeDestination: () => writePromptActionsForScope(scopeChange.to, nextPromptActions),
+        removeSource: () =>
+          writePromptActionsForScope(
+            scopeChange.from,
+            sourcePromptActions.filter((action) => action.id !== actionId),
+          ),
+        reportOrphan: reportOrphanedActionCopy,
+      });
     },
-    [activeProject, persistProjectPromptActions],
+    [activeProject, globalPromptActions, reportOrphanedActionCopy, writePromptActionsForScope],
   );
   const deleteProjectPromptAction = useCallback(
-    async (actionId: string): Promise<AtomCommandResult<void, unknown>> => {
+    async (
+      actionId: string,
+      scope: ProjectActionScope,
+    ): Promise<AtomCommandResult<void, unknown>> => {
       if (!activeProject) return AsyncResult.success(undefined);
-      const currentPromptActions = activeProject.promptActions ?? [];
+      const currentPromptActions =
+        scope === "global" ? globalPromptActions : (activeProject.promptActions ?? []);
       const deletedName = currentPromptActions.find((action) => action.id === actionId)?.name;
-      const result = await persistProjectPromptActions(
-        activeProject.id,
+      const result = await writePromptActionsForScope(
+        scope,
         currentPromptActions.filter((action) => action.id !== actionId),
       );
       if (result._tag === "Success") {
@@ -3232,7 +3372,7 @@ function ChatViewContent(props: ChatViewProps) {
       }
       return result;
     },
-    [activeProject, persistProjectPromptActions],
+    [activeProject, globalPromptActions, writePromptActionsForScope],
   );
   const useProjectPromptAction = useCallback(
     (action: ProjectPromptAction, destination: ProjectPromptActionDestination) => {
@@ -4707,7 +4847,11 @@ function ChatViewContent(props: ChatViewProps) {
 
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
-      const script = activeProject.scripts.find((entry) => entry.id === scriptId);
+      // Project first, then global — a keybinding must still fire for an action
+      // that lives in settings.json rather than on this project.
+      const script =
+        activeProject.scripts.find((entry) => entry.id === scriptId) ??
+        globalScripts.find((entry) => entry.id === scriptId);
       if (!script) return;
       event.preventDefault();
       event.stopPropagation();
@@ -4725,6 +4869,7 @@ function ChatViewContent(props: ChatViewProps) {
     closeTerminal,
     closePanelTerminal,
     createNewTerminal,
+    globalScripts,
     setTerminalOpen,
     runProjectScript,
     splitTerminal,
@@ -6005,6 +6150,9 @@ function ChatViewContent(props: ChatViewProps) {
             activeProjectScripts={activeProject?.scripts}
             activeProjectPromptActions={activeProject?.promptActions}
             promptActionsSupported={promptActionsSupported}
+            globalScripts={globalScripts}
+            globalPromptActions={globalPromptActions}
+            globalActionsSupported={globalActionsSupported}
             providerStatuses={providerStatuses}
             settings={settings}
             preferredScriptId={
