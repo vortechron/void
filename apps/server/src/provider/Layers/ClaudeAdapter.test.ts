@@ -8,6 +8,7 @@ import type {
   Options as ClaudeQueryOptions,
   PermissionMode,
   PermissionResult,
+  SDKControlGetUsageResponse,
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -109,6 +110,19 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   readonly setMaxThinkingTokens = async (maxThinkingTokens: number | null): Promise<void> => {
     this.setMaxThinkingTokensCalls.push(maxThinkingTokens);
   };
+
+  /** Left unset so the default fake behaves like a CLI without the control. */
+  public planUsage: SDKControlGetUsageResponse | undefined;
+  public planUsageCalls = 0;
+
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET =
+    async (): Promise<SDKControlGetUsageResponse> => {
+      this.planUsageCalls += 1;
+      if (!this.planUsage) {
+        throw new Error("unsupported control request: get_usage");
+      }
+      return this.planUsage;
+    };
 
   readonly close = (): void => {
     this.closeCalls += 1;
@@ -1995,6 +2009,138 @@ describe("ClaudeAdapterLive", () => {
           },
         });
       }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  // Claude withholds `utilization` from the rate limit event stream until a
+  // threshold warning, so the meter can only get a live percentage by asking.
+  it.effect("publishes plan rate limits polled after a turn completes", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "account.rate-limits.updated"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "hello",
+        attachments: [],
+      });
+
+      harness.query.planUsage = {
+        subscription_type: "max",
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: { utilization: 41, resets_at: "2026-08-05T07:40:00.000Z" },
+          seven_day: { utilization: 18, resets_at: "2026-08-09T00:00:00.000Z" },
+        },
+      } as unknown as SDKControlGetUsageResponse;
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 12,
+        duration_api_ms: 10,
+        num_turns: 1,
+        result: "done",
+        stop_reason: "end_turn",
+        session_id: "sdk-session-plan-usage",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const rateLimitEvent = runtimeEvents.find(
+        (event) => event.type === "account.rate-limits.updated",
+      );
+
+      assert.equal(harness.query.planUsageCalls, 1);
+      assert.equal(rateLimitEvent?.type, "account.rate-limits.updated");
+      assert.deepEqual(rateLimitEvent?.payload.rateLimits, {
+        subscription_type: "max",
+        rate_limits: {
+          five_hour: { utilization: 41, resets_at: "2026-08-05T07:40:00.000Z" },
+          seven_day: { utilization: 18, resets_at: "2026-08-09T00:00:00.000Z" },
+        },
+      });
+      // The poll must not be mistaken for a turn's own telemetry.
+      assert.equal(rateLimitEvent?.turnId, undefined);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("stays quiet when the runtime rejects the plan usage control", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      // The marker closes the stream after the poll has had its turn, so an
+      // event it wrongly published would be collected here.
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "tool.summary"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "hello",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 12,
+        duration_api_ms: 10,
+        num_turns: 1,
+        result: "done",
+        stop_reason: "end_turn",
+        session_id: "sdk-session-plan-usage-missing",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "tool_use_summary",
+        summary: "marker",
+        preceding_tool_use_ids: [],
+        session_id: "sdk-session-plan-usage-missing",
+        uuid: "plan-usage-marker",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+
+      assert.equal(harness.query.planUsageCalls, 1);
+      assert.equal(
+        runtimeEvents.some((event) => event.type === "account.rate-limits.updated"),
+        false,
+      );
+      assert.equal(
+        runtimeEvents.some((event) => event.type === "turn.completed"),
+        true,
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

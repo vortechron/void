@@ -15,6 +15,7 @@ import {
   type PermissionUpdate,
   type SDKMessage,
   type SDKControlGetContextUsageResponse,
+  type SDKControlGetUsageResponse,
   type SDKResultMessage,
   type SettingSource,
   type SDKUserMessage,
@@ -101,6 +102,13 @@ const PROVIDER = ProviderDriverKind.make("claudeAgent");
  * being completed. Turn completion must never be blocked by it.
  */
 const CONTEXT_USAGE_QUERY_TIMEOUT = Duration.seconds(10);
+
+/**
+ * Upper bound on the plan-usage lookup that follows a finished turn. The turn
+ * is already reported by then, so this only bounds how long the fiber waits
+ * before giving up on a wedged transport.
+ */
+const PLAN_USAGE_QUERY_TIMEOUT = Duration.seconds(10);
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
@@ -217,6 +225,7 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
   readonly getContextUsage?: () => Promise<SDKControlGetContextUsageResponse>;
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<SDKControlGetUsageResponse>;
   readonly close: () => void;
 }
 
@@ -1811,6 +1820,64 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     return normalizeClaudeContextUsageApiSnapshot(usage, totalProcessedTokens);
   });
 
+  /**
+   * Publishes the subscription usage behind the `/usage` dialog.
+   *
+   * The `rate_limit_event` stream names the live window and when it resets but
+   * withholds `utilization` until a warning threshold is crossed, so on a
+   * healthy plan the usage meter has a window and no number to put in it. This
+   * control request returns the utilization the official dialog renders.
+   *
+   * It runs after the turn is already reported, not during completion, so a
+   * slow or unsupported control round-trip cannot delay the turn. A turn
+   * boundary is the only moment the numbers can have moved.
+   */
+  const emitPlanUsage = Effect.fn("emitPlanUsage")(function* (context: ClaudeSessionContext) {
+    if (!context.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET) {
+      return;
+    }
+
+    const usage = yield* Effect.promise(async () => {
+      try {
+        return await context.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?.();
+      } catch {
+        // An older CLI rejects the unknown control subtype outright, and the
+        // meter simply keeps whatever the event stream last reported.
+        return undefined;
+      }
+    }).pipe(
+      Effect.timeout(PLAN_USAGE_QUERY_TIMEOUT),
+      Effect.orElseSucceed(() => undefined),
+    );
+
+    // Null for API-key, Bedrock and Vertex sessions, where plan limits do not
+    // apply at all.
+    if (!usage?.rate_limits) {
+      return;
+    }
+
+    const stamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "account.rate-limits.updated",
+      eventId: stamp.eventId,
+      provider: PROVIDER,
+      createdAt: stamp.createdAt,
+      threadId: context.session.threadId,
+      payload: {
+        rateLimits: {
+          rate_limits: usage.rate_limits,
+          ...(usage.subscription_type ? { subscription_type: usage.subscription_type } : {}),
+        },
+      },
+      providerRefs: nativeProviderRefs(context),
+      raw: {
+        source: "claude.sdk.message",
+        method: "claude/get_usage",
+        payload: usage.rate_limits,
+      },
+    });
+  });
+
   const emitProposedPlanCompleted = Effect.fn("emitProposedPlanCompleted")(function* (
     context: ClaudeSessionContext,
     input: {
@@ -2577,6 +2644,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     yield* completeTurn(context, status, errorMessage, message);
+    yield* emitPlanUsage(context);
   });
 
   const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
