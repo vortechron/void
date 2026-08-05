@@ -1,10 +1,14 @@
 import {
   type EnvironmentId,
   type EditorId,
+  type ModelSelection,
+  type ProjectPromptAction,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
+  type ServerProvider,
   type ThreadId,
 } from "@t3tools/contracts";
+import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
@@ -12,6 +16,8 @@ import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
+  type NewProjectPromptActionInput,
+  type ProjectPromptActionDestination,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
@@ -29,6 +35,10 @@ interface ChatHeaderProps {
   activeProjectCwd: string | null;
   openInCwd: string | null;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
+  activeProjectPromptActions: ReadonlyArray<ProjectPromptAction> | undefined;
+  promptActionsSupported: boolean;
+  providerStatuses: ReadonlyArray<ServerProvider>;
+  settings: UnifiedSettings;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
@@ -42,6 +52,23 @@ interface ChatHeaderProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  getCurrentModelSelection: () => ModelSelection | null;
+  getPromptActionDisabledReason: (
+    action: ProjectPromptAction,
+    destination: ProjectPromptActionDestination,
+  ) => string | null;
+  onUseProjectPromptAction: (
+    action: ProjectPromptAction,
+    destination: ProjectPromptActionDestination,
+  ) => void;
+  onAddProjectPromptAction: (
+    input: NewProjectPromptActionInput,
+  ) => Promise<ProjectScriptActionResult>;
+  onUpdateProjectPromptAction: (
+    actionId: string,
+    input: NewProjectPromptActionInput,
+  ) => Promise<ProjectScriptActionResult>;
+  onDeleteProjectPromptAction: (actionId: string) => Promise<ProjectScriptActionResult>;
 }
 
 export function shouldShowOpenInPicker(input: {
@@ -65,6 +92,10 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectCwd,
   openInCwd,
   activeProjectScripts,
+  activeProjectPromptActions,
+  promptActionsSupported,
+  providerStatuses,
+  settings,
   preferredScriptId,
   keybindings,
   availableEditors,
@@ -75,6 +106,12 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  getCurrentModelSelection,
+  getPromptActionDisabledReason,
+  onUseProjectPromptAction,
+  onAddProjectPromptAction,
+  onUpdateProjectPromptAction,
+  onDeleteProjectPromptAction,
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const fileScripts = useT3ProjectFileScripts(
@@ -143,13 +180,23 @@ export const ChatHeader = memo(function ChatHeader({
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
+            promptActions={activeProjectPromptActions ?? []}
+            promptActionsSupported={promptActionsSupported}
             fileScripts={fileScripts}
             keybindings={keybindings}
+            providerStatuses={providerStatuses}
+            settings={settings}
             preferredScriptId={preferredScriptId}
             onRunScript={onRunProjectScript}
             onAddScript={onAddProjectScript}
             onUpdateScript={onUpdateProjectScript}
             onDeleteScript={onDeleteProjectScript}
+            getCurrentModelSelection={getCurrentModelSelection}
+            getPromptActionDisabledReason={getPromptActionDisabledReason}
+            onUsePromptAction={onUseProjectPromptAction}
+            onAddPromptAction={onAddProjectPromptAction}
+            onUpdatePromptAction={onUpdateProjectPromptAction}
+            onDeletePromptAction={onDeleteProjectPromptAction}
           />
         )}
         {showOpenInPicker && (

@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 
 import { NewTaskDraftScreen } from "./NewTaskDraftScreen";
+import { resolveProjectPromptActionWorkspaceSelection } from "./projectPromptActions";
 
 type NewTaskDraftRouteParams = {
   readonly environmentId?: string | string[];
@@ -10,6 +11,11 @@ type NewTaskDraftRouteParams = {
   readonly title?: string | string[];
   readonly pendingTaskId?: string | string[];
   readonly incomingShareId?: string | string[];
+  readonly promptActionId?: string | string[];
+  readonly promptActionDraftKey?: string | string[];
+  readonly workspaceMode?: string | string[];
+  readonly branch?: string | string[];
+  readonly worktreePath?: string | string[];
 };
 
 export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraftRouteParams>) {
@@ -25,6 +31,10 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
         : params.environmentId,
       projectId: Array.isArray(params.projectId) ? params.projectId[0] : params.projectId,
     }),
+    [route.params],
+  );
+  const initialWorkspaceSelection = useMemo(
+    () => resolveProjectPromptActionWorkspaceSelection(params),
     [route.params],
   );
 
@@ -43,6 +53,15 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
         pendingTaskId={
           Array.isArray(params.pendingTaskId) ? params.pendingTaskId[0] : params.pendingTaskId
         }
+        promptActionId={
+          Array.isArray(params.promptActionId) ? params.promptActionId[0] : params.promptActionId
+        }
+        promptActionDraftKey={
+          Array.isArray(params.promptActionDraftKey)
+            ? params.promptActionDraftKey[0]
+            : params.promptActionDraftKey
+        }
+        initialWorkspaceSelection={initialWorkspaceSelection}
       />
     </>
   );

@@ -7,9 +7,15 @@ import {
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
-import { EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ThreadId,
+  type ProjectPromptAction,
+  type ProjectScript,
+  type ServerConfig,
+} from "@t3tools/contracts";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { Platform, ScrollView, View } from "react-native";
+import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
@@ -59,6 +65,7 @@ import { useSelectedThreadRequests } from "../../state/use-selected-thread-reque
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
 import { threadEnvironment } from "../../state/threads";
+import { uuidv4 } from "../../lib/uuid";
 import { projectThreadContentPresentation } from "./threadContentPresentation";
 import {
   useAdaptiveWorkspaceLayout,
@@ -71,10 +78,67 @@ import {
   ThreadInspectorContentStack,
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
+import {
+  appendProjectPrompt,
+  buildProjectPromptActionNewTaskRouteParams,
+} from "./projectPromptActions";
 
 interface ThreadInspectorSelection {
   readonly routeThreadIdentity: string | null;
   readonly mode: ThreadInspectorMode;
+}
+
+function getProjectPromptActionDisabledReason(input: {
+  readonly action: ProjectPromptAction;
+  readonly config: ServerConfig | null;
+  readonly currentThread: {
+    readonly modelSelection: ProjectPromptAction["modelSelection"];
+    readonly session: { readonly providerInstanceId?: string } | null;
+  } | null;
+  readonly destination: "current" | "new";
+}): string | null {
+  if (!input.config) return "Server configuration is unavailable.";
+  const nextProvider = input.config.providers.find(
+    (provider) => provider.instanceId === input.action.modelSelection.instanceId,
+  );
+  if (
+    !nextProvider ||
+    !nextProvider.enabled ||
+    !nextProvider.installed ||
+    nextProvider.auth.status === "unauthenticated"
+  ) {
+    return "The saved provider is unavailable.";
+  }
+  if (!nextProvider.models.some((model) => model.slug === input.action.modelSelection.model)) {
+    return "The saved model is unavailable for this provider.";
+  }
+  if (input.destination === "new" || !input.currentThread?.session) return null;
+  const currentInstanceId =
+    input.currentThread.session.providerInstanceId ?? input.currentThread.modelSelection.instanceId;
+  const currentProvider = input.config.providers.find(
+    (provider) => provider.instanceId === currentInstanceId,
+  );
+  const changesModel =
+    currentInstanceId !== input.action.modelSelection.instanceId ||
+    input.currentThread.modelSelection.model !== input.action.modelSelection.model;
+  if (currentProvider && currentProvider.driver !== nextProvider.driver) {
+    return "This chat is locked to its current provider.";
+  }
+  if (
+    changesModel &&
+    (currentProvider?.requiresNewThreadForModelChange === true ||
+      nextProvider.requiresNewThreadForModelChange === true)
+  ) {
+    return "This provider requires a new chat to change models.";
+  }
+  if (
+    currentProvider?.continuation?.groupKey &&
+    nextProvider.continuation?.groupKey &&
+    currentProvider.continuation.groupKey !== nextProvider.continuation.groupKey
+  ) {
+    return "This model is not compatible with the current provider session.";
+  }
+  return null;
 }
 
 type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
@@ -262,6 +326,7 @@ function ThreadRouteContent(
     }, [props.renderInspector]),
   );
   const routeEnvironmentRuntime = useRemoteEnvironmentRuntime(environmentId);
+  const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
   const routeConnectionError = routeEnvironmentRuntime?.connectionError ?? null;
@@ -590,6 +655,56 @@ function ThreadRouteContent(
       terminalMenuSessions,
     ],
   );
+  const promptActionDisabledReason = useCallback(
+    (action: ProjectPromptAction, destination: "current" | "new") =>
+      getProjectPromptActionDisabledReason({
+        action,
+        config: serverConfig,
+        currentThread: selectedThread,
+        destination,
+      }),
+    [selectedThread, serverConfig],
+  );
+  const handleUseProjectPromptAction = useCallback(
+    (action: ProjectPromptAction, destination: "current" | "new") => {
+      const disabledReason = promptActionDisabledReason(action, destination);
+      if (disabledReason) {
+        Alert.alert("Prompt action unavailable", disabledReason);
+        return;
+      }
+      if (destination === "current") {
+        composer.onChangeDraftMessage(appendProjectPrompt(composer.draftMessage, action.prompt));
+        composer.onUpdateModelSelection(action.modelSelection);
+        return;
+      }
+      if (!selectedThreadProject || !selectedThread) return;
+      const worktreePath = resolvePreferredThreadWorktreePath({
+        threadShellWorktreePath: selectedThread.worktreePath ?? null,
+        threadDetailWorktreePath: selectedThreadDetailWorktreePath,
+      });
+      navigation.navigate("NewTaskSheet", {
+        screen: "NewTaskDraft",
+        params: buildProjectPromptActionNewTaskRouteParams({
+          environmentId: String(selectedThreadProject.environmentId),
+          projectId: String(selectedThreadProject.id),
+          title: action.name,
+          promptActionId: action.id,
+          promptActionDraftKey: `project-prompt:${uuidv4()}`,
+          branch: gitStatus.data?.refName ?? selectedThread.branch ?? null,
+          worktreePath,
+        }),
+      });
+    },
+    [
+      composer,
+      gitStatus.data?.refName,
+      navigation,
+      promptActionDisabledReason,
+      selectedThread,
+      selectedThreadDetailWorktreePath,
+      selectedThreadProject,
+    ],
+  );
   const threadGitControlProps = {
     environmentId: environmentIdRaw ?? "",
     threadId: threadId ?? "",
@@ -609,11 +724,14 @@ function ThreadRouteContent(
     canOpenTerminal: Boolean(selectedThreadProject?.workspaceRoot),
     canOpenFiles: Boolean(selectedThreadProject?.workspaceRoot),
     projectScripts: selectedThreadProject?.scripts ?? [],
+    projectPromptActions: selectedThreadProject?.promptActions ?? [],
     terminalSessions: terminalMenuSessions,
     showDirectFileControl: layout.usesSplitView,
     onOpenTerminal: handleOpenTerminal,
     onOpenNewTerminal: handleOpenNewTerminal,
     onRunProjectScript: handleRunProjectScript,
+    onUseProjectPromptAction: handleUseProjectPromptAction,
+    getProjectPromptActionDisabledReason: promptActionDisabledReason,
     onPull: gitActions.onPullSelectedThreadBranch,
     onRunAction: gitActions.onRunSelectedThreadGitAction,
   };
@@ -740,7 +858,6 @@ function ThreadRouteContent(
     detailDeleted: selectedThreadDetailState.status === "deleted",
     connectionState: routeConnectionState,
   });
-  const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const renderThreadRouteBody = (showActionControls: boolean) => (
     <>
       <ThreadGitControls {...threadGitControlProps} showActionControls={showActionControls} />

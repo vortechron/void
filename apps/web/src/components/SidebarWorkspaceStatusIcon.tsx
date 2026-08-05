@@ -1,17 +1,19 @@
 import {
+  CircleCheckIcon,
   CircleAlertIcon,
+  ClipboardCheckIcon,
   GitBranchIcon,
   MessageSquareIcon,
   TriangleAlertIcon,
   type LucideIcon,
 } from "lucide-react";
 
-import type { SidebarV2Status } from "./Sidebar.logic";
 import { Diamond } from "./loading-ui/diamond";
+import type { ThreadAttentionStatus } from "./sidebarWorkspaceStatus";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const STATUS_PRESENTATION: Record<
-  Exclude<SidebarV2Status, "working">,
+  Exclude<ThreadAttentionStatus, "working">,
   {
     readonly label: string;
     readonly Icon: LucideIcon;
@@ -33,6 +35,16 @@ const STATUS_PRESENTATION: Record<
     Icon: TriangleAlertIcon,
     className: "text-red-600 dark:text-red-300",
   },
+  plan: {
+    label: "Plan ready",
+    Icon: ClipboardCheckIcon,
+    className: "text-violet-600 dark:text-violet-300",
+  },
+  completed: {
+    label: "Completed",
+    Icon: CircleCheckIcon,
+    className: "text-emerald-600 dark:text-emerald-300",
+  },
   ready: {
     label: "Ready",
     Icon: GitBranchIcon,
@@ -40,7 +52,7 @@ const STATUS_PRESENTATION: Record<
   },
 };
 
-export function SidebarWorkspaceStatusIcon({ status }: { readonly status: SidebarV2Status }) {
+export function SidebarWorkspaceStatusIcon({ status }: { readonly status: ThreadAttentionStatus }) {
   if (status === "working") {
     return (
       <Tooltip>

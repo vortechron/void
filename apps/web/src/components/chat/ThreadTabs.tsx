@@ -14,13 +14,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
-import { resolveSidebarV2Status } from "~/components/Sidebar.logic";
+import { resolveThreadAttentionStatus } from "~/components/sidebarWorkspaceStatus";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useProject, useThreadShell, useThreadShellsForProjectRefs } from "~/state/entities";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { useUiStateStore } from "~/uiStateStore";
 import {
   selectThreadTab,
   selectWorkspaceThreadTabs,
@@ -376,8 +377,16 @@ const ThreadTabButton = memo(function ThreadTabButton(props: {
 }) {
   const ref = useMemo(() => threadTabRef(props.tab), [props.tab]);
   const shell = useThreadShell(ref);
+  const tabKey = props.tab.key;
+  const onActivate = props.onActivate;
+  const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[tabKey]);
+  const markThreadVisited = useUiStateStore((state) => state.markThreadVisited);
   const title = shell?.title?.trim() || "New thread";
-  const status = shell ? resolveSidebarV2Status(shell) : "ready";
+  const status = shell ? resolveThreadAttentionStatus({ ...shell, lastVisitedAt }) : "ready";
+  const handleActivate = useCallback(() => {
+    if (shell) markThreadVisited(tabKey, shell.updatedAt);
+    onActivate();
+  }, [markThreadVisited, onActivate, shell, tabKey]);
 
   return (
     <div
@@ -402,7 +411,7 @@ const ThreadTabButton = memo(function ThreadTabButton(props: {
         type="button"
         role="tab"
         aria-selected={props.active}
-        onClick={props.onActivate}
+        onClick={handleActivate}
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 focus-visible:outline-hidden"
       >
         <ThreadTabStatusIcon status={status} />

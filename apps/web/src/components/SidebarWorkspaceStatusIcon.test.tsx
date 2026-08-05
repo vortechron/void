@@ -16,6 +16,8 @@ describe("SidebarWorkspaceStatusIcon", () => {
     ["approval", "Approval needed"],
     ["input", "Awaiting input"],
     ["failed", "Failed"],
+    ["plan", "Plan ready"],
+    ["completed", "Completed"],
     ["ready", "Ready"],
   ] as const)("renders an accessible %s state", (status, label) => {
     const markup = renderToStaticMarkup(<SidebarWorkspaceStatusIcon status={status} />);

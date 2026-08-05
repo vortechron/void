@@ -1,9 +1,14 @@
 import type {
+  ModelSelection,
+  ProjectPromptAction,
   ProjectScript,
   ProjectScriptIcon,
   ResolvedKeybindingsConfig,
+  ServerProvider,
   T3ProjectFileScript,
 } from "@t3tools/contracts";
+import type { UnifiedSettings } from "@t3tools/contracts/settings";
+import { createModelSelection } from "@t3tools/shared/model";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -16,6 +21,7 @@ import {
   FlaskConicalIcon,
   HammerIcon,
   ListChecksIcon,
+  MessageSquareTextIcon,
   PlayIcon,
   PlusIcon,
   SettingsIcon,
@@ -33,6 +39,14 @@ import {
   nextProjectScriptId,
   primaryProjectScript,
 } from "~/projectScripts";
+import { getAppModelOptionsForInstance } from "~/modelSelection";
+import {
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+  sortProviderInstanceEntries,
+} from "~/providerInstances";
+import { ProviderModelPicker } from "./chat/ProviderModelPicker";
+import { TraitsPicker } from "./chat/TraitsPicker";
 import { shortcutLabelForCommand } from "~/keybindings";
 import {
   AlertDialog,
@@ -64,6 +78,9 @@ import {
   MenuPopup,
   MenuSeparator,
   MenuShortcut,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
   MenuTrigger,
 } from "./ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
@@ -107,15 +124,28 @@ export interface NewProjectScriptInput {
   autoOpenPreview: boolean;
 }
 
+export interface NewProjectPromptActionInput {
+  name: string;
+  prompt: string;
+  icon: ProjectScriptIcon;
+  modelSelection: ModelSelection;
+}
+
+export type ProjectPromptActionDestination = "current" | "new";
+
 export type ProjectScriptActionResult = AtomCommandResult<void, unknown>;
 
 const NO_FILE_SCRIPTS: ReadonlyArray<T3ProjectFileScript> = [];
 
 interface ProjectScriptsControlProps {
   scripts: ReadonlyArray<ProjectScript>;
+  promptActions?: ReadonlyArray<ProjectPromptAction>;
+  promptActionsSupported?: boolean;
   /** Scripts declared in the project's checked-in t3.json, offered for import. */
   fileScripts?: ReadonlyArray<T3ProjectFileScript>;
   keybindings: ResolvedKeybindingsConfig;
+  providerStatuses?: ReadonlyArray<ServerProvider>;
+  settings?: UnifiedSettings;
   preferredScriptId?: string | null;
   onRunScript: (script: ProjectScript) => void;
   onAddScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
@@ -124,20 +154,47 @@ interface ProjectScriptsControlProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  getCurrentModelSelection?: () => ModelSelection | null;
+  getPromptActionDisabledReason?: (
+    action: ProjectPromptAction,
+    destination: ProjectPromptActionDestination,
+  ) => string | null;
+  onUsePromptAction?: (
+    action: ProjectPromptAction,
+    destination: ProjectPromptActionDestination,
+  ) => void;
+  onAddPromptAction?: (input: NewProjectPromptActionInput) => Promise<ProjectScriptActionResult>;
+  onUpdatePromptAction?: (
+    actionId: string,
+    input: NewProjectPromptActionInput,
+  ) => Promise<ProjectScriptActionResult>;
+  onDeletePromptAction?: (actionId: string) => Promise<ProjectScriptActionResult>;
 }
 
 export default function ProjectScriptsControl({
   scripts,
+  promptActions = [],
+  promptActionsSupported = false,
   fileScripts = NO_FILE_SCRIPTS,
   keybindings,
+  providerStatuses = [],
+  settings,
   preferredScriptId = null,
   onRunScript,
   onAddScript,
   onUpdateScript,
   onDeleteScript,
+  getCurrentModelSelection,
+  getPromptActionDisabledReason,
+  onUsePromptAction,
+  onAddPromptAction,
+  onUpdatePromptAction,
+  onDeletePromptAction,
 }: ProjectScriptsControlProps) {
   const addScriptFormId = React.useId();
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
+  const [editingPromptActionId, setEditingPromptActionId] = useState<string | null>(null);
+  const [actionType, setActionType] = useState<"command" | "prompt">("command");
   const [actionsMenuOpen, setActionsMenuOpen] = useState({
     scripts: false,
     imports: false,
@@ -145,6 +202,8 @@ export default function ProjectScriptsControl({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [modelSelection, setModelSelection] = useState<ModelSelection | null>(null);
   const [icon, setIcon] = useState<ProjectScriptIcon>("play");
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [runOnWorktreeCreate, setRunOnWorktreeCreate] = useState(false);
@@ -153,6 +212,34 @@ export default function ProjectScriptsControl({
   const [autoOpenPreview, setAutoOpenPreview] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  const providerInstanceEntries = useMemo(
+    () =>
+      settings
+        ? sortProviderInstanceEntries(
+            applyProviderInstanceSettings(
+              deriveProviderInstanceEntries(providerStatuses),
+              settings,
+            ),
+          )
+        : [],
+    [providerStatuses, settings],
+  );
+  const modelOptionsByInstance = useMemo(() => {
+    const result = new Map<
+      ModelSelection["instanceId"],
+      ReturnType<typeof getAppModelOptionsForInstance>
+    >();
+    if (!settings) return result;
+    for (const entry of providerInstanceEntries) {
+      result.set(entry.instanceId, getAppModelOptionsForInstance(settings, entry));
+    }
+    return result;
+  }, [providerInstanceEntries, settings]);
+  const selectedPromptProvider = modelSelection
+    ? (providerInstanceEntries.find((entry) => entry.instanceId === modelSelection.instanceId) ??
+      null)
+    : null;
 
   const primaryScript = useMemo(() => {
     if (preferredScriptId) {
@@ -173,7 +260,7 @@ export default function ProjectScriptsControl({
       ),
     [fileScripts, scripts],
   );
-  const isEditing = editingScriptId !== null;
+  const isEditing = editingScriptId !== null || editingPromptActionId !== null;
   const dropdownItemClassName =
     "data-highlighted:bg-transparent data-highlighted:text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-highlighted:hover:bg-accent data-highlighted:hover:text-accent-foreground data-highlighted:focus-visible:bg-accent data-highlighted:focus-visible:text-accent-foreground";
 
@@ -189,14 +276,49 @@ export default function ProjectScriptsControl({
     setKeybinding(next);
   };
 
-  const submitAddScript = async (event: FormEvent) => {
+  const submitAction = async (event: FormEvent) => {
     event.preventDefault();
     const trimmedName = name.trim();
-    const trimmedCommand = command.trim();
     if (trimmedName.length === 0) {
       setValidationError("Name is required.");
       return;
     }
+    if (actionType === "prompt") {
+      const trimmedPrompt = prompt.trim();
+      if (trimmedPrompt.length === 0) {
+        setValidationError("Prompt is required.");
+        return;
+      }
+      if (!modelSelection) {
+        setValidationError("Choose a model for this prompt.");
+        return;
+      }
+      const payload: NewProjectPromptActionInput = {
+        name: trimmedName,
+        prompt: trimmedPrompt,
+        icon,
+        modelSelection,
+      };
+      const result = editingPromptActionId
+        ? await onUpdatePromptAction?.(editingPromptActionId, payload)
+        : await onAddPromptAction?.(payload);
+      if (!result) {
+        setValidationError("Prompt actions are not supported by this server.");
+        return;
+      }
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          setValidationError(error instanceof Error ? error.message : "Failed to save action.");
+        }
+        return;
+      }
+      setDialogOpen(false);
+      setIconPickerOpen(false);
+      return;
+    }
+
+    const trimmedCommand = command.trim();
     if (trimmedCommand.length === 0) {
       setValidationError("Command is required.");
       return;
@@ -246,8 +368,12 @@ export default function ProjectScriptsControl({
 
   const openAddDialog = () => {
     setEditingScriptId(null);
+    setEditingPromptActionId(null);
+    setActionType("command");
     setName("");
     setCommand("");
+    setPrompt("");
+    setModelSelection(getCurrentModelSelection?.() ?? null);
     setIcon("play");
     setIconPickerOpen(false);
     setRunOnWorktreeCreate(false);
@@ -261,6 +387,8 @@ export default function ProjectScriptsControl({
   const openEditDialog = (script: ProjectScript) => {
     setActionsMenuOpen({ scripts: false, imports: false });
     setEditingScriptId(script.id);
+    setEditingPromptActionId(null);
+    setActionType("command");
     setName(script.name);
     setCommand(script.command);
     setIcon(script.icon);
@@ -273,12 +401,33 @@ export default function ProjectScriptsControl({
     setDialogOpen(true);
   };
 
-  const confirmDeleteScript = useCallback(() => {
-    if (!editingScriptId) return;
+  const openEditPromptDialog = (action: ProjectPromptAction) => {
+    setActionsMenuOpen({ scripts: false, imports: false });
+    setEditingScriptId(null);
+    setEditingPromptActionId(action.id);
+    setActionType("prompt");
+    setName(action.name);
+    setPrompt(action.prompt);
+    setModelSelection(action.modelSelection);
+    setCommand("");
+    setIcon(action.icon);
+    setIconPickerOpen(false);
+    setValidationError(null);
+    setDialogOpen(true);
+  };
+
+  const confirmDeleteAction = useCallback(() => {
+    if (!editingScriptId && !editingPromptActionId) return;
     setDeleteConfirmOpen(false);
     setDialogOpen(false);
-    void onDeleteScript(editingScriptId);
-  }, [editingScriptId, onDeleteScript]);
+    if (editingScriptId) {
+      void onDeleteScript(editingScriptId);
+      return;
+    }
+    if (editingPromptActionId) {
+      void onDeletePromptAction?.(editingPromptActionId);
+    }
+  }, [editingPromptActionId, editingScriptId, onDeletePromptAction, onDeleteScript]);
 
   const importFileScript = async (fileScript: T3ProjectFileScript) => {
     const payload: NewProjectScriptInput = {
@@ -311,7 +460,7 @@ export default function ProjectScriptsControl({
 
   const importMenuItems = importableScripts.length > 0 && (
     <>
-      {primaryScript && <MenuSeparator />}
+      {(primaryScript || promptActions.length > 0) && <MenuSeparator />}
       <MenuGroup>
         <MenuGroupLabel>From t3.json</MenuGroupLabel>
         {importableScripts.map((fileScript) => (
@@ -327,6 +476,69 @@ export default function ProjectScriptsControl({
             </MenuShortcut>
           </MenuItem>
         ))}
+      </MenuGroup>
+    </>
+  );
+
+  const promptMenuItems = promptActions.length > 0 && (
+    <>
+      {scripts.length > 0 ? <MenuSeparator /> : null}
+      <MenuGroup>
+        <MenuGroupLabel>Prompts</MenuGroupLabel>
+        {promptActions.map((action) => {
+          const currentReason = getPromptActionDisabledReason?.(action, "current") ?? null;
+          const newReason = getPromptActionDisabledReason?.(action, "new") ?? null;
+          return (
+            <MenuSub key={action.id}>
+              <MenuSubTrigger className={dropdownItemClassName}>
+                <ScriptIcon icon={action.icon} className="size-4" />
+                <span className="truncate">{action.name}</span>
+              </MenuSubTrigger>
+              <MenuSubPopup>
+                <MenuItem
+                  className={dropdownItemClassName}
+                  disabled={currentReason !== null}
+                  title={currentReason ?? undefined}
+                  onClick={() => onUsePromptAction?.(action, "current")}
+                >
+                  <MessageSquareTextIcon className="size-4" />
+                  <span className="min-w-0">
+                    <span className="block">Use in current chat</span>
+                    {currentReason ? (
+                      <span className="block max-w-64 truncate text-xs text-muted-foreground">
+                        {currentReason}
+                      </span>
+                    ) : null}
+                  </span>
+                </MenuItem>
+                <MenuItem
+                  className={dropdownItemClassName}
+                  disabled={newReason !== null}
+                  title={newReason ?? undefined}
+                  onClick={() => onUsePromptAction?.(action, "new")}
+                >
+                  <PlusIcon className="size-4" />
+                  <span className="min-w-0">
+                    <span className="block">Open in new chat</span>
+                    {newReason ? (
+                      <span className="block max-w-64 truncate text-xs text-muted-foreground">
+                        {newReason}
+                      </span>
+                    ) : null}
+                  </span>
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem
+                  className={dropdownItemClassName}
+                  onClick={() => openEditPromptDialog(action)}
+                >
+                  <SettingsIcon className="size-4" />
+                  Edit prompt
+                </MenuItem>
+              </MenuSubPopup>
+            </MenuSub>
+          );
+        })}
       </MenuGroup>
     </>
   );
@@ -409,6 +621,7 @@ export default function ProjectScriptsControl({
                   </MenuItem>
                 );
               })}
+              {promptMenuItems}
               {importMenuItems}
               <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
                 <PlusIcon className="size-4" />
@@ -417,20 +630,25 @@ export default function ProjectScriptsControl({
             </MenuPopup>
           </Menu>
         </Group>
-      ) : importableScripts.length > 0 ? (
+      ) : promptActions.length > 0 || importableScripts.length > 0 ? (
         <Menu
           highlightItemOnHover={false}
           open={actionsMenuOpen.imports}
           onOpenChange={(open) => setActionsMenuOpen({ scripts: false, imports: open })}
         >
           <MenuTrigger render={<Button size="xs" variant="outline" aria-label="Project actions" />}>
-            <PlusIcon className="size-3.5" />
+            {promptActions.length > 0 ? (
+              <MessageSquareTextIcon className="size-3.5" />
+            ) : (
+              <PlusIcon className="size-3.5" />
+            )}
             <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
-              Add action
+              Actions
             </span>
             <ChevronDownIcon className="size-3.5" />
           </MenuTrigger>
           <MenuPopup align="end">
+            {promptMenuItems}
             {importMenuItems}
             <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
               <PlusIcon className="size-4" />
@@ -470,8 +688,12 @@ export default function ProjectScriptsControl({
         onOpenChangeComplete={(open) => {
           if (open) return;
           setEditingScriptId(null);
+          setEditingPromptActionId(null);
+          setActionType("command");
           setName("");
           setCommand("");
+          setPrompt("");
+          setModelSelection(null);
           setIcon("play");
           setRunOnWorktreeCreate(false);
           setKeybinding("");
@@ -485,13 +707,43 @@ export default function ProjectScriptsControl({
           <DialogHeader>
             <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
             <DialogDescription>
-              Actions are project-scoped commands you can run from the top bar or keybindings.
+              {actionType === "command"
+                ? "Commands run in a project terminal from the top bar or a keybinding."
+                : "Prompts fill a composer with saved text, model, and traits without sending it."}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
-            <form id={addScriptFormId} className="space-y-4" onSubmit={submitAddScript}>
+            <form id={addScriptFormId} className="space-y-4" onSubmit={submitAction}>
+              {!isEditing && promptActionsSupported ? (
+                <div
+                  className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                  aria-label="Action type"
+                >
+                  <Button
+                    type="button"
+                    variant={actionType === "command" ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setActionType("command")}
+                  >
+                    Command
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={actionType === "prompt" ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => {
+                      setActionType("prompt");
+                      setModelSelection(
+                        (current) => current ?? getCurrentModelSelection?.() ?? null,
+                      );
+                    }}
+                  >
+                    Prompt
+                  </Button>
+                </div>
+              ) : null}
               <div className="space-y-1.5">
-                <Label htmlFor="script-name">Name</Label>
+                <Label htmlFor="action-name">Name</Label>
                 <div className="flex items-center gap-2">
                   <Popover onOpenChange={setIconPickerOpen} open={iconPickerOpen}>
                     <PopoverTrigger
@@ -533,67 +785,133 @@ export default function ProjectScriptsControl({
                     </PopoverPopup>
                   </Popover>
                   <Input
-                    id="script-name"
+                    id="action-name"
                     autoFocus
-                    placeholder="Test"
+                    placeholder={actionType === "command" ? "Test" : "Review changes"}
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                   />
                 </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-keybinding">Keybinding</Label>
-                <Input
-                  id="script-keybinding"
-                  placeholder="Press shortcut"
-                  value={keybinding}
-                  readOnly
-                  onKeyDown={captureKeybinding}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Press a shortcut. Use <code>Backspace</code> to clear.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-command">Command</Label>
-                <Textarea
-                  id="script-command"
-                  placeholder="bun test"
-                  value={command}
-                  onChange={(event) => setCommand(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-preview-url">Preview URL (optional)</Label>
-                <Input
-                  id="script-preview-url"
-                  placeholder="http://localhost:5173"
-                  value={previewUrl}
-                  onChange={(event) => setPreviewUrl(event.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Open this URL in the in-app preview when this action runs.
-                </p>
-              </div>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
-                <span>Run automatically on worktree creation</span>
-                <Switch
-                  checked={runOnWorktreeCreate}
-                  onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
-                />
-              </label>
-              <label
-                className={`flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035] ${
-                  previewUrl.trim().length === 0 ? "opacity-60" : ""
-                }`}
-              >
-                <span>Open preview automatically when this action runs</span>
-                <Switch
-                  checked={autoOpenPreview}
-                  disabled={previewUrl.trim().length === 0}
-                  onCheckedChange={(checked) => setAutoOpenPreview(Boolean(checked))}
-                />
-              </label>
+              {actionType === "command" ? (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="script-keybinding">Keybinding</Label>
+                    <Input
+                      id="script-keybinding"
+                      placeholder="Press shortcut"
+                      value={keybinding}
+                      readOnly
+                      onKeyDown={captureKeybinding}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Press a shortcut. Use <code>Backspace</code> to clear.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="script-command">Command</Label>
+                    <Textarea
+                      id="script-command"
+                      placeholder="bun test"
+                      value={command}
+                      onChange={(event) => setCommand(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="script-preview-url">Preview URL (optional)</Label>
+                    <Input
+                      id="script-preview-url"
+                      placeholder="http://localhost:5173"
+                      value={previewUrl}
+                      onChange={(event) => setPreviewUrl(event.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Open this URL in the in-app preview when this action runs.
+                    </p>
+                  </div>
+                  <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
+                    <span>Run automatically on worktree creation</span>
+                    <Switch
+                      checked={runOnWorktreeCreate}
+                      onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
+                    />
+                  </label>
+                  <label
+                    className={`flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035] ${
+                      previewUrl.trim().length === 0 ? "opacity-60" : ""
+                    }`}
+                  >
+                    <span>Open preview automatically when this action runs</span>
+                    <Switch
+                      checked={autoOpenPreview}
+                      disabled={previewUrl.trim().length === 0}
+                      onCheckedChange={(checked) => setAutoOpenPreview(Boolean(checked))}
+                    />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="action-prompt">Prompt</Label>
+                    <Textarea
+                      id="action-prompt"
+                      className="min-h-28"
+                      placeholder="Review the current changes and identify correctness risks."
+                      value={prompt}
+                      onChange={(event) => setPrompt(event.target.value)}
+                    />
+                  </div>
+                  {modelSelection ? (
+                    <div className="space-y-1.5">
+                      <Label>Model and traits</Label>
+                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-2 dark:border-transparent dark:bg-white/[0.035]">
+                        <ProviderModelPicker
+                          activeInstanceId={modelSelection.instanceId}
+                          model={modelSelection.model}
+                          lockedProvider={null}
+                          instanceEntries={providerInstanceEntries}
+                          modelOptionsByInstance={modelOptionsByInstance}
+                          triggerVariant="outline"
+                          triggerAriaLabel="Prompt action model"
+                          onInstanceModelChange={(instanceId, model) =>
+                            setModelSelection(createModelSelection(instanceId, model))
+                          }
+                        />
+                        {selectedPromptProvider ? (
+                          <TraitsPicker
+                            provider={selectedPromptProvider.driverKind}
+                            instanceId={selectedPromptProvider.instanceId}
+                            models={selectedPromptProvider.models}
+                            model={modelSelection.model}
+                            modelOptions={modelSelection.options}
+                            prompt={prompt}
+                            onPromptChange={setPrompt}
+                            onModelOptionsChange={(options) =>
+                              setModelSelection(
+                                createModelSelection(
+                                  modelSelection.instanceId,
+                                  modelSelection.model,
+                                  options,
+                                ),
+                              )
+                            }
+                            triggerVariant="outline"
+                          />
+                        ) : null}
+                      </div>
+                      {!selectedPromptProvider ? (
+                        <p className="text-sm text-destructive">
+                          The saved provider is unavailable. Choose a replacement model.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-destructive">
+                      No available model is selected. Open a chat with a configured provider first.
+                    </p>
+                  )}
+                </>
+              )}
               {validationError && <p className="text-sm text-destructive">{validationError}</p>}
             </form>
           </DialogPanel>
@@ -632,7 +950,7 @@ export default function ProjectScriptsControl({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-            <Button variant="destructive" onClick={confirmDeleteScript}>
+            <Button variant="destructive" onClick={confirmDeleteAction}>
               Delete action
             </Button>
           </AlertDialogFooter>

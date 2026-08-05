@@ -1,9 +1,15 @@
-import { CircleAlertIcon, MessageSquareIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  ClipboardCheckIcon,
+  MessageSquareIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 
-import type { SidebarV2Status } from "../Sidebar.logic";
 import { Diamond } from "../loading-ui/diamond";
+import type { ThreadAttentionStatus } from "../sidebarWorkspaceStatus";
 
-export function ThreadTabStatusIcon({ status }: { readonly status: SidebarV2Status }) {
+export function ThreadTabStatusIcon({ status }: { readonly status: ThreadAttentionStatus }) {
   switch (status) {
     case "working":
       return (
@@ -34,6 +40,22 @@ export function ThreadTabStatusIcon({ status }: { readonly status: SidebarV2Stat
           role="img"
           aria-label="Failed"
           className="size-3.5 shrink-0 text-red-600 dark:text-red-300"
+        />
+      );
+    case "plan":
+      return (
+        <ClipboardCheckIcon
+          role="img"
+          aria-label="Plan ready"
+          className="size-3.5 shrink-0 text-violet-600 dark:text-violet-300"
+        />
+      );
+    case "completed":
+      return (
+        <CircleCheckIcon
+          role="img"
+          aria-label="Completed"
+          className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-300"
         />
       );
     case "ready":

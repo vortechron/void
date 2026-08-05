@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useFontFamily } from "../../lib/useFontFamily";
 
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, type ModelSelection } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -37,10 +37,14 @@ import {
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import {
   clearComposerDraftContent,
+  clearComposerDraft,
   getComposerDraftSnapshot,
   mergeComposerDraftContent,
   restoreComposerDraftSnapshot,
+  setComposerDraftText,
   type ComposerDraft,
+  type ComposerDraftWorkspaceSelection,
+  updateComposerDraftSettings,
 } from "../../state/use-composer-drafts";
 import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
 import { buildModelMenuActions, resolveSelectableModelSelection } from "../../lib/modelOptions";
@@ -73,11 +77,36 @@ export function NewTaskDraftScreen(props: {
   readonly pendingTaskId?: string;
   /** Durable native share inbox item to merge into this project draft. */
   readonly incomingShareId?: string;
+  /** Saved prompt to seed into an isolated, disposable new-task draft. */
+  readonly promptActionId?: string;
+  readonly promptActionDraftKey?: string;
+  readonly initialWorkspaceSelection?: ComposerDraftWorkspaceSelection;
 }) {
   const projects = useProjects();
   const createProjectThread = useCreateProjectThread();
   const flow = useNewTaskFlow();
   const navigation = useNavigation();
+  const promptActionProject = useMemo(
+    () =>
+      projects.find(
+        (project) =>
+          project.environmentId === props.initialProjectRef?.environmentId &&
+          project.id === props.initialProjectRef.projectId,
+      ) ?? null,
+    [projects, props.initialProjectRef?.environmentId, props.initialProjectRef?.projectId],
+  );
+  const promptAction = useMemo(
+    () =>
+      props.promptActionId
+        ? (promptActionProject?.promptActions?.find(
+            (action) => action.id === props.promptActionId,
+          ) ?? null)
+        : null,
+    [promptActionProject?.promptActions, props.promptActionId],
+  );
+  const promptActionPrompt = promptAction?.prompt ?? null;
+  const promptActionModelSelectionKey = JSON.stringify(promptAction?.modelSelection ?? null);
+  const promptActionWorkspaceSelectionKey = JSON.stringify(props.initialWorkspaceSelection ?? null);
   const {
     consumeShare,
     getShare,
@@ -111,6 +140,7 @@ export function NewTaskDraftScreen(props: {
   const cancellingShareImportKeyRef = useRef<string | null>(null);
   const shareImportDraftBackupRef = useRef(new Map<string, ComposerDraft>());
   const activeShareImportTokenRef = useRef<symbol | null>(null);
+  const seededPromptActionDraftKeyRef = useRef<string | null>(null);
   const shareImportMountedRef = useRef(true);
   const latestDraftKeyRef = useRef(flow.draftKey);
   const latestIncomingShareIdRef = useRef(props.incomingShareId);
@@ -119,6 +149,49 @@ export function NewTaskDraftScreen(props: {
   const isImportingShare = importingShareKey !== null;
   const alertedUnavailableIncomingShareIdRef = useRef<string | null>(null);
   const incomingShare = props.incomingShareId ? getShare(props.incomingShareId) : null;
+
+  useEffect(() => {
+    const draftKey = props.promptActionDraftKey;
+    const promptActionModelSelection = JSON.parse(
+      promptActionModelSelectionKey,
+    ) as ModelSelection | null;
+    const promptActionWorkspaceSelection = JSON.parse(
+      promptActionWorkspaceSelectionKey,
+    ) as ComposerDraftWorkspaceSelection | null;
+    if (!draftKey || !promptActionPrompt || !promptActionModelSelection) return;
+    flow.setTemporaryDraftKey(draftKey);
+    if (seededPromptActionDraftKeyRef.current !== draftKey) {
+      seededPromptActionDraftKeyRef.current = draftKey;
+      clearComposerDraft(draftKey);
+      setComposerDraftText(draftKey, promptActionPrompt);
+      updateComposerDraftSettings(draftKey, {
+        modelSelection: promptActionModelSelection,
+        ...(promptActionWorkspaceSelection
+          ? { workspaceSelection: promptActionWorkspaceSelection }
+          : {}),
+      });
+    }
+    return () => {
+      const finalDraft = getComposerDraftSnapshot(draftKey);
+      const unchanged =
+        finalDraft.text === promptActionPrompt &&
+        finalDraft.attachments.length === 0 &&
+        JSON.stringify(finalDraft.modelSelection) === promptActionModelSelectionKey &&
+        JSON.stringify(finalDraft.workspaceSelection ?? null) ===
+          promptActionWorkspaceSelectionKey &&
+        finalDraft.runtimeMode === undefined &&
+        finalDraft.interactionMode === undefined;
+      if (unchanged) clearComposerDraft(draftKey);
+      flow.setTemporaryDraftKey(null);
+      seededPromptActionDraftKeyRef.current = null;
+    };
+  }, [
+    flow.setTemporaryDraftKey,
+    promptActionModelSelectionKey,
+    promptActionPrompt,
+    promptActionWorkspaceSelectionKey,
+    props.promptActionDraftKey,
+  ]);
   const requestedInitialProjectAvailable = Boolean(
     props.initialProjectRef?.environmentId &&
     props.initialProjectRef.projectId &&
@@ -133,9 +206,49 @@ export function NewTaskDraftScreen(props: {
   const isIncomingShareTransferPending = Boolean(
     incomingShare && cancelledIncomingShareId !== props.incomingShareId,
   );
+  const temporaryPromptDraftSnapshot = props.promptActionDraftKey
+    ? getComposerDraftSnapshot(props.promptActionDraftKey)
+    : null;
+  const temporaryPromptDraftEdited = Boolean(
+    props.promptActionDraftKey &&
+    promptAction &&
+    !flow.submitting &&
+    flow.draftKey === props.promptActionDraftKey &&
+    temporaryPromptDraftSnapshot &&
+    (temporaryPromptDraftSnapshot.text !== promptAction.prompt ||
+      temporaryPromptDraftSnapshot.attachments.length > 0 ||
+      JSON.stringify(temporaryPromptDraftSnapshot.modelSelection) !==
+        JSON.stringify(promptAction.modelSelection) ||
+      JSON.stringify(temporaryPromptDraftSnapshot.workspaceSelection ?? null) !==
+        promptActionWorkspaceSelectionKey ||
+      temporaryPromptDraftSnapshot.runtimeMode !== undefined ||
+      temporaryPromptDraftSnapshot.interactionMode !== undefined),
+  );
   usePreventRemove(
-    (isIncomingShareTransferPending && !isProjectPickerReturnActive) || isCancellingShareImport,
-    () => undefined,
+    (isIncomingShareTransferPending && !isProjectPickerReturnActive) ||
+      isCancellingShareImport ||
+      temporaryPromptDraftEdited,
+    ({ data }) => {
+      if (!temporaryPromptDraftEdited || !props.promptActionDraftKey) return;
+      Alert.alert(
+        "Discard prompt draft?",
+        "You changed this temporary prompt draft. Keep editing or discard those changes.",
+        [
+          { text: "Keep editing", style: "cancel" },
+          {
+            text: "Discard",
+            style: "destructive",
+            onPress: () => {
+              const draftKey = props.promptActionDraftKey;
+              if (!draftKey) return;
+              clearComposerDraft(draftKey);
+              flow.setTemporaryDraftKey(null);
+              navigation.dispatch(data.action);
+            },
+          },
+        ],
+      );
+    },
   );
   const hasImportedIncomingShare = Boolean(
     props.incomingShareId &&
@@ -827,13 +940,12 @@ export function NewTaskDraftScreen(props: {
       try {
         await enqueueThreadOutboxMessage(message);
       } catch (error) {
+        flow.setSubmitting(false);
         Alert.alert(
           "Could not queue task",
           error instanceof Error ? error.message : "The task could not be saved to the outbox.",
         );
         return;
-      } finally {
-        flow.setSubmitting(false);
       }
       if (editingPendingTask) {
         flow.finishEditingPendingTask();
@@ -841,9 +953,14 @@ export function NewTaskDraftScreen(props: {
         // Drop the workspace selection with the content: the next task should
         // re-resolve mode/branch/origin from the server's configured defaults
         // instead of resurrecting this task's picks.
-        clearComposerDraftContent(draftKey, { clearWorkspaceSelection: true });
+        if (props.promptActionDraftKey === draftKey) {
+          clearComposerDraft(draftKey);
+        } else {
+          clearComposerDraftContent(draftKey, { clearWorkspaceSelection: true });
+        }
       }
       navigation.getParent()?.goBack();
+      flow.setSubmitting(false);
       return;
     }
 
@@ -878,9 +995,8 @@ export function NewTaskDraftScreen(props: {
           }
         : {}),
     });
-    flow.setSubmitting(false);
-
     if (result._tag === "Failure") {
+      flow.setSubmitting(false);
       if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         Alert.alert(
@@ -899,7 +1015,11 @@ export function NewTaskDraftScreen(props: {
       }
       flow.finishEditingPendingTask();
     } else {
-      clearComposerDraftContent(draftKey, { clearWorkspaceSelection: true });
+      if (props.promptActionDraftKey === draftKey) {
+        clearComposerDraft(draftKey);
+      } else {
+        clearComposerDraftContent(draftKey, { clearWorkspaceSelection: true });
+      }
     }
     navigation.dispatch(
       StackActions.replace("Thread", {
@@ -907,6 +1027,7 @@ export function NewTaskDraftScreen(props: {
         threadId: String(result.value.threadId),
       }),
     );
+    flow.setSubmitting(false);
   }
 
   if (!selectedProject) {

@@ -242,10 +242,11 @@ describe("resolveSidebarStageBadgeLabel", () => {
 function makeLatestTurn(overrides?: {
   completedAt?: string | null;
   startedAt?: string | null;
+  state?: OrchestrationLatestTurn["state"];
 }): OrchestrationLatestTurn {
   return {
     turnId: "turn-1" as never,
-    state: "completed",
+    state: overrides?.state ?? "completed",
     assistantMessageId: null,
     requestedAt: "2026-03-09T10:00:00.000Z",
     startedAt:
@@ -283,6 +284,23 @@ describe("hasUnseenCompletion", () => {
       }),
     ).toBe(false);
   });
+
+  it.each(["interrupted", "error"] as const)(
+    "does not treat an %s turn as a successful completion",
+    (state) => {
+      expect(
+        hasUnseenCompletion({
+          hasActionableProposedPlan: false,
+          hasPendingApprovals: false,
+          hasPendingUserInput: false,
+          interactionMode: "default",
+          latestTurn: makeLatestTurn({ state }),
+          lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          session: null,
+        }),
+      ).toBe(false);
+    },
+  );
 });
 
 describe("createThreadJumpHintVisibilityController", () => {

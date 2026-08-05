@@ -5,6 +5,7 @@ import {
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
+  type ProjectPromptAction,
   type ProjectScript,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -156,20 +157,32 @@ import { cn, randomHex } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
-import { type NewProjectScriptInput } from "./ProjectScriptsControl";
+import {
+  type NewProjectPromptActionInput,
+  type NewProjectScriptInput,
+  type ProjectPromptActionDestination,
+} from "./ProjectScriptsControl";
 import {
   buildProjectScript,
   commandForProjectScript,
   nextProjectScriptId,
   projectScriptIdFromCommand,
 } from "~/projectScripts";
+import { appendProjectPrompt, buildProjectPromptAction } from "~/projectPromptActions";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
-import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
+import {
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+  NO_PROVIDER_MODEL_SELECTION,
+} from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
-import { resolveAppModelSelectionForInstance } from "../modelSelection";
+import {
+  getAppModelOptionsForInstance,
+  resolveAppModelSelectionForInstance,
+} from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { preventRepeatedTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
@@ -3076,6 +3089,196 @@ function ChatViewContent(props: ChatViewProps) {
     [activeProject, persistProjectScripts],
   );
 
+  const promptActionsSupported =
+    serverConfig?.environment.capabilities.projectPromptActions === true;
+  const configuredProviderEntries = useMemo(
+    () => applyProviderInstanceSettings(deriveProviderInstanceEntries(providerStatuses), settings),
+    [providerStatuses, settings],
+  );
+  const getProjectPromptActionDisabledReason = useCallback(
+    (action: ProjectPromptAction, destination: ProjectPromptActionDestination): string | null => {
+      const providerEntry = configuredProviderEntries.find(
+        (entry) => entry.instanceId === action.modelSelection.instanceId,
+      );
+      if (!providerEntry || !providerEntry.enabled || !providerEntry.isAvailable) {
+        return "The saved provider is unavailable.";
+      }
+      const modelAvailable = getAppModelOptionsForInstance(settings, providerEntry).some(
+        (model) => model.slug === action.modelSelection.model,
+      );
+      if (!modelAvailable) {
+        return "The saved model is unavailable for this provider.";
+      }
+      if (destination === "new" || !activeThread) {
+        return null;
+      }
+      if (lockedProvider !== null && providerEntry.driverKind !== lockedProvider) {
+        return "This chat is locked to its current provider. Open the prompt in a new chat.";
+      }
+      const currentProviderEntry = activeThread.session?.providerInstanceId
+        ? configuredProviderEntries.find(
+            (entry) => entry.instanceId === activeThread.session?.providerInstanceId,
+          )
+        : null;
+      if (
+        currentProviderEntry?.continuationGroupKey &&
+        providerEntry.continuationGroupKey &&
+        currentProviderEntry.continuationGroupKey !== providerEntry.continuationGroupKey
+      ) {
+        return "This model is not compatible with the current provider session. Open it in a new chat.";
+      }
+      const blockReason = getStartedThreadModelChangeBlockReason({
+        providers: providerStatuses,
+        hasStartedSession: activeThread.session !== null,
+        currentModelSelection: activeThread.modelSelection,
+        currentProviderInstanceId: activeThread.session?.providerInstanceId ?? null,
+        nextModelSelection: action.modelSelection,
+      });
+      return blockReason ? `${blockReason.description} Open the prompt in a new chat.` : null;
+    },
+    [activeThread, configuredProviderEntries, lockedProvider, providerStatuses, settings],
+  );
+  const getCurrentProjectActionModelSelection = useCallback(
+    () =>
+      composerRef.current?.getSendContext().selectedModelSelection ??
+      activeThread?.modelSelection ??
+      activeProject?.defaultModelSelection ??
+      null,
+    [activeProject?.defaultModelSelection, activeThread?.modelSelection, composerRef],
+  );
+  const persistProjectPromptActions = useCallback(
+    async (
+      projectId: ProjectId,
+      promptActions: ReadonlyArray<ProjectPromptAction>,
+    ): Promise<AtomCommandResult<void, unknown>> => {
+      if (!promptActionsSupported) {
+        return AsyncResult.failure(
+          Cause.fail(new Error("This server does not support prompt actions.")),
+        );
+      }
+      return mapAtomCommandResult(
+        await updateProject({
+          environmentId,
+          input: { projectId, promptActions },
+        }),
+        () => undefined,
+      );
+    },
+    [environmentId, promptActionsSupported, updateProject],
+  );
+  const saveProjectPromptAction = useCallback(
+    async (input: NewProjectPromptActionInput): Promise<AtomCommandResult<void, unknown>> => {
+      if (!activeProject) return AsyncResult.success(undefined);
+      const currentPromptActions = activeProject.promptActions ?? [];
+      const nextId = nextProjectScriptId(input.name, [
+        ...activeProject.scripts.map((script) => script.id),
+        ...currentPromptActions.map((action) => action.id),
+      ]);
+      return persistProjectPromptActions(activeProject.id, [
+        ...currentPromptActions,
+        buildProjectPromptAction(nextId, input),
+      ]);
+    },
+    [activeProject, persistProjectPromptActions],
+  );
+  const updateProjectPromptAction = useCallback(
+    async (
+      actionId: string,
+      input: NewProjectPromptActionInput,
+    ): Promise<AtomCommandResult<void, unknown>> => {
+      if (!activeProject) return AsyncResult.success(undefined);
+      const currentPromptActions = activeProject.promptActions ?? [];
+      if (!currentPromptActions.some((action) => action.id === actionId)) {
+        return AsyncResult.failure(Cause.fail(new Error("Prompt action not found.")));
+      }
+      return persistProjectPromptActions(
+        activeProject.id,
+        currentPromptActions.map((action) =>
+          action.id === actionId ? buildProjectPromptAction(action.id, input) : action,
+        ),
+      );
+    },
+    [activeProject, persistProjectPromptActions],
+  );
+  const deleteProjectPromptAction = useCallback(
+    async (actionId: string): Promise<AtomCommandResult<void, unknown>> => {
+      if (!activeProject) return AsyncResult.success(undefined);
+      const currentPromptActions = activeProject.promptActions ?? [];
+      const deletedName = currentPromptActions.find((action) => action.id === actionId)?.name;
+      const result = await persistProjectPromptActions(
+        activeProject.id,
+        currentPromptActions.filter((action) => action.id !== actionId),
+      );
+      if (result._tag === "Success") {
+        toastManager.add({
+          type: "success",
+          title: `Deleted prompt action "${deletedName ?? "Unknown"}"`,
+        });
+      } else if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not delete prompt action",
+            description: error instanceof Error ? error.message : "An unexpected error occurred.",
+          }),
+        );
+      }
+      return result;
+    },
+    [activeProject, persistProjectPromptActions],
+  );
+  const useProjectPromptAction = useCallback(
+    (action: ProjectPromptAction, destination: ProjectPromptActionDestination) => {
+      const disabledReason = getProjectPromptActionDisabledReason(action, destination);
+      if (disabledReason) {
+        toastManager.add({
+          type: "warning",
+          title: "Prompt action unavailable",
+          description: disabledReason,
+        });
+        return;
+      }
+      if (destination === "current") {
+        const currentPrompt =
+          useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.prompt ?? "";
+        setComposerDraftPrompt(
+          composerDraftTarget,
+          appendProjectPrompt(currentPrompt, action.prompt),
+        );
+        setComposerDraftModelSelection(composerDraftTarget, action.modelSelection, {
+          replaceOptions: true,
+        });
+        scheduleComposerFocus();
+        return;
+      }
+      if (!activeProjectRef || !activeThread) return;
+      const worktreePath = activeThread.worktreePath;
+      void handleNewThread(activeProjectRef, {
+        branch: gitStatusQuery.data?.refName ?? activeThread.branch,
+        worktreePath,
+        envMode: worktreePath === null ? "local" : "worktree",
+        startFromOrigin: false,
+        forceNew: true,
+        composerSeed: {
+          prompt: action.prompt,
+          modelSelection: action.modelSelection,
+        },
+      });
+    },
+    [
+      activeProjectRef,
+      activeThread,
+      composerDraftTarget,
+      getProjectPromptActionDisabledReason,
+      gitStatusQuery.data?.refName,
+      handleNewThread,
+      scheduleComposerFocus,
+      setComposerDraftModelSelection,
+      setComposerDraftPrompt,
+    ],
+  );
+
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
       if (mode === runtimeMode) return;
@@ -5794,6 +5997,10 @@ function ChatViewContent(props: ChatViewProps) {
             activeProjectCwd={activeProject?.workspaceRoot ?? null}
             openInCwd={gitCwd}
             activeProjectScripts={activeProject?.scripts}
+            activeProjectPromptActions={activeProject?.promptActions}
+            promptActionsSupported={promptActionsSupported}
+            providerStatuses={providerStatuses}
+            settings={settings}
             preferredScriptId={
               activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
             }
@@ -5806,6 +6013,12 @@ function ChatViewContent(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
+            getCurrentModelSelection={getCurrentProjectActionModelSelection}
+            getPromptActionDisabledReason={getProjectPromptActionDisabledReason}
+            onUseProjectPromptAction={useProjectPromptAction}
+            onAddProjectPromptAction={saveProjectPromptAction}
+            onUpdateProjectPromptAction={updateProjectPromptAction}
+            onDeleteProjectPromptAction={deleteProjectPromptAction}
           />
         </header>
 

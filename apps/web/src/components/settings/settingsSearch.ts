@@ -86,6 +86,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "agent-notifications",
+    title: "Agent notifications",
+    to: "/settings/general",
+  },
+  {
+    id: "completion-sound",
+    title: "Completion sound",
+    to: "/settings/general",
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",

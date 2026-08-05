@@ -167,6 +167,7 @@ type NewTaskFlowContextValue = {
     value: ReadonlyArray<ProviderOptionSelection> | undefined,
   ) => void;
   readonly setExpandedProvider: (value: string | null) => void;
+  readonly setTemporaryDraftKey: (value: string | null) => void;
 };
 
 const NewTaskFlowContext = React.createContext<NewTaskFlowContextValue | null>(null);
@@ -215,6 +216,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const [submitting, setSubmitting] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
+  const [temporaryDraftKey, setTemporaryDraftKey] = useState<string | null>(null);
   const [editingPendingTask, setEditingPendingTask] = useState<QueuedThreadMessage | null>(null);
   // Mirrors `editingPendingTask` synchronously so the unmount flush cannot act
   // on a task whose editing session already ended this render.
@@ -226,6 +228,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     setSubmitting(false);
     setBranchQuery("");
     setExpandedProvider(null);
+    setTemporaryDraftKey(null);
     const editing = editingPendingTaskRef.current;
     editingPendingTaskRef.current = null;
     setEditingPendingTask(null);
@@ -345,9 +348,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   // scoped to the queued message, so per-project new-task drafts stay intact.
   const selectedProjectDraftKey = editingPendingTask
     ? pendingTaskDraftKey(editingPendingTask.messageId)
-    : selectedProject
-      ? `new-task:${scopedProjectKey(selectedProject.environmentId, selectedProject.id)}`
-      : null;
+    : (temporaryDraftKey ??
+      (selectedProject
+        ? `new-task:${scopedProjectKey(selectedProject.environmentId, selectedProject.id)}`
+        : null));
   const selectedProjectDraft = useComposerDraft(selectedProjectDraftKey);
   const prompt = selectedProjectDraft.text;
   const attachments = selectedProjectDraft.attachments;
@@ -896,6 +900,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setInteractionMode,
       setSelectedModelOptions,
       setExpandedProvider,
+      setTemporaryDraftKey,
     }),
     [
       attachments,
@@ -939,6 +944,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setSelectedModelKey,
       setStartFromOrigin,
       setWorkspaceMode,
+      setTemporaryDraftKey,
       startFromOrigin,
       submitting,
       workspaceMode,

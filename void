@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+#
+# Void fork runner. Starts, stops and inspects the two web instances:
+#
+#   prod  main branch,             built,      ~/.void/userdata,  port 7788
+#   dev   feature/advanced branch, hot reload, ~/.t3/dev,         auto port
+#
+# Both survive closing the terminal. Neither ever touches ~/.t3/userdata,
+# which belongs to the installed T3 Code app.
+#
+# Usage:
+#   ./void start [prod|dev]     start one or both
+#   ./void stop  [prod|dev]     stop one or both
+#   ./void restart [prod|dev]
+#   ./void status               what is running, and where
+#   ./void url [prod|dev]       print the pairing URL
+#   ./void logs [prod|dev]      follow the log
+#   ./void rebuild              rebuild prod from main, then restart it
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+DEV_DIR="${VOID_DEV_DIR:-$SCRIPT_DIR}"
+PROD_DIR="${VOID_PROD_DIR:-$(dirname "$SCRIPT_DIR")/void-prod}"
+PROD_BASE_DIR="${VOID_PROD_BASE_DIR:-$HOME/.void}"
+PROD_PORT="${VOID_PROD_PORT:-7788}"
+PROD_HOST="${VOID_PROD_HOST:-127.0.0.1}"
+RUN_DIR="${VOID_RUN_DIR:-$HOME/.void/run}"
+
+mkdir -p "$RUN_DIR"
+
+# --- output ----------------------------------------------------------------
+
+if [ -t 1 ]; then
+  BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GREEN=$'\033[32m'
+  YELLOW=$'\033[33m'; RESET=$'\033[0m'
+else
+  BOLD=''; DIM=''; RED=''; GREEN=''; YELLOW=''; RESET=''
+fi
+
+info() { printf '%s\n' "$*"; }
+warn() { printf '%s%s%s\n' "$YELLOW" "$*" "$RESET" >&2; }
+die()  { printf '%s%s%s\n' "$RED" "$*" "$RESET" >&2; exit 1; }
+
+# --- toolchain -------------------------------------------------------------
+#
+# This repo's scripts are .ts and rely on node's native type stripping, and it
+# pins pnpm@11. A node older than 24 dies with ERR_UNKNOWN_FILE_EXTENSION
+# before running a single line, so resolve a good node up front rather than
+# letting whatever nvm last selected decide.
+
+resolve_node_bin() {
+  if [ -n "${VOID_NODE_BIN:-}" ]; then
+    printf '%s' "$VOID_NODE_BIN"
+    return
+  fi
+
+  local candidate
+  for candidate in "$HOME/.nvm/versions/node"/v2[4-9].* "$HOME/.nvm/versions/node"/v[3-9][0-9].*; do
+    [ -x "$candidate/bin/node" ] && printf '%s' "$candidate/bin" && return
+  done
+
+  if command -v node >/dev/null 2>&1; then
+    local major
+    major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+    if [ "$major" -ge 24 ] 2>/dev/null; then
+      printf '%s' "$(dirname "$(command -v node)")"
+      return
+    fi
+  fi
+
+  die "No node >= 24 found. Install one (nvm install 24) or set VOID_NODE_BIN."
+}
+
+NODE_BIN="$(resolve_node_bin)"
+# Homebrew ahead of nvm so pnpm resolves to the pinned 11.x, not an old nvm 9.x.
+export PATH="$NODE_BIN:/opt/homebrew/bin:$PATH"
+
+# --- process control -------------------------------------------------------
+#
+# Every instance runs in its own process group so stopping it takes the whole
+# tree (dev alone spawns vite plus a watching server). We only ever signal a
+# pid we recorded at spawn -- never a pattern match, which on this machine
+# would also match the user's real T3 Code app and other checkouts.
+
+pid_file()  { printf '%s/%s.pid' "$RUN_DIR" "$1"; }
+log_file()  { printf '%s/%s.log' "$RUN_DIR" "$1"; }
+
+read_pid() {
+  local file; file="$(pid_file "$1")"
+  [ -f "$file" ] || return 1
+  local pid; pid="$(cat "$file" 2>/dev/null || true)"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  printf '%s' "$pid"
+}
+
+is_running() { read_pid "$1" >/dev/null 2>&1; }
+
+# perl's setpgrp makes the child a process group leader, so `kill -- -$pid`
+# reaches every descendant. macOS has no setsid(1).
+spawn() {
+  local name="$1"; shift
+  local dir="$1"; shift
+  local log; log="$(log_file "$name")"
+
+  : > "$log"
+  (
+    cd "$dir"
+    exec nohup perl -e 'setpgrp; exec @ARGV or die $!' "$@" >>"$log" 2>&1
+  ) &
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  printf '%s' "$pid" > "$(pid_file "$name")"
+
+  # A fast crash (bad port, missing build) should be reported now, not left
+  # for the user to discover in the browser.
+  sleep 1
+  if ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$(pid_file "$name")"
+    warn "$name exited immediately. Last lines:"
+    tail -n 15 "$log" >&2
+    return 1
+  fi
+}
+
+stop_one() {
+  local name="$1"
+  local pid
+  if ! pid="$(read_pid "$name")"; then
+    rm -f "$(pid_file "$name")"
+    info "${DIM}$name already stopped${RESET}"
+    return 0
+  fi
+
+  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 10 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+  fi
+
+  rm -f "$(pid_file "$name")"
+  info "${GREEN}stopped${RESET} $name"
+}
+
+# --- pairing ---------------------------------------------------------------
+#
+# The web app is useless without its token, so always surface the full pairing
+# URL rather than the bare origin.
+
+pairing_url() {
+  grep -oE 'https?://[^ ]+/pair#token=[A-Za-z0-9]+' "$(log_file "$1")" 2>/dev/null | tail -n 1
+}
+
+wait_for_pairing_url() {
+  local name="$1" waited=0 url=''
+  while [ "$waited" -lt 90 ]; do
+    url="$(pairing_url "$name")"
+    [ -n "$url" ] && printf '%s' "$url" && return 0
+    is_running "$name" || return 1
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+# --- start -----------------------------------------------------------------
+
+start_prod() {
+  if is_running prod; then
+    info "${DIM}prod already running${RESET}  $(pairing_url prod)"
+    return 0
+  fi
+  [ -d "$PROD_DIR" ] || die "Prod checkout missing: $PROD_DIR"
+  [ -f "$PROD_DIR/apps/server/dist/bin.mjs" ] || \
+    die "Prod is not built. Run: $0 rebuild"
+
+  info "starting ${BOLD}prod${RESET} ${DIM}(main, $PROD_BASE_DIR/userdata, :$PROD_PORT)${RESET}"
+  spawn prod "$PROD_DIR" \
+    node apps/server/dist/bin.mjs serve \
+      --mode web \
+      --port "$PROD_PORT" \
+      --host "$PROD_HOST" \
+      --base-dir "$PROD_BASE_DIR" \
+      --no-browser || return 1
+
+  local url; url="$(wait_for_pairing_url prod || true)"
+  if [ -n "$url" ]; then
+    info "  ${GREEN}$url${RESET}"
+  else
+    warn "  started, but no pairing URL yet. $0 logs prod"
+  fi
+}
+
+start_dev() {
+  if is_running dev; then
+    info "${DIM}dev already running${RESET}  $(pairing_url dev)"
+    return 0
+  fi
+  [ -d "$DEV_DIR" ] || die "Dev checkout missing: $DEV_DIR"
+
+  local branch; branch="$(git -C "$DEV_DIR" branch --show-current 2>/dev/null || echo '?')"
+  info "starting ${BOLD}dev${RESET} ${DIM}($branch, ~/.t3/dev, auto port)${RESET}"
+  spawn dev "$DEV_DIR" node scripts/dev-runner.ts dev || return 1
+
+  local url; url="$(wait_for_pairing_url dev || true)"
+  if [ -n "$url" ]; then
+    # Vite binds IPv6-only here, so 127.0.0.1 refuses the connection while
+    # localhost works. Hand over the URL the server actually printed.
+    info "  ${GREEN}$url${RESET}"
+  else
+    warn "  started, but no pairing URL yet. $0 logs dev"
+  fi
+}
+
+# --- rebuild ---------------------------------------------------------------
+
+rebuild_prod() {
+  [ -d "$PROD_DIR" ] || die "Prod checkout missing: $PROD_DIR"
+  local was_running=0
+  is_running prod && was_running=1
+
+  info "${BOLD}rebuilding prod${RESET} ${DIM}from $(git -C "$PROD_DIR" branch --show-current)${RESET}"
+  [ "$was_running" -eq 1 ] && stop_one prod
+
+  (
+    cd "$PROD_DIR"
+    pnpm install
+    vp run --filter @t3tools/web --filter t3 build
+    # A plain build stamps the dev icons into dist/client; the production
+    # marks only get applied by the packaging path. Do it explicitly.
+    node scripts/apply-web-brand-assets.ts production apps/server/dist/client
+  ) || die "Prod rebuild failed."
+
+  info "${GREEN}prod rebuilt${RESET}"
+  start_prod
+}
+
+# --- status ----------------------------------------------------------------
+
+show_status() {
+  local name dir label
+  printf '%s%-6s %-9s %-7s %s%s\n' "$BOLD" "WHAT" "STATE" "PID" "WHERE" "$RESET"
+  for name in prod dev; do
+    if [ "$name" = prod ]; then dir="$PROD_DIR"; else dir="$DEV_DIR"; fi
+    label="$(git -C "$dir" branch --show-current 2>/dev/null || echo '?')"
+    if pid="$(read_pid "$name")"; then
+      printf '%-6s %s%-9s%s %-7s %s\n' "$name" "$GREEN" running "$RESET" "$pid" "$label"
+      local url; url="$(pairing_url "$name")"
+      [ -n "$url" ] && printf '       %s%s%s\n' "$DIM" "$url" "$RESET"
+    else
+      printf '%-6s %s%-9s%s %-7s %s\n' "$name" "$DIM" stopped "$RESET" '-' "$label"
+    fi
+  done
+
+  # The installed app owns ~/.t3/userdata. Surfacing it here is a reminder
+  # that it is a third, separate database -- not something to serve from.
+  if lsof "$HOME/.t3/userdata/state.sqlite" >/dev/null 2>&1; then
+    printf '\n%sT3 Code app is running on ~/.t3/userdata (separate data, leave it alone)%s\n' \
+      "$DIM" "$RESET"
+  fi
+}
+
+# --- dispatch --------------------------------------------------------------
+
+target="${2:-both}"
+case "${1:-status}" in
+  start)
+    case "$target" in
+      prod) start_prod ;;
+      dev)  start_dev ;;
+      both) start_prod; start_dev ;;
+      *) die "Unknown target: $target" ;;
+    esac
+    ;;
+  stop)
+    case "$target" in
+      prod) stop_one prod ;;
+      dev)  stop_one dev ;;
+      both) stop_one prod; stop_one dev ;;
+      *) die "Unknown target: $target" ;;
+    esac
+    ;;
+  restart)
+    case "$target" in
+      prod) stop_one prod; start_prod ;;
+      dev)  stop_one dev;  start_dev ;;
+      both) stop_one prod; stop_one dev; start_prod; start_dev ;;
+      *) die "Unknown target: $target" ;;
+    esac
+    ;;
+  status) show_status ;;
+  url)
+    case "$target" in
+      both) pairing_url prod; pairing_url dev ;;
+      *) pairing_url "$target" ;;
+    esac
+    ;;
+  logs)
+    [ "$target" = both ] && target=prod
+    tail -f "$(log_file "$target")"
+    ;;
+  rebuild) rebuild_prod ;;
+  -h|--help|help)
+    sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    ;;
+  *) die "Unknown command: ${1:-}. Try: $0 --help" ;;
+esac
