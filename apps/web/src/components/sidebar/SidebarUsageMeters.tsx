@@ -1,5 +1,5 @@
 import type { ProviderDriverKind, UsageMeterMode, UsageMeterSettings } from "@t3tools/contracts";
-import { Fragment, memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useUsageMeterMode, useUsageMeterSettings } from "../../hooks/useSettings";
@@ -185,28 +185,26 @@ function ExpandedMeters({
     >
       <div className="flex items-stretch">
         {columns.map((column, index) => (
-          <Fragment key={column.id}>
-            {index > 0 ? <div aria-hidden className="w-px shrink-0 bg-sidebar-border" /> : null}
-            <ExpandedColumn
-              align={
-                columns.length === 1
-                  ? "center"
-                  : index === 0
-                    ? "start"
-                    : index === columns.length - 1
-                      ? "end"
-                      : "center"
-              }
-              column={column}
-              history={history}
-              settings={settings}
-            />
-          </Fragment>
+          <ExpandedColumn
+            align={
+              columns.length === 1
+                ? "center"
+                : index === 0
+                  ? "start"
+                  : index === columns.length - 1
+                    ? "end"
+                    : "center"
+            }
+            column={column}
+            history={history}
+            key={column.id}
+            settings={settings}
+          />
         ))}
       </div>
       {syncedLabel ? (
-        <div className="mt-1 flex items-center justify-center gap-1 text-[9px] text-muted-foreground">
-          <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+        <div className="flex items-center justify-start gap-1 pt-2 text-[8px] text-muted-foreground">
+          <span aria-hidden className="size-1 shrink-0 rounded-full bg-emerald-500" />
           <span className="truncate">{syncedLabel}</span>
         </div>
       ) : null}
