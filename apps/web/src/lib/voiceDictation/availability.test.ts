@@ -29,7 +29,7 @@ describe("resolveVoiceDictationAvailability", () => {
     const result = resolveVoiceDictationAvailability({ ...ready, apiKey: "   " });
 
     expect(result.blockedReason).toBe("missing-api-key");
-    expect(result.message).toBe("Add an OpenAI API key in Settings → General");
+    expect(result.message).toBe("Add an OpenAI API key in Settings → Voice");
   });
 
   it("accepts a key pasted as a .env line", () => {
@@ -45,7 +45,7 @@ describe("resolveVoiceDictationAvailability", () => {
     const result = resolveVoiceDictationAvailability({ ...ready, apiKey: "MY_KEY=sk-test" });
 
     expect(result.blockedReason).toBe("unusable-api-key");
-    expect(result.message).toBe("Paste only the OpenAI key itself in Settings → General");
+    expect(result.message).toBe("Paste only the OpenAI key itself in Settings → Voice");
   });
 
   it("names the connection when the page is not a secure context", () => {

@@ -196,6 +196,75 @@ describe("ClientSettings sidebar v2", () => {
   });
 });
 
+describe("ClientSettings voice dictation", () => {
+  it("defaults the whole block for a settings file that has never seen it", () => {
+    const voiceDictation = decodeClientSettings({}).voiceDictation;
+
+    expect(voiceDictation.enabled).toBe(false);
+    expect(voiceDictation.openaiApiKey).toBe("");
+    expect(voiceDictation.model).toBe("gpt-live-transcribe");
+    expect(voiceDictation.language).toBe("");
+    expect(voiceDictation.style).toBe("cleanup");
+    expect(voiceDictation.styleInstructions).toBe("");
+    expect(voiceDictation.polishModel).toBe("gpt-4.1-mini");
+    expect(voiceDictation.dictionary).toEqual([]);
+    expect(voiceDictation.snippets).toEqual([]);
+  });
+
+  it("fills the cleanup fields in for a blob written before they existed", () => {
+    // The shape every user who enabled dictation already has on disk.
+    const voiceDictation = decodeClientSettings({
+      voiceDictation: {
+        enabled: true,
+        openaiApiKey: "sk-test",
+        model: "gpt-transcribe",
+        language: "ms",
+      },
+    }).voiceDictation;
+
+    expect(voiceDictation.enabled).toBe(true);
+    expect(voiceDictation.model).toBe("gpt-transcribe");
+    expect(voiceDictation.style).toBe("cleanup");
+    expect(voiceDictation.dictionary).toEqual([]);
+    expect(voiceDictation.snippets).toEqual([]);
+  });
+
+  it.each(["off", "cleanup", "rewrite"] as const)("accepts the style %s", (style) => {
+    expect(decodeClientSettings({ voiceDictation: { style } }).voiceDictation.style).toBe(style);
+    expect(decodeClientSettingsPatch({ voiceDictation: { style } }).voiceDictation?.style).toBe(
+      style,
+    );
+  });
+
+  it("rejects a style this build does not know", () => {
+    expect(() => decodeClientSettings({ voiceDictation: { style: "formal" } })).toThrow();
+    expect(() => decodeClientSettingsPatch({ voiceDictation: { style: "formal" } })).toThrow();
+  });
+
+  it("carries dictionary terms and snippets through the patch the panel writes", () => {
+    const patch = decodeClientSettingsPatch({
+      voiceDictation: {
+        dictionary: ["Vortechron", "Suamuka"],
+        snippets: [{ id: "my-email", trigger: "my email", replacement: "hi@example.com" }],
+      },
+    });
+
+    expect(patch.voiceDictation?.dictionary).toEqual(["Vortechron", "Suamuka"]);
+    expect(patch.voiceDictation?.snippets).toEqual([
+      { id: "my-email", trigger: "my email", replacement: "hi@example.com" },
+    ]);
+  });
+
+  it("rejects a snippet with a blank trigger or replacement", () => {
+    for (const snippet of [
+      { id: "a", trigger: "   ", replacement: "hi@example.com" },
+      { id: "a", trigger: "my email", replacement: "" },
+    ]) {
+      expect(() => decodeClientSettings({ voiceDictation: { snippets: [snippet] } })).toThrow();
+    }
+  });
+});
+
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});

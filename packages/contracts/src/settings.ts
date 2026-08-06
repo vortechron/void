@@ -200,6 +200,39 @@ export const VoiceDictationModel = Schema.Literals(VOICE_DICTATION_MODEL_VALUES)
 export type VoiceDictationModel = typeof VoiceDictationModel.Type;
 export const DEFAULT_VOICE_DICTATION_MODEL: VoiceDictationModel = "gpt-live-transcribe";
 
+/**
+ * What the cleanup pass does to a finished transcript.
+ *
+ * `off` is the raw transcript, exactly what the transcription model heard.
+ * `cleanup` fixes punctuation, drops filler, and applies spoken
+ * self-corrections while keeping the speaker's own words. `rewrite` goes
+ * further and tightens rambling into sentences, which is the right trade
+ * when the composer is being dictated into rather than typed in.
+ */
+export const VOICE_DICTATION_STYLE_VALUES = ["off", "cleanup", "rewrite"] as const;
+export const VoiceDictationStyle = Schema.Literals(VOICE_DICTATION_STYLE_VALUES);
+export type VoiceDictationStyle = typeof VoiceDictationStyle.Type;
+export const DEFAULT_VOICE_DICTATION_STYLE: VoiceDictationStyle = "cleanup";
+
+/**
+ * The model the cleanup pass runs on, as free text rather than a closed set:
+ * this one is named by OpenAI rather than by us, so a rename has to be
+ * fixable in settings instead of waiting for a release.
+ */
+export const DEFAULT_VOICE_DICTATION_POLISH_MODEL = "gpt-4.1-mini";
+
+/** Bounds on the two user-built lists, in the spirit of `MAX_KEYBINDINGS_COUNT`. */
+export const MAX_VOICE_DICTIONARY_TERMS = 100;
+export const MAX_VOICE_SNIPPETS = 50;
+
+/** A spoken phrase and the text it expands into. */
+export const VoiceDictationSnippet = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  trigger: TrimmedNonEmptyString,
+  replacement: TrimmedNonEmptyString,
+});
+export type VoiceDictationSnippet = typeof VoiceDictationSnippet.Type;
+
 export const VoiceDictationSettings = Schema.Struct({
   /** Off by default: the feature needs a key the user has to supply. */
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -216,6 +249,25 @@ export const VoiceDictationSettings = Schema.Struct({
   ),
   /** ISO-639-1 hint, e.g. `en` or `ms`. Empty lets the model detect it. */
   language: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  style: VoiceDictationStyle.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_VOICE_DICTATION_STYLE)),
+  ),
+  /** Appended to the cleanup prompt verbatim. Empty is the common case. */
+  styleInstructions: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  polishModel: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_VOICE_DICTATION_POLISH_MODEL)),
+  ),
+  /**
+   * Names and jargon the transcription model would otherwise guess at. Sent
+   * as a vocabulary hint on the session and again to the cleanup pass, so a
+   * term that slips through the first is still caught by the second.
+   */
+  dictionary: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  snippets: Schema.Array(VoiceDictationSnippet).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type VoiceDictationSettings = typeof VoiceDictationSettings.Type;
 

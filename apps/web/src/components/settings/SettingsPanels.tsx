@@ -157,7 +157,6 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { UsageMeterSettingsSection } from "./UsageMeterSettingsSection";
-import { VoiceDictationSettingsSection } from "./VoiceDictationSettingsSection";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { useAtomCommand } from "../../state/use-atom-command";
 
@@ -1963,8 +1962,6 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
-
-      <VoiceDictationSettingsSection />
 
       <SettingsSection title="About">
         {isElectron || HOSTED_APP_CHANNEL ? (

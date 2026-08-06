@@ -15,6 +15,7 @@ import {
   GitBranchIcon,
   KeyboardIcon,
   Link2Icon,
+  MicIcon,
   PaletteIcon,
   SearchIcon,
   Settings2Icon,
@@ -48,6 +49,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
 > = {
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
+  "/settings/voice": MicIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/providers": BotIcon,
   "/settings/source-control": GitBranchIcon,

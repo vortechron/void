@@ -1,6 +1,7 @@
 export type SettingsPath =
   | "/settings/general"
   | "/settings/appearance"
+  | "/settings/voice"
   | "/settings/keybindings"
   | "/settings/providers"
   | "/settings/source-control"
@@ -22,6 +23,7 @@ export interface SettingsSearchItem {
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
+  "/settings/voice": "Voice",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Providers",
   "/settings/source-control": "Source Control",
@@ -189,22 +191,47 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "voice-dictation",
     title: "Voice dictation",
-    to: "/settings/general",
+    to: "/settings/voice",
   },
   {
     id: "voice-dictation-api-key",
     title: "OpenAI API key",
-    to: "/settings/general",
+    to: "/settings/voice",
   },
   {
     id: "voice-dictation-model",
     title: "Dictation model",
-    to: "/settings/general",
+    to: "/settings/voice",
   },
   {
     id: "voice-dictation-language",
     title: "Dictation language",
-    to: "/settings/general",
+    to: "/settings/voice",
+  },
+  {
+    id: "voice-dictation-style",
+    title: "Cleanup style",
+    to: "/settings/voice",
+  },
+  {
+    id: "voice-dictation-style-instructions",
+    title: "Cleanup instructions",
+    to: "/settings/voice",
+  },
+  {
+    id: "voice-dictation-polish-model",
+    title: "Cleanup model",
+    to: "/settings/voice",
+  },
+  {
+    id: "voice-dictation-dictionary",
+    title: "Dictionary",
+    to: "/settings/voice",
+  },
+  {
+    id: "voice-dictation-snippets",
+    title: "Snippets",
+    to: "/settings/voice",
   },
   {
     id: "diagnostics",

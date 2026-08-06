@@ -4,6 +4,7 @@ import {
   searchableSetting,
   searchSettings,
   SETTINGS_SEARCH_ITEMS,
+  SETTINGS_SECTION_LABELS,
   type SettingsSearchItem,
 } from "./settingsSearch";
 
@@ -91,6 +92,37 @@ describe("searchSettings", () => {
       to: "/settings/appearance",
       targetId: "appearance",
     });
+  });
+
+  it("routes every voice setting to the Voice section", () => {
+    // These four used to live in General; a stale entry here would deep-link
+    // the user to a page the row is no longer on.
+    for (const query of [
+      "Voice dictation",
+      "OpenAI API key",
+      "Dictation model",
+      "Dictation language",
+      "Cleanup style",
+      "Cleanup instructions",
+      "Cleanup model",
+      "Dictionary",
+      "Snippets",
+    ]) {
+      expect(searchSettings(query)[0]).toMatchObject({ to: "/settings/voice" });
+    }
+  });
+
+  it("puts Voice in the sidebar between Appearance and Keybindings", () => {
+    // The label record's key order is the sidebar order.
+    const sections = Object.keys(SETTINGS_SECTION_LABELS);
+    expect(sections.indexOf("/settings/voice")).toBe(sections.indexOf("/settings/appearance") + 1);
+    expect(sections.indexOf("/settings/voice")).toBe(sections.indexOf("/settings/keybindings") - 1);
+  });
+
+  it("gives every catalog entry a section that exists in the sidebar", () => {
+    for (const item of SETTINGS_SEARCH_ITEMS) {
+      expect(SETTINGS_SECTION_LABELS).toHaveProperty(item.to);
+    }
   });
 
   it("routes agent completion alerts to General", () => {

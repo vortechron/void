@@ -2756,7 +2756,7 @@ function LocalSecondaryStatus() {
       {connecting.length > 0 ? (
         <Alert
           variant="default"
-          className="rounded-2xl border-border/40 bg-accent/40 text-muted-foreground"
+          className="rounded-[var(--control-radius)] border-border/40 bg-accent/40 text-muted-foreground"
         >
           <LoaderIcon className="animate-spin" />
           <AlertTitle className="text-xs font-medium text-foreground">
@@ -2765,7 +2765,10 @@ function LocalSecondaryStatus() {
         </Alert>
       ) : null}
       {failed.length > 0 ? (
-        <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+        <Alert
+          variant="warning"
+          className="rounded-[var(--control-radius)] border-warning/40 bg-warning/8"
+        >
           <TriangleAlertIcon />
           <AlertTitle>Couldn't connect {failed.map((entry) => entry.label).join(", ")}</AlertTitle>
           <AlertDescription>
@@ -2992,7 +2995,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     >
       {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
         <SidebarGroup className="px-2 pt-2 pb-0">
-          <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+          <Alert
+            variant="warning"
+            className="rounded-[var(--control-radius)] border-warning/40 bg-warning/8"
+          >
             <TriangleAlertIcon />
             <AlertTitle>Intel build on Apple Silicon</AlertTitle>
             <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>

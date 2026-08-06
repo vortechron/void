@@ -181,7 +181,7 @@ function ExpandedMeters({
   return (
     <section
       aria-label={`Provider usage. ${describeColumns(columns, settings)}`}
-      className="rounded-xl border border-sidebar-border px-1.5 pt-1.5 pb-1"
+      className="rounded-[var(--control-radius)] border border-sidebar-border px-1.5 pt-1.5 pb-1"
     >
       <div className="flex items-stretch">
         {columns.map((column, index) => (
@@ -239,7 +239,7 @@ function MinimizedPill({
     <Tooltip>
       <TooltipTrigger
         render={
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-sidebar-border px-1.5 py-1">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--control-radius)] border border-sidebar-border px-1.5 py-1">
             <ProviderIcon className="size-3.5 shrink-0" provider={column.provider} />
             <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] font-semibold tabular-nums leading-none">
               {column.windows.map((window) => {

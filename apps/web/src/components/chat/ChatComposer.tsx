@@ -2561,6 +2561,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [applyPromptReplacement],
   );
 
+  // The cleanup pass lands seconds after the words did, so both of its races
+  // are settled by refusing to write rather than by trying to keep up. A
+  // cleared span means the draft was sent and this text belongs to a message
+  // that is already gone; `expectedText` means the user has been typing in the
+  // span since, and their keystrokes outrank a rewrite of what they said.
+  const handleDictationPolished = useCallback(
+    (polished: string, raw: string) => {
+      const span = dictationSpanRef.current;
+      if (!span) return;
+      const applied = applyPromptReplacement(span.start, span.start + span.length, polished, {
+        expectedText: raw,
+        focusEditorAfterReplace: false,
+      });
+      if (applied) {
+        dictationSpanRef.current = { start: span.start, length: polished.length };
+      }
+    },
+    [applyPromptReplacement],
+  );
+
   const handleDictationEnd = useCallback(() => {
     // A send closes the session by clearing the span first, and the wind-down
     // lands seconds later. Taking focus back then would fight the blur the send
@@ -2578,8 +2598,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     apiKey: voiceDictationSettings.openaiApiKey,
     model: voiceDictationSettings.model,
     language: voiceDictationSettings.language,
+    style: voiceDictationSettings.style,
+    styleInstructions: voiceDictationSettings.styleInstructions,
+    polishModel: voiceDictationSettings.polishModel,
+    dictionary: voiceDictationSettings.dictionary,
+    snippets: voiceDictationSettings.snippets,
     onDictationStart: handleDictationStart,
     onTranscript: handleDictationTranscript,
+    onPolished: handleDictationPolished,
     onDictationEnd: handleDictationEnd,
     onError: handleDictationError,
   });
