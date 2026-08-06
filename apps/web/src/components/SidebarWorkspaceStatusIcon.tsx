@@ -2,6 +2,7 @@ import {
   CircleCheckIcon,
   CircleAlertIcon,
   ClipboardCheckIcon,
+  EyeIcon,
   GitBranchIcon,
   MessageSquareIcon,
   TriangleAlertIcon,
@@ -44,6 +45,13 @@ const STATUS_PRESENTATION: Record<
     label: "Completed",
     Icon: CircleCheckIcon,
     className: "text-emerald-600 dark:text-emerald-300",
+  },
+  // Sky, matching the sidebar's Monitoring pill, but static: monitoring is
+  // background presence rather than active progress.
+  monitoring: {
+    label: "Monitoring",
+    Icon: EyeIcon,
+    className: "text-sky-600 dark:text-sky-300",
   },
   ready: {
     label: "Ready",

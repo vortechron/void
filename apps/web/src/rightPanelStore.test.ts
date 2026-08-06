@@ -210,7 +210,7 @@ describe("rightPanelStore", () => {
     useRightPanelStore.getState().open(refA, "plan");
     useRightPanelStore.getState().openFile(refA, "README.md");
 
-    useRightPanelStore.getState().reconcileFileSurfaces(refA, false);
+    useRightPanelStore.getState().reconcileWorkspaceSurfaces(refA, false);
 
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
@@ -219,7 +219,7 @@ describe("rightPanelStore", () => {
     });
 
     useRightPanelStore.getState().openFile(refB, "conductor.json");
-    useRightPanelStore.getState().reconcileFileSurfaces(refB, false);
+    useRightPanelStore.getState().reconcileWorkspaceSurfaces(refB, false);
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB)).toEqual({
       isOpen: false,
       activeSurfaceId: null,

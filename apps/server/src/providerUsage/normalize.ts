@@ -255,13 +255,27 @@ export const normalizeProviderUsagePayload = (
 };
 
 /**
- * Merges freshly observed windows onto the previously known set, keyed by
- * window id. Claude only ever reports the window it just crossed, so dropping
- * the unmentioned windows would blank half the meter on every event.
+ * How far apart two reports of one window's reset time may sit and still count
+ * as the same window. Claude's two sources date the same boundary differently:
+ * `/usage` carries a sub-second component that drifts by milliseconds between
+ * polls, while `rate_limit_event` reports whole epoch seconds. Matching those
+ * as strings reads one window as two. Any real rollover moves the boundary by
+ * the length of the window, which is hours.
  */
+const RESET_DRIFT_TOLERANCE_MS = 60_000;
+
+const isSameResetBoundary = (left: string | undefined, right: string | undefined): boolean => {
+  if (left === right) return true;
+  if (left === undefined || right === undefined) return false;
+  const leftEpoch = Date.parse(left);
+  const rightEpoch = Date.parse(right);
+  if (Number.isNaN(leftEpoch) || Number.isNaN(rightEpoch)) return false;
+  return Math.abs(leftEpoch - rightEpoch) <= RESET_DRIFT_TOLERANCE_MS;
+};
+
 /**
  * A percentage the provider stopped repeating is still true for as long as the
- * window is, so it carries forward. A changed reset time means a new window
+ * window is, so it carries forward. A moved reset time means a new window
  * began and the old percentage no longer describes it.
  */
 const carryPercentForward = (
@@ -270,10 +284,15 @@ const carryPercentForward = (
 ): ProviderUsageWindow => {
   if (incoming.usedPercent !== undefined) return incoming;
   if (previous?.usedPercent === undefined) return incoming;
-  if (previous.resetsAt !== incoming.resetsAt) return incoming;
+  if (!isSameResetBoundary(previous.resetsAt, incoming.resetsAt)) return incoming;
   return { ...incoming, usedPercent: previous.usedPercent };
 };
 
+/**
+ * Merges freshly observed windows onto the previously known set, keyed by
+ * window id. Claude only ever reports the window it just crossed, so dropping
+ * the unmentioned windows would blank half the meter on every event.
+ */
 export const mergeUsageWindows = (
   previous: ReadonlyArray<ProviderUsageWindow>,
   incoming: ReadonlyArray<ProviderUsageWindow>,

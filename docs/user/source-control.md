@@ -46,6 +46,19 @@ T3 Code works with the platforms your team already uses:
 - Open **Diff** in the right panel to review the working tree or branch changes for the active
   thread's checkout.
 
+### Read the Repository's History
+
+Open **History** in the right panel to see the commit graph for the current project:
+
+- Every branch is drawn as its own coloured lane, with the branch, remote, and tag labels shown
+  next to each commit. Uncommitted work sits at the top of the list.
+- Filter to one branch, or hide remote-tracking branches, from the toolbar above the graph.
+- Right-click a branch label to check it out or copy its name. Right-click a commit to copy its
+  SHA or message.
+- Click a commit to open its own diff in a new tab, showing only what that commit changed.
+
+History is available for any project in a Git repository.
+
 ### Manage Code Reviews Without Context Switching
 
 **Create pull requests while you work**

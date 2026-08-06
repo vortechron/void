@@ -31,6 +31,7 @@ import {
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { useClientSettings, useClientSettingsMigration } from "../hooks/useSettings";
 import { useThemeServerSync } from "../hooks/useThemeServerSync";
+import { useWorkspaceServerSync } from "../hooks/useWorkspaceServerSync";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKeyFromPath,
@@ -139,6 +140,7 @@ function RootRouteView() {
         <ClientSettingsMigration />
         <ThemePreferenceSync />
         <AppearancePreferencesSync />
+        <WorkspaceStateSync />
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
         <RelayClientInstallDialog />
         <ConnectOnboardingDialog />
@@ -161,6 +163,14 @@ function ThemePreferenceSync() {
 
 function ClientSettingsMigration() {
   useClientSettingsMigration();
+  return null;
+}
+
+/** Open chats, workspace labelling and unsent prompts follow the server, not
+    the browser they were last touched in. Mounted only inside the app shell:
+    the pairing and sign-in routes have no workspace to keep in step. */
+function WorkspaceStateSync() {
+  useWorkspaceServerSync();
   return null;
 }
 

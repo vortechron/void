@@ -20,7 +20,9 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  GIT_LIST_COMMITS_DEFAULT_LIMIT,
   GitCommandError,
+  type ReviewDiffFileContentsInput,
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewSource,
   type VcsRef,
@@ -30,6 +32,7 @@ import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import { COMMIT_LOG_FORMAT, parseCommitLog } from "../git/commitLog.ts";
 import {
   parseRemoteNames,
   parseRemoteNamesInGitOrder,
@@ -46,7 +49,11 @@ const RANGE_DIFF_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
 const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
 const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
+const REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
+// 500 commits of metadata land well under this; the cap only guards a repo with
+// pathological subjects or decoration lists.
+const COMMIT_LOG_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 // An SSH fetch against GitHub costs ~3s on a healthy connection, so a tight
 // budget times out on jitter alone. Stay under the 30s status poll cycle.
@@ -2138,6 +2145,64 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     };
   });
 
+  const hashReviewDiff = (cwd: string, diff: string) =>
+    crypto.digest("SHA-256", new TextEncoder().encode(diff)).pipe(
+      Effect.map(Encoding.encodeHex),
+      Effect.mapError(
+        (cause) =>
+          new GitCommandError({
+            operation: "GitVcsDriver.getReviewDiffPreview.hash",
+            command: "crypto.digest SHA-256",
+            cwd,
+            detail: "Failed to hash review diff.",
+            cause,
+          }),
+      ),
+    );
+
+  /**
+   * One commit's own patch, compared against its first parent so a merge shows
+   * what it brought in rather than an empty combined diff.
+   */
+  const readCommitReviewDiff = Effect.fn("readCommitReviewDiff")(function* (
+    input: ReviewDiffPreviewInput & { readonly commitSha: string },
+  ) {
+    const result = yield* executeGit(
+      "GitVcsDriver.getReviewDiffPreview.commit",
+      input.cwd,
+      [
+        "show",
+        "--patch",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--first-parent",
+        "--format=",
+        ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
+        input.commitSha,
+        "--",
+      ],
+      {
+        allowNonZeroExit: true,
+        maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
+        appendTruncationMarker: true,
+      },
+    );
+    const parentResult = yield* executeGit(
+      "GitVcsDriver.getReviewDiffPreview.commitParent",
+      input.cwd,
+      ["rev-parse", "--verify", "--quiet", `${input.commitSha}^`],
+      { allowNonZeroExit: true },
+    );
+    const parentSha = parentResult.exitCode === 0 ? parentResult.stdout.trim() : "";
+
+    return {
+      diff: result.exitCode === 0 ? result.stdout : "",
+      truncated: result.stdoutTruncated,
+      baseRef: parentSha.length > 0 ? parentSha : null,
+    };
+  });
+
   const getReviewDiffPreview = Effect.fn("getReviewDiffPreview")(function* (
     input: ReviewDiffPreviewInput,
   ) {
@@ -2147,6 +2212,28 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         cwd: input.cwd,
         generatedAt: yield* DateTime.now,
         sources: [],
+      };
+    }
+
+    if (input.commitSha) {
+      const commitSha = input.commitSha;
+      const commit = yield* readCommitReviewDiff({ ...input, commitSha });
+      const diffHash = yield* hashReviewDiff(input.cwd, commit.diff);
+      return {
+        cwd: input.cwd,
+        generatedAt: yield* DateTime.now,
+        sources: [
+          {
+            id: "commit",
+            kind: "commit" as const,
+            title: `Commit ${commitSha.slice(0, 8)}`,
+            baseRef: commit.baseRef,
+            headRef: commitSha,
+            diff: commit.diff,
+            diffHash,
+            truncated: commit.truncated,
+          },
+        ],
       };
     }
 
@@ -2223,23 +2310,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           )
         : null;
     const baseDiff = baseResult?.stdout ?? "";
-    const hashDiff = (diff: string) =>
-      crypto.digest("SHA-256", new TextEncoder().encode(diff)).pipe(
-        Effect.map(Encoding.encodeHex),
-        Effect.mapError(
-          (cause) =>
-            new GitCommandError({
-              operation: "GitVcsDriver.getReviewDiffPreview.hash",
-              command: "crypto.digest SHA-256",
-              cwd: input.cwd,
-              detail: "Failed to hash review diff.",
-              cause,
-            }),
-        ),
-      );
     const [dirtyDiffHash, baseDiffHash] = yield* Effect.all([
-      hashDiff(dirtyDiff),
-      hashDiff(baseDiff),
+      hashReviewDiff(input.cwd, dirtyDiff),
+      hashReviewDiff(input.cwd, baseDiff),
     ]);
 
     const sources: ReviewDiffPreviewSource[] = [
@@ -2270,6 +2343,163 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       generatedAt: yield* DateTime.now,
       sources,
     };
+  });
+
+  const reviewDiffFileError = (
+    input: ReviewDiffFileContentsInput,
+    detail: string,
+    cause?: unknown,
+  ) =>
+    new GitCommandError({
+      operation: "GitVcsDriver.getReviewDiffFileContents",
+      command: "git",
+      cwd: input.cwd,
+      detail,
+      ...(cause === undefined ? {} : { cause }),
+    });
+
+  const isPathWithinRoot = (root: string, candidate: string) => {
+    const relative = path.relative(root, candidate);
+    return (
+      relative === "" ||
+      (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+    );
+  };
+
+  const readReviewFileAtRevision = Effect.fn("readReviewFileAtRevision")(function* (
+    input: ReviewDiffFileContentsInput,
+    revision: string,
+    relativePath: string,
+  ) {
+    const result = yield* executeGit(
+      "GitVcsDriver.getReviewDiffFileContents.revision",
+      input.cwd,
+      ["show", `${revision}:${relativePath}`],
+      { maxOutputBytes: REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES },
+    );
+    if (result.stdout.includes("\0")) {
+      return yield* reviewDiffFileError(input, `Cannot expand binary file '${relativePath}'.`);
+    }
+    return result.stdout;
+  });
+
+  const readWorkingTreeReviewFile = Effect.fn("readWorkingTreeReviewFile")(function* (
+    input: ReviewDiffFileContentsInput,
+    repositoryRoot: string,
+  ) {
+    const fileError = (stage: string, detail: string, cause?: unknown) =>
+      new GitCommandError({
+        operation: `GitVcsDriver.getReviewDiffFileContents.workingTree.${stage}`,
+        command: stage,
+        cwd: input.cwd,
+        detail,
+        ...(cause === undefined ? {} : { cause }),
+      });
+    const requestedPath = path.resolve(repositoryRoot, input.newPath);
+    if (!isPathWithinRoot(repositoryRoot, requestedPath)) {
+      return yield* fileError(
+        "path.resolve",
+        `Diff file '${input.newPath}' resolves outside the review workspace.`,
+      );
+    }
+
+    const [realRepositoryRoot, realTarget] = yield* Effect.all([
+      fileSystem.realPath(repositoryRoot),
+      fileSystem.realPath(requestedPath),
+    ]).pipe(
+      Effect.mapError((cause) =>
+        fileError("fs.realPath", `Could not resolve diff file '${input.newPath}'.`, cause),
+      ),
+    );
+    if (!isPathWithinRoot(realRepositoryRoot, realTarget)) {
+      return yield* fileError(
+        "fs.realPath",
+        `Diff file '${input.newPath}' resolves outside the review workspace.`,
+      );
+    }
+
+    const info = yield* fileSystem
+      .stat(realTarget)
+      .pipe(
+        Effect.mapError((cause) =>
+          fileError("fs.stat", `Could not inspect diff file '${input.newPath}'.`, cause),
+        ),
+      );
+    if (info.type !== "File") {
+      return yield* fileError("fs.stat", `Diff path '${input.newPath}' is not a file.`);
+    }
+    if (info.size > BigInt(REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES)) {
+      return yield* fileError(
+        "fs.stat",
+        `Diff file '${input.newPath}' exceeds the 1 MB expansion limit.`,
+      );
+    }
+
+    const bytes = yield* fileSystem
+      .readFile(realTarget)
+      .pipe(
+        Effect.mapError((cause) =>
+          fileError("fs.readFile", `Could not read diff file '${input.newPath}'.`, cause),
+        ),
+      );
+    if (bytes.includes(0)) {
+      return yield* fileError("fs.readFile", `Cannot expand binary file '${input.newPath}'.`);
+    }
+    return new TextDecoder("utf-8").decode(bytes);
+  });
+
+  const getReviewDiffFileContents = Effect.fn("getReviewDiffFileContents")(function* (
+    input: ReviewDiffFileContentsInput,
+  ) {
+    if (input.sourceKind === "working-tree") {
+      const repositoryRoot = yield* runGitStdout(
+        "GitVcsDriver.getReviewDiffFileContents.repositoryRoot",
+        input.cwd,
+        ["rev-parse", "--show-toplevel"],
+      ).pipe(Effect.map((value) => value.trim()));
+      if (repositoryRoot.length === 0) {
+        return yield* reviewDiffFileError(input, "Could not resolve the Git repository root.");
+      }
+      const [oldContents, newContents] = yield* Effect.all(
+        [
+          input.changeType === "new"
+            ? Effect.succeed("")
+            : readReviewFileAtRevision(input, input.baseRef ?? "HEAD", input.oldPath),
+          input.changeType === "deleted"
+            ? Effect.succeed("")
+            : readWorkingTreeReviewFile(input, repositoryRoot),
+        ],
+        { concurrency: 2 },
+      );
+      return { oldContents, newContents };
+    }
+
+    if (!input.baseRef || !input.headRef) {
+      return yield* reviewDiffFileError(
+        input,
+        "Branch diff file expansion requires both base and head refs.",
+      );
+    }
+    const mergeBase = yield* runGitStdout(
+      "GitVcsDriver.getReviewDiffFileContents.mergeBase",
+      input.cwd,
+      ["merge-base", input.baseRef, input.headRef],
+    ).pipe(Effect.map((value) => value.trim()));
+    if (mergeBase.length === 0) {
+      return yield* reviewDiffFileError(input, "Could not resolve the branch comparison base.");
+    }
+    const [oldContents, newContents] = yield* Effect.all(
+      [
+        input.changeType === "new"
+          ? Effect.succeed("")
+          : readReviewFileAtRevision(input, mergeBase, input.oldPath),
+        input.changeType === "deleted"
+          ? Effect.succeed("")
+          : readReviewFileAtRevision(input, input.headRef, input.newPath),
+      ],
+      { concurrency: 2 },
+    );
+    return { oldContents, newContents };
   });
 
   const readConfigValue: GitVcsDriver.GitVcsDriver["Service"]["readConfigValue"] = (cwd, key) =>
@@ -2574,6 +2804,95 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         hasPrimaryRemote: snapshot.hasPrimaryRemote,
         nextCursor: refs.nextCursor,
         totalCount: refs.totalCount,
+      };
+    },
+  );
+
+  const listCommits: GitVcsDriver.GitVcsDriver["Service"]["listCommits"] = Effect.fn("listCommits")(
+    function* (input) {
+      const details = yield* readStatusDetailsLocal(input.cwd).pipe(
+        Effect.catchTags({
+          GitCommandError: (error) =>
+            isMissingGitCwdError(error) ? Effect.succeed(null) : Effect.fail(error),
+        }),
+      );
+      if (details === null || !details.isRepo) {
+        return {
+          commits: [],
+          isRepo: false,
+          headSha: null,
+          headRefName: null,
+          workingTreeFileCount: 0,
+          nextCursor: null,
+        };
+      }
+
+      const limit = input.limit ?? GIT_LIST_COMMITS_DEFAULT_LIMIT;
+      const cursor = input.cursor ?? 0;
+      // One extra row tells us whether another page exists without a count pass.
+      const selector = input.refName
+        ? [input.refName]
+        : input.includeRemotes
+          ? ["HEAD", "--branches", "--tags", "--remotes"]
+          : ["HEAD", "--branches", "--tags"];
+
+      const [logResult, remoteNames] = yield* Effect.all(
+        [
+          executeGit(
+            "GitVcsDriver.listCommits.log",
+            input.cwd,
+            [
+              "log",
+              "--date-order",
+              "--decorate=full",
+              `--skip=${cursor}`,
+              `--max-count=${limit + 1}`,
+              `--format=${COMMIT_LOG_FORMAT}`,
+              ...selector,
+              "--",
+            ],
+            {
+              allowNonZeroExit: true,
+              maxOutputBytes: COMMIT_LOG_MAX_OUTPUT_BYTES,
+            },
+          ),
+          listRemoteNames(input.cwd).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>)),
+        ],
+        { concurrency: 2 },
+      );
+
+      // An unborn branch (`git log` on a fresh repo) is not an error worth
+      // surfacing: the graph simply has nothing but uncommitted changes yet.
+      const parsed =
+        logResult.exitCode === 0
+          ? parseCommitLog(
+              logResult.stdout,
+              remoteNames.toSorted((left, right) => right.length - left.length),
+            )
+          : { commits: [], headRefName: null };
+
+      const hasMore = parsed.commits.length > limit;
+      const commits = hasMore ? parsed.commits.slice(0, limit) : parsed.commits;
+      const headSha = yield* runGitStdout(
+        "GitVcsDriver.listCommits.head",
+        input.cwd,
+        ["rev-parse", "HEAD"],
+        true,
+      ).pipe(
+        Effect.map((stdout) => {
+          const value = stdout.trim();
+          return value.length > 0 && !value.startsWith("HEAD") ? value : null;
+        }),
+        Effect.orElseSucceed(() => null),
+      );
+
+      return {
+        commits: [...commits],
+        isRepo: true,
+        headSha,
+        headRefName: details.branch ?? parsed.headRefName,
+        workingTreeFileCount: details.workingTree.files.length,
+        nextCursor: hasMore ? cursor + limit : null,
       };
     },
   );
@@ -2905,8 +3224,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     pullCurrentBranch: (cwd) => withListRefsInvalidation(cwd, pullCurrentBranch(cwd)),
     readRangeContext,
     getReviewDiffPreview,
+    getReviewDiffFileContents,
     readConfigValue,
     listRefs,
+    listCommits,
     createWorktree: (input) => withListRefsInvalidation(input.cwd, createWorktree(input)),
     fetchPullRequestBranch: (input) =>
       withListRefsInvalidation(input.cwd, fetchPullRequestBranch(input)),

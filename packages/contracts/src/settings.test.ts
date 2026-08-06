@@ -209,6 +209,7 @@ describe("ClientSettings voice dictation", () => {
     expect(voiceDictation.polishModel).toBe("gpt-4.1-mini");
     expect(voiceDictation.dictionary).toEqual([]);
     expect(voiceDictation.snippets).toEqual([]);
+    expect(voiceDictation.soundCues).toBe(true);
   });
 
   it("fills the cleanup fields in for a blob written before they existed", () => {
@@ -227,6 +228,9 @@ describe("ClientSettings voice dictation", () => {
     expect(voiceDictation.style).toBe("cleanup");
     expect(voiceDictation.dictionary).toEqual([]);
     expect(voiceDictation.snippets).toEqual([]);
+    // Sound is on for a user who enabled dictation before the cues existed:
+    // they are the ones who have been holding a button with no feedback.
+    expect(voiceDictation.soundCues).toBe(true);
   });
 
   it.each(["off", "cleanup", "rewrite"] as const)("accepts the style %s", (style) => {
@@ -266,6 +270,14 @@ describe("ClientSettings voice dictation", () => {
 });
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
+  it("defaults text generation to Luna at low reasoning effort", () => {
+    expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.6-luna",
+      options: [{ id: "reasoningEffort", value: "low" }],
+    });
+  });
+
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
   });
@@ -534,5 +546,70 @@ describe("ServerSettings global actions", () => {
 
     expect(patch.globalScripts).toBeUndefined();
     expect(patch.globalPromptActions).toBeUndefined();
+  });
+});
+
+describe("ClientSettings workspace state", () => {
+  it("defaults to nothing open, nothing labelled, nothing drafted", () => {
+    const settings = decodeClientSettings({});
+
+    expect(settings.workspaceThreadTabs).toEqual({});
+    expect(settings.composerPromptDrafts).toEqual({});
+    expect(settings.workspaceSidebar).toEqual({
+      namesByWorkspaceKey: {},
+      pinnedWorkspaceKeys: [],
+      archivedWorkspaceKeys: [],
+    });
+  });
+
+  it("keeps open chats in tab order, per workspace", () => {
+    const decoded = decodeClientSettings({
+      workspaceThreadTabs: {
+        "env-1:project-1": [
+          { environmentId: "env-1", threadId: "thread-b" },
+          { environmentId: "env-1", threadId: "thread-a" },
+        ],
+      },
+    });
+
+    expect(decoded.workspaceThreadTabs["env-1:project-1"]?.map((tab) => tab.threadId)).toEqual([
+      "thread-b",
+      "thread-a",
+    ]);
+  });
+
+  it("rejects a tab with no thread behind it", () => {
+    expect(() =>
+      decodeClientSettingsPatch({
+        workspaceThreadTabs: { "env-1:project-1": [{ environmentId: "env-1", threadId: "" }] },
+      }),
+    ).toThrow();
+  });
+
+  it("accepts patches for each of the three workspace slices", () => {
+    const patch = decodeClientSettingsPatch({
+      workspaceThreadTabs: { w: [{ environmentId: "env-1", threadId: "thread-a" }] },
+      workspaceSidebar: {
+        namesByWorkspaceKey: { w: "Review queue" },
+        pinnedWorkspaceKeys: ["w"],
+        archivedWorkspaceKeys: [],
+      },
+      composerPromptDrafts: { "env-1:thread-a": "half a thought" },
+    });
+
+    expect(patch.workspaceSidebar?.pinnedWorkspaceKeys).toEqual(["w"]);
+    expect(patch.composerPromptDrafts?.["env-1:thread-a"]).toBe("half a thought");
+  });
+
+  it("fills in the sidebar slices a partial value omits", () => {
+    expect(
+      decodeClientSettings({ workspaceSidebar: { pinnedWorkspaceKeys: ["w"] } }),
+    ).toMatchObject({
+      workspaceSidebar: {
+        namesByWorkspaceKey: {},
+        pinnedWorkspaceKeys: ["w"],
+        archivedWorkspaceKeys: [],
+      },
+    });
   });
 });

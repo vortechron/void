@@ -22,6 +22,7 @@ import type {
   VoiceDictationStyle,
 } from "@t3tools/contracts/settings";
 
+import { playDictationCue } from "../lib/voiceDictation/dictationCues";
 import {
   openTranscriptionSession,
   type TranscriptionSession,
@@ -47,6 +48,8 @@ export interface UseVoiceDictationInput {
   readonly polishModel: string;
   readonly dictionary: ReadonlyArray<string>;
   readonly snippets: ReadonlyArray<VoiceDictationSnippet>;
+  /** Whether opening and closing the microphone makes a sound. */
+  readonly soundCues: boolean;
   /** Called when a hold begins, before any text arrives. */
   readonly onDictationStart: () => void;
   /** The full text dictated so far in this hold. */
@@ -191,6 +194,10 @@ export function useVoiceDictation(input: UseVoiceDictationInput): VoiceDictation
           sessionRef.current = null;
           return;
         }
+        // The cue belongs here rather than on the press: this is the first
+        // moment the microphone is genuinely open, and a sound that plays
+        // before that would promise words are being heard when they are not.
+        playDictationCue("start", inputRef.current.soundCues);
         setDictationStatus("listening");
       } catch (error) {
         sessionRef.current?.close();
@@ -214,6 +221,9 @@ export function useVoiceDictation(input: UseVoiceDictationInput): VoiceDictation
     // A release during "starting" is handled by the start path above, which
     // sees the status change and unwinds itself.
     const wasListening = statusRef.current === "listening";
+    // Only a session that was actually listening gets a closing cue; one that
+    // never opened has nothing to say it stopped.
+    if (wasListening) playDictationCue("stop", inputRef.current.soundCues);
     setDictationStatus(wasListening ? "finishing" : "idle");
 
     void (async () => {

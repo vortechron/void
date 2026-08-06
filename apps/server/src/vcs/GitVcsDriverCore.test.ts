@@ -14,7 +14,7 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError } from "@t3tools/contracts";
+import { GitCommandError, type ReviewDiffFileContentsInput } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
 import { makeGitVcsDriverCore, splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
@@ -77,6 +77,20 @@ const writeTextFile = (
     yield* fileSystem.makeDirectory(pathService.dirname(filePath), { recursive: true });
     yield* fileSystem.writeFileString(filePath, contents);
   });
+
+const makeReviewDiffFileContentsInput = (
+  cwd: string,
+  overrides: Partial<Omit<ReviewDiffFileContentsInput, "cwd">> = {},
+): ReviewDiffFileContentsInput => ({
+  cwd,
+  sourceKind: "working-tree",
+  changeType: "change",
+  baseRef: "HEAD",
+  headRef: null,
+  oldPath: "README.md",
+  newPath: "README.md",
+  ...overrides,
+});
 
 const git = (
   cwd: string,
@@ -801,6 +815,107 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           ignored.sources.find((source) => source.kind === "branch-range")?.diff,
           "",
         );
+      }),
+    );
+
+    it.effect("loads full file contents for working-tree diff expansion", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, "nested/.keep", "");
+        yield* writeTextFile(cwd, "README.md", "# changed\nunchanged context\n");
+
+        const contents = yield* driver.getReviewDiffFileContents(
+          makeReviewDiffFileContentsInput(pathService.join(cwd, "nested")),
+        );
+
+        assert.strictEqual(contents.oldContents, "# test\n");
+        assert.strictEqual(contents.newContents, "# changed\nunchanged context\n");
+      }),
+    );
+
+    it.effect("attributes working-tree filesystem failures to the failing operation", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        const error = yield* driver
+          .getReviewDiffFileContents(
+            makeReviewDiffFileContentsInput(cwd, {
+              changeType: "new",
+              oldPath: "missing.ts",
+              newPath: "missing.ts",
+            }),
+          )
+          .pipe(Effect.flip);
+
+        assert.deepInclude(error, {
+          _tag: "GitCommandError",
+          operation: "GitVcsDriver.getReviewDiffFileContents.workingTree.fs.realPath",
+          command: "fs.realPath",
+          cwd,
+          detail: "Could not resolve diff file 'missing.ts'.",
+        });
+      }),
+    );
+
+    it.effect("loads new and deleted files without reading their missing side", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, "added.ts", "export const added = true;\n");
+        yield* fileSystem.remove(pathService.join(cwd, "README.md"));
+
+        const [added, deleted] = yield* Effect.all([
+          driver.getReviewDiffFileContents(
+            makeReviewDiffFileContentsInput(cwd, {
+              changeType: "new",
+              oldPath: "added.ts",
+              newPath: "added.ts",
+            }),
+          ),
+          driver.getReviewDiffFileContents(
+            makeReviewDiffFileContentsInput(cwd, { changeType: "deleted" }),
+          ),
+        ]);
+
+        assert.deepStrictEqual(added, {
+          oldContents: "",
+          newContents: "export const added = true;\n",
+        });
+        assert.deepStrictEqual(deleted, {
+          oldContents: "# test\n",
+          newContents: "",
+        });
+      }),
+    );
+
+    it.effect("loads merge-base and head contents for branch diff expansion", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["checkout", "-b", "feature/context"]);
+        yield* writeTextFile(cwd, "README.md", "# branch change\nunchanged context\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* git(cwd, ["commit", "-m", "change readme"]);
+
+        const contents = yield* driver.getReviewDiffFileContents(
+          makeReviewDiffFileContentsInput(cwd, {
+            sourceKind: "branch-range",
+            baseRef: initialBranch,
+            headRef: "feature/context",
+          }),
+        );
+
+        assert.strictEqual(contents.oldContents, "# test\n");
+        assert.strictEqual(contents.newContents, "# branch change\nunchanged context\n");
       }),
     );
   });
@@ -1530,6 +1645,151 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           timeoutMs: 10_000,
         });
         assert.notEqual(originMain.exitCode, 0);
+      }),
+    );
+  });
+
+  describe("getReviewDiffPreview with a commit", () => {
+    it.effect("returns only that commit's patch against its parent", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "second.md", "# second\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "second commit"]);
+        const commitSha = yield* git(cwd, ["rev-parse", "HEAD"]);
+        const parentSha = yield* git(cwd, ["rev-parse", "HEAD^"]);
+
+        const preview = yield* driver.getReviewDiffPreview({ cwd, commitSha });
+
+        assert.equal(preview.sources.length, 1);
+        const source = preview.sources[0]!;
+        assert.equal(source.kind, "commit");
+        assert.equal(source.headRef, commitSha);
+        assert.equal(source.baseRef, parentSha);
+        assert.include(source.diff, "second.md");
+        assert.notInclude(source.diff, "README.md");
+      }),
+    );
+
+    it.effect("reports a null base for the root commit", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const commitSha = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        const preview = yield* driver.getReviewDiffPreview({ cwd, commitSha });
+
+        assert.equal(preview.sources[0]?.baseRef, null);
+        assert.include(preview.sources[0]?.diff ?? "", "README.md");
+      }),
+    );
+  });
+
+  describe("listCommits", () => {
+    it.effect("reports a non-repository directory instead of failing", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        const result = yield* driver.listCommits({ cwd });
+
+        assert.deepStrictEqual(result, {
+          commits: [],
+          isRepo: false,
+          headSha: null,
+          headRefName: null,
+          workingTreeFileCount: 0,
+          nextCursor: null,
+        });
+      }),
+    );
+
+    it.effect("returns newest-first commits with head and branch decorations", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* writeTextFile(cwd, "second.md", "# second\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "second commit"]);
+
+        const result = yield* driver.listCommits({ cwd });
+
+        assert.equal(result.isRepo, true);
+        assert.equal(result.headRefName, "main");
+        assert.deepStrictEqual(
+          result.commits.map((commit) => commit.subject),
+          ["second commit", "initial commit"],
+        );
+        assert.equal(result.headSha, result.commits[0]?.sha);
+        assert.equal(result.commits[0]?.parents.length, 1);
+        assert.equal(result.commits[1]?.parents.length, 0);
+        assert.deepStrictEqual(result.commits[0]?.refs, [
+          { name: "main", kind: "local", isCurrent: true },
+        ]);
+      }),
+    );
+
+    it.effect("counts uncommitted files so the graph can show a pending row", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# changed\n");
+
+        const result = yield* driver.listCommits({ cwd });
+
+        assert.equal(result.workingTreeFileCount, 1);
+      }),
+    );
+
+    it.effect("pages with a cursor and stops when the history runs out", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "second.md", "# second\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "second commit"]);
+
+        const first = yield* driver.listCommits({ cwd, limit: 1 });
+        assert.equal(first.commits.length, 1);
+        assert.equal(first.nextCursor, 1);
+
+        const second = yield* driver.listCommits({ cwd, limit: 1, cursor: first.nextCursor! });
+        assert.deepStrictEqual(
+          second.commits.map((commit) => commit.subject),
+          ["initial commit"],
+        );
+        assert.equal(second.nextCursor, null);
+      }),
+    );
+
+    it.effect("limits history to the requested ref", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["checkout", "-b", "feature/side"]);
+        yield* writeTextFile(cwd, "side.md", "# side\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "side commit"]);
+
+        const all = yield* driver.listCommits({ cwd });
+        const base = yield* driver.listCommits({ cwd, refName: initialBranch });
+
+        assert.deepStrictEqual(
+          all.commits.map((commit) => commit.subject),
+          ["side commit", "initial commit"],
+        );
+        assert.deepStrictEqual(
+          base.commits.map((commit) => commit.subject),
+          ["initial commit"],
+        );
       }),
     );
   });

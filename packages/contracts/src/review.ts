@@ -6,11 +6,20 @@ import { VcsError } from "./vcs.ts";
 export const ReviewDiffPreviewInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   baseRef: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * Asks for one commit's own patch instead of the thread's working-tree and
+   * branch sources. Set by the history graph when a commit row is opened.
+   */
+  commitSha: Schema.optional(TrimmedNonEmptyString),
   ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
 });
 export type ReviewDiffPreviewInput = typeof ReviewDiffPreviewInput.Type;
 
-export const ReviewDiffPreviewSourceKind = Schema.Literals(["working-tree", "branch-range"]);
+export const ReviewDiffPreviewSourceKind = Schema.Literals([
+  "working-tree",
+  "branch-range",
+  "commit",
+]);
 export type ReviewDiffPreviewSourceKind = typeof ReviewDiffPreviewSourceKind.Type;
 
 export const ReviewDiffPreviewSource = Schema.Struct({
@@ -24,6 +33,23 @@ export const ReviewDiffPreviewSource = Schema.Struct({
   truncated: Schema.Boolean,
 });
 export type ReviewDiffPreviewSource = typeof ReviewDiffPreviewSource.Type;
+
+export const ReviewDiffFileContentsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  sourceKind: ReviewDiffPreviewSourceKind,
+  changeType: Schema.Literals(["change", "rename-pure", "rename-changed", "new", "deleted"]),
+  baseRef: Schema.NullOr(TrimmedNonEmptyString),
+  headRef: Schema.NullOr(TrimmedNonEmptyString),
+  oldPath: TrimmedNonEmptyString,
+  newPath: TrimmedNonEmptyString,
+});
+export type ReviewDiffFileContentsInput = typeof ReviewDiffFileContentsInput.Type;
+
+export const ReviewDiffFileContentsResult = Schema.Struct({
+  oldContents: Schema.String,
+  newContents: Schema.String,
+});
+export type ReviewDiffFileContentsResult = typeof ReviewDiffFileContentsResult.Type;
 
 export const ReviewDiffPreviewResult = Schema.Struct({
   cwd: TrimmedNonEmptyString,

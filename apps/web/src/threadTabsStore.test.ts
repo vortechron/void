@@ -7,6 +7,7 @@ import {
   EMPTY_THREAD_TABS_STATE,
   EMPTY_WORKSPACE_THREAD_TABS_STATE,
   MAX_THREAD_TABS,
+  applyRemoteWorkspaceThreadTabs,
   closeOtherThreadTabs,
   closeThreadTab,
   closeThreadTabsToRight,
@@ -15,6 +16,7 @@ import {
   openThreadTab,
   openWorkspaceThreadTab,
   reconcileThreadTabs,
+  selectSyncableWorkspaceThreadTabs,
   threadTabKey,
   type ThreadTabsState,
 } from "./threadTabsStore";
@@ -229,5 +231,120 @@ describe("openWorkspaceThreadTab", () => {
   it("returns the same state when the tab is already open and active", () => {
     const seeded = openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null);
     expect(openWorkspaceThreadTab(seeded, BASE, ref("a"), null)).toBe(seeded);
+  });
+});
+
+describe("cross-device tab sync", () => {
+  const BASE = "base-workspace";
+
+  it("publishes only real chats, and only workspaces that have one", () => {
+    const withDraft = openWorkspaceThreadTab(
+      openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
+      BASE,
+      ref("draft-thread"),
+      DraftId.make("draft-1"),
+    );
+    const draftsOnly = openWorkspaceThreadTab(
+      withDraft,
+      "empty-workspace",
+      ref("draft-thread-2"),
+      DraftId.make("draft-2"),
+    );
+
+    expect(selectSyncableWorkspaceThreadTabs(draftsOnly)).toEqual({
+      [BASE]: [{ environmentId: ENV, threadId: "a" }],
+    });
+  });
+
+  it("opens a chat another device started", () => {
+    const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, {
+      [BASE]: [{ environmentId: ENV, threadId: "remote" }],
+    });
+
+    expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["remote"]);
+    expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("remote"));
+  });
+
+  it("closes a chat another device closed, and keeps the local draft", () => {
+    const seeded = openWorkspaceThreadTab(
+      openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
+      BASE,
+      ref("draft-thread"),
+      DraftId.make("draft-1"),
+    );
+
+    const applied = applyRemoteWorkspaceThreadTabs(seeded, { [BASE]: [] });
+
+    expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["draft-thread"]);
+  });
+
+  it("keeps the active tab when it survives the remote set", () => {
+    const seeded = openWorkspaceThreadTab(
+      openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
+      BASE,
+      ref("b"),
+      null,
+    );
+
+    const applied = applyRemoteWorkspaceThreadTabs(seeded, {
+      [BASE]: [
+        { environmentId: ENV, threadId: "a" },
+        { environmentId: ENV, threadId: "b" },
+        { environmentId: ENV, threadId: "c" },
+      ],
+    });
+
+    expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("b"));
+    expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("falls back to the last tab when the active one closed elsewhere", () => {
+    const seeded = openWorkspaceThreadTab(
+      openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
+      BASE,
+      ref("b"),
+      null,
+    );
+
+    const applied = applyRemoteWorkspaceThreadTabs(seeded, {
+      [BASE]: [{ environmentId: ENV, threadId: "a" }],
+    });
+
+    expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("a"));
+  });
+
+  it("keeps tab identity so unchanged rows do not re-render", () => {
+    const seeded = openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null);
+    const applied = applyRemoteWorkspaceThreadTabs(seeded, {
+      [BASE]: [{ environmentId: ENV, threadId: "a" }],
+    });
+
+    expect(applied).toBe(seeded);
+  });
+
+  it("ignores a remote workspace this device has nothing open in", () => {
+    const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, {
+      "unknown-workspace": [],
+    });
+
+    expect(applied).toBe(EMPTY_WORKSPACE_THREAD_TABS_STATE);
+  });
+
+  it("round-trips: what one device publishes is what the other opens", () => {
+    const seeded = openWorkspaceThreadTab(
+      openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
+      BASE,
+      ref("b"),
+      null,
+    );
+
+    const applied = applyRemoteWorkspaceThreadTabs(
+      EMPTY_WORKSPACE_THREAD_TABS_STATE,
+      selectSyncableWorkspaceThreadTabs(seeded),
+    );
+
+    expect(selectSyncableWorkspaceThreadTabs(applied)).toEqual(
+      selectSyncableWorkspaceThreadTabs(seeded),
+    );
   });
 });
