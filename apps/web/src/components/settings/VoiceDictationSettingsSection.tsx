@@ -7,8 +7,11 @@
  */
 import {
   DEFAULT_VOICE_DICTATION_MODEL,
+  DEFAULT_VOICE_DICTATION_POLISH_MODEL,
+  DEFAULT_VOICE_DICTATION_STYLE,
   type VoiceDictationModel,
   type VoiceDictationSettings,
+  type VoiceDictationStyle,
 } from "@t3tools/contracts/settings";
 import { useCallback } from "react";
 
@@ -19,12 +22,19 @@ import { resolveVoiceDictationAvailability } from "../../lib/voiceDictation/avai
 import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { Textarea } from "../ui/textarea";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 const MODEL_OPTIONS: ReadonlyArray<{ value: VoiceDictationModel; label: string }> = [
   { value: "gpt-live-transcribe", label: "Live transcribe" },
   { value: "gpt-transcribe", label: "Transcribe" },
+];
+
+const STYLE_OPTIONS: ReadonlyArray<{ value: VoiceDictationStyle; label: string }> = [
+  { value: "off", label: "Off" },
+  { value: "cleanup", label: "Clean up" },
+  { value: "rewrite", label: "Rewrite" },
 ];
 
 export function VoiceDictationSettingsSection() {
@@ -46,6 +56,7 @@ export function VoiceDictationSettingsSection() {
     canCaptureAudio: canCaptureAudio(),
   });
   const isOff = !voiceDictation.enabled;
+  const cleanupIsOff = isOff || voiceDictation.style === "off";
   // "Off" is the state this page is for changing, so it is not worth a warning.
   const blockedStatus =
     availability.blockedReason === null || availability.blockedReason === "disabled"
@@ -150,6 +161,102 @@ export function VoiceDictationSettingsSection() {
             aria-label="Dictation language"
             value={voiceDictation.language}
             onCommit={(next) => patchVoiceDictation({ language: next.trim().toLowerCase() })}
+          />
+        }
+      />
+
+      <SettingsRow
+        {...searchableSetting("voice-dictation-style")}
+        description="What happens to the words once you stop talking. Clean up fixes punctuation, drops filler like “um”, and applies corrections you said out loud — “rename the file, no wait, the folder” becomes “rename the folder”. Rewrite also tightens rambling into clear sentences. Off leaves the transcript exactly as heard."
+        resetAction={
+          voiceDictation.style !== DEFAULT_VOICE_DICTATION_STYLE ? (
+            <SettingResetButton
+              label="cleanup style"
+              onClick={() => patchVoiceDictation({ style: DEFAULT_VOICE_DICTATION_STYLE })}
+            />
+          ) : null
+        }
+        control={
+          <Select
+            disabled={isOff}
+            value={voiceDictation.style}
+            onValueChange={(value) => {
+              const style = STYLE_OPTIONS.find((option) => option.value === value)?.value;
+              if (style) patchVoiceDictation({ style });
+            }}
+          >
+            <SelectTrigger aria-label="Cleanup style" className="w-full sm:w-44">
+              <SelectValue>
+                {STYLE_OPTIONS.find((option) => option.value === voiceDictation.style)?.label ??
+                  voiceDictation.style}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {STYLE_OPTIONS.map((option) => (
+                <SelectItem hideIndicator key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        }
+      />
+
+      <SettingsRow
+        {...searchableSetting("voice-dictation-style-instructions")}
+        description="Anything else the cleanup pass should know — house style, a language to keep replies in, words to avoid. Leave it blank unless the default result is not what you want."
+        resetAction={
+          voiceDictation.styleInstructions.length > 0 ? (
+            <SettingResetButton
+              label="cleanup instructions"
+              onClick={() => patchVoiceDictation({ styleInstructions: "" })}
+            />
+          ) : null
+        }
+      >
+        <Textarea
+          disabled={cleanupIsOff}
+          className="mt-3 mb-2 min-h-20 w-full"
+          spellCheck={false}
+          placeholder="Keep British spelling. Never turn my requests into bullet points."
+          aria-label="Cleanup instructions"
+          defaultValue={voiceDictation.styleInstructions}
+          onBlur={(event) => {
+            const next = event.currentTarget.value.trim();
+            if (next !== voiceDictation.styleInstructions) {
+              patchVoiceDictation({ styleInstructions: next });
+            }
+          }}
+        />
+      </SettingsRow>
+
+      <SettingsRow
+        {...searchableSetting("voice-dictation-polish-model")}
+        description="The OpenAI model the cleanup pass runs on. A small, fast one is the right choice — this runs every time you stop talking. Change it only if OpenAI renames the default."
+        resetAction={
+          voiceDictation.polishModel !== DEFAULT_VOICE_DICTATION_POLISH_MODEL ? (
+            <SettingResetButton
+              label="cleanup model"
+              onClick={() =>
+                patchVoiceDictation({ polishModel: DEFAULT_VOICE_DICTATION_POLISH_MODEL })
+              }
+            />
+          ) : null
+        }
+        control={
+          <DraftInput
+            disabled={cleanupIsOff}
+            className="w-full sm:w-44"
+            spellCheck={false}
+            autoComplete="off"
+            placeholder={DEFAULT_VOICE_DICTATION_POLISH_MODEL}
+            aria-label="Cleanup model"
+            value={voiceDictation.polishModel}
+            onCommit={(next) =>
+              patchVoiceDictation({
+                polishModel: next.trim() || DEFAULT_VOICE_DICTATION_POLISH_MODEL,
+              })
+            }
           />
         }
       />

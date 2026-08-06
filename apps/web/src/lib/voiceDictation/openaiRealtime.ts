@@ -37,6 +37,8 @@ export interface TranscriptionSessionOptions {
   readonly model: string;
   /** ISO-639-1 code, or empty to let the model detect the language. */
   readonly language: string;
+  /** Names and jargon to bias the transcription towards. */
+  readonly dictionary: ReadonlyArray<string>;
   readonly onTranscript: (text: string) => void;
   readonly onError: (message: string) => void;
 }
@@ -71,8 +73,31 @@ function encodeBase64(pcm: ArrayBuffer): string {
   return btoa(binary);
 }
 
+/** Enough terms to bias the model, short enough to stay inside the hint's budget. */
+const MAX_PROMPTED_DICTIONARY_TERMS = 60;
+const MAX_DICTIONARY_PROMPT_LENGTH = 500;
+
+/**
+ * The dictionary as a vocabulary hint. The endpoint takes a free-text prompt
+ * rather than a word list, and a bare comma-separated run of names is what it
+ * biases best on.
+ */
+function dictionaryPrompt(dictionary: ReadonlyArray<string>): string {
+  const terms = dictionary
+    .map((term) => term.trim())
+    .filter((term) => term.length > 0)
+    .slice(0, MAX_PROMPTED_DICTIONARY_TERMS);
+  if (terms.length === 0) return "";
+
+  const prompt = terms.join(", ");
+  return prompt.length <= MAX_DICTIONARY_PROMPT_LENGTH
+    ? prompt
+    : prompt.slice(0, prompt.lastIndexOf(", ", MAX_DICTIONARY_PROMPT_LENGTH));
+}
+
 function sessionUpdateEvent(options: TranscriptionSessionOptions) {
   const language = options.language.trim();
+  const prompt = dictionaryPrompt(options.dictionary);
   return {
     type: "session.update",
     session: {
@@ -83,6 +108,10 @@ function sessionUpdateEvent(options: TranscriptionSessionOptions) {
           transcription: {
             model: options.model,
             ...(language.length > 0 ? { languages: [language] } : {}),
+            // Omitted when empty rather than sent blank: this field is the
+            // newest part of the config shape, and a session that does not
+            // need it should not be the one that discovers it is rejected.
+            ...(prompt.length > 0 ? { prompt } : {}),
           },
           // The hold is the turn boundary, so server-side speech detection
           // would only fight the button.
@@ -96,6 +125,7 @@ function sessionUpdateEvent(options: TranscriptionSessionOptions) {
 /** The pre-GA shape, kept as a fallback for servers that reject the above. */
 function legacySessionUpdateEvent(options: TranscriptionSessionOptions) {
   const language = options.language.trim();
+  const prompt = dictionaryPrompt(options.dictionary);
   return {
     type: "transcription_session.update",
     session: {
@@ -103,10 +133,35 @@ function legacySessionUpdateEvent(options: TranscriptionSessionOptions) {
       input_audio_transcription: {
         model: options.model,
         ...(language.length > 0 ? { language } : {}),
+        ...(prompt.length > 0 ? { prompt } : {}),
       },
       turn_detection: null,
     },
   };
+}
+
+/**
+ * Every session config worth trying, in order, until one is acknowledged.
+ *
+ * The first two are the current and pre-GA shapes. The last two repeat both
+ * without the vocabulary hint, because that field is the newest thing here and
+ * the failure it would otherwise cause is the worst one available: dictation
+ * breaking outright for exactly the users who bothered to fill in a
+ * dictionary. Losing the hint costs some spelling accuracy that the cleanup
+ * pass gets a second go at; losing the session costs the whole feature.
+ */
+export function sessionConfigCandidates(
+  options: TranscriptionSessionOptions,
+): ReadonlyArray<unknown> {
+  const shapes = [sessionUpdateEvent(options), legacySessionUpdateEvent(options)];
+  if (dictionaryPrompt(options.dictionary).length === 0) return shapes;
+
+  const withoutDictionary = { ...options, dictionary: [] };
+  return [
+    ...shapes,
+    sessionUpdateEvent(withoutDictionary),
+    legacySessionUpdateEvent(withoutDictionary),
+  ];
 }
 
 function readErrorMessage(payload: unknown): string {
@@ -125,11 +180,12 @@ export function openTranscriptionSession(
 ): TranscriptionSession {
   const candidates = subprotocolCandidates(options.apiKey);
   let candidateIndex = 0;
+  const sessionConfigs = sessionConfigCandidates(options);
+  let sessionConfigIndex = 0;
   let socket: WebSocket | null = null;
   let opened = false;
   let closed = false;
   let sessionAcknowledged = false;
-  let triedLegacyShape = false;
   let audioSent = false;
   let transcript: TranscriptState = emptyTranscript;
   const pending: string[] = [];
@@ -180,12 +236,16 @@ export function openTranscriptionSession(
 
     if (type === "error") {
       // An error before the session was ever acknowledged means the config
-      // shape was rejected, not the audio. Retry once in the older shape
-      // before telling the user anything.
-      if (!sessionAcknowledged && !triedLegacyShape) {
-        triedLegacyShape = true;
-        send(legacySessionUpdateEvent(options));
-        return;
+      // was rejected, not the audio. Work down the shapes before telling the
+      // user anything; only a config we have run out of retries for is worth
+      // interrupting them over.
+      if (!sessionAcknowledged) {
+        sessionConfigIndex += 1;
+        const nextConfig = sessionConfigs[sessionConfigIndex];
+        if (nextConfig) {
+          send(nextConfig);
+          return;
+        }
       }
       options.onError(readErrorMessage(payload));
     }
@@ -204,7 +264,10 @@ export function openTranscriptionSession(
 
     next.addEventListener("open", () => {
       opened = true;
-      send(sessionUpdateEvent(options));
+      // A reconnect starts the shape ladder over: the socket that rejected a
+      // config is not the one being talked to any more.
+      sessionConfigIndex = 0;
+      send(sessionConfigs[0]);
       flushPending();
     });
 

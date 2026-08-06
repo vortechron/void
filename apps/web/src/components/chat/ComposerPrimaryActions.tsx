@@ -137,7 +137,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     [],
   );
 
-  const isDictating = dictation !== null && dictation.status !== "idle";
+  // "polishing" is deliberately not dictating. The microphone is already shut
+  // by then and the raw words are already in the composer, so the button goes
+  // back to being a send — a user who is happy with what they said should not
+  // have to wait out a cleanup pass to send it.
+  const isDictating =
+    dictation !== null && dictation.status !== "idle" && dictation.status !== "polishing";
   // Send stays blocked without content, but a hold has to be reachable from an
   // empty composer — that is the case dictation exists for.
   const canHoldToDictate =

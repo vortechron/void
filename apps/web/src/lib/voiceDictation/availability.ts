@@ -23,9 +23,9 @@ export interface VoiceDictationAvailability {
 }
 
 const BLOCKED_MESSAGES: Readonly<Record<VoiceDictationBlockedReason, string>> = {
-  disabled: "Turn on voice dictation in Settings → General",
-  "missing-api-key": "Add an OpenAI API key in Settings → General",
-  "unusable-api-key": "Paste only the OpenAI key itself in Settings → General",
+  disabled: "Turn on voice dictation in Settings → Voice",
+  "missing-api-key": "Add an OpenAI API key in Settings → Voice",
+  "unusable-api-key": "Paste only the OpenAI key itself in Settings → Voice",
   "insecure-context": "Voice dictation needs an HTTPS or localhost connection",
   "unsupported-browser": "This browser cannot capture microphone audio",
 };
