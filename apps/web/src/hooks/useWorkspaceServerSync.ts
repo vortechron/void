@@ -11,10 +11,14 @@
  * converges on it, and a value that has not changed since the last agreement
  * carries no news — which is what keeps a device from re-applying the echo of
  * its own write.
+ *
+ * Only values that survive being re-applied belong here. An open tab does: the
+ * worst a stale one can do is reopen a chat that was closed a moment ago.
+ * Unsent composer text does not, which is why it stays local — see the note
+ * above `WorkspaceThreadTab` in the settings contract.
  */
 import { useCallback, useEffect, useRef } from "react";
 
-import { selectSyncableComposerPrompts, useComposerDraftStore } from "../composerDraftStore";
 import { resolveSettingsSyncAction, serializeSyncedValue } from "../lib/settingsSync";
 import { selectSyncableWorkspaceThreadTabs, useThreadTabsStore } from "../threadTabsStore";
 import { selectSyncableWorkspaceSidebar, useWorkspaceSidebarStore } from "../workspaceSidebarStore";
@@ -26,13 +30,6 @@ import {
 
 /** Tab and label changes are discrete user actions, so they can travel fast. */
 const WORKSPACE_SYNC_DEBOUNCE_MS = 400;
-/**
- * Prompts change per keystroke, and a publish is not cheap on the other side:
- * the server rewrites `settings.json` and pushes the whole config to every
- * connected client. So this waits for the typing to actually stop. The text is
- * already safe locally; the delay only bounds how stale another device can be.
- */
-const PROMPT_SYNC_DEBOUNCE_MS = 4_000;
 
 interface SettingsMirror<Value> {
   /** The value as the server currently holds it. */
@@ -40,7 +37,7 @@ interface SettingsMirror<Value> {
   /** The syncable projection of the local store. */
   readonly readLocal: () => Value;
   readonly subscribe: (listener: () => void) => () => void;
-  readonly applyRemote: (remote: Value, agreed: Value | null) => void;
+  readonly applyRemote: (remote: Value) => void;
   readonly publish: (local: Value) => void;
   readonly isEmpty: (value: Value) => boolean;
   readonly debounceMs: number;
@@ -48,10 +45,8 @@ interface SettingsMirror<Value> {
 
 function useSettingsMirror<Value>(mirror: SettingsMirror<Value>): void {
   const hydrated = useClientSettingsHydrated();
-  // The last value both sides were known to hold, kept in both forms: the
-  // string to compare against, the value to merge against.
-  const agreedSerialized = useRef<string | null>(null);
-  const agreedValue = useRef<Value | null>(null);
+  /** The last value both sides were known to hold. */
+  const agreed = useRef<string | null>(null);
   const latest = useRef(mirror);
   latest.current = mirror;
 
@@ -63,27 +58,22 @@ function useSettingsMirror<Value>(mirror: SettingsMirror<Value>): void {
       hydrated,
       remoteSerialized,
       localSerialized: serializeSyncedValue(local),
-      agreedSerialized: agreedSerialized.current,
+      agreedSerialized: agreed.current,
       remoteIsEmpty: isEmpty(remote),
       localIsEmpty: isEmpty(local),
     });
 
     switch (action) {
       case "idle":
-        if (hydrated) {
-          agreedSerialized.current = remoteSerialized;
-          agreedValue.current = remote;
-        }
+        if (hydrated) agreed.current = remoteSerialized;
         return;
       case "adopt-local":
-        agreedSerialized.current = serializeSyncedValue(local);
-        agreedValue.current = local;
+        agreed.current = serializeSyncedValue(local);
         publish(local);
         return;
       case "apply-remote":
-        applyRemote(remote, agreedValue.current);
-        agreedSerialized.current = remoteSerialized;
-        agreedValue.current = remote;
+        applyRemote(remote);
+        agreed.current = remoteSerialized;
         return;
     }
   }, [hydrated, mirror.remote]);
@@ -98,9 +88,8 @@ function useSettingsMirror<Value>(mirror: SettingsMirror<Value>): void {
       const serialized = serializeSyncedValue(local);
       // Equal to the agreement means this change came from the server (or
       // undid itself) — publishing it would only bounce back.
-      if (serialized === agreedSerialized.current) return;
-      agreedSerialized.current = serialized;
-      agreedValue.current = local;
+      if (serialized === agreed.current) return;
+      agreed.current = serialized;
       latest.current.publish(local);
     };
 
@@ -171,35 +160,9 @@ function useWorkspaceSidebarServerSync(): void {
   });
 }
 
-function useComposerPromptServerSync(): void {
-  const remote = useClientSettings((settings) => settings.composerPromptDrafts);
-  const updateClientSettings = useUpdateClientSettings();
-
-  useSettingsMirror({
-    remote,
-    readLocal: useCallback(
-      () => selectSyncableComposerPrompts(useComposerDraftStore.getState()),
-      [],
-    ),
-    subscribe: useCallback((listener: () => void) => useComposerDraftStore.subscribe(listener), []),
-    applyRemote: useCallback((value: typeof remote, agreed: typeof remote | null) => {
-      useComposerDraftStore.getState().applyRemotePrompts(value, { agreed });
-    }, []),
-    publish: useCallback(
-      (value: typeof remote) => updateClientSettings({ composerPromptDrafts: value }),
-      [updateClientSettings],
-    ),
-    isEmpty: useCallback((value: typeof remote) => Object.keys(value).length === 0, []),
-    debounceMs: PROMPT_SYNC_DEBOUNCE_MS,
-  });
-}
-
-/**
- * Keeps open chats, workspace labelling and unsent prompts in step across
- * every device connected to this server.
- */
+/** Keeps open chats and workspace labelling in step across every device
+    connected to this server. */
 export function useWorkspaceServerSync(): void {
   useThreadTabsServerSync();
   useWorkspaceSidebarServerSync();
-  useComposerPromptServerSync();
 }
