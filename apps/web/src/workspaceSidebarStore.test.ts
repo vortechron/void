@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { buildWorkspaceContextMenuItems, useWorkspaceSidebarStore } from "./workspaceSidebarStore";
+import {
+  buildWorkspaceContextMenuItems,
+  selectSyncableWorkspaceSidebar,
+  useWorkspaceSidebarStore,
+} from "./workspaceSidebarStore";
 
 beforeEach(() => {
   useWorkspaceSidebarStore.setState({
@@ -53,5 +57,54 @@ describe("workspace sidebar preferences", () => {
 
     expect(useWorkspaceSidebarStore.getState().archivedWorkspaceKeys).toEqual(["workspace-a"]);
     expect(useWorkspaceSidebarStore.getState().pinnedWorkspaceKeys).toEqual([]);
+  });
+});
+
+describe("cross-device workspace labelling", () => {
+  it("publishes the whole labelling", () => {
+    useWorkspaceSidebarStore.getState().renameWorkspace("workspace-a", "Review queue");
+    useWorkspaceSidebarStore.getState().toggleWorkspacePinned("workspace-b");
+
+    expect(selectSyncableWorkspaceSidebar(useWorkspaceSidebarStore.getState())).toEqual({
+      namesByWorkspaceKey: { "workspace-a": "Review queue" },
+      pinnedWorkspaceKeys: ["workspace-b"],
+      archivedWorkspaceKeys: [],
+    });
+  });
+
+  it("adopts a rename and a pin made on another device", () => {
+    useWorkspaceSidebarStore.getState().applyRemoteSidebar({
+      namesByWorkspaceKey: { "workspace-a": "From the phone" },
+      pinnedWorkspaceKeys: ["workspace-a"],
+      archivedWorkspaceKeys: [],
+    });
+
+    const state = useWorkspaceSidebarStore.getState();
+    expect(state.namesByWorkspaceKey).toEqual({ "workspace-a": "From the phone" });
+    expect(state.pinnedWorkspaceKeys).toEqual(["workspace-a"]);
+  });
+
+  it("applies removals, so an unpin elsewhere unpins here", () => {
+    useWorkspaceSidebarStore.getState().toggleWorkspacePinned("workspace-a");
+    useWorkspaceSidebarStore.getState().applyRemoteSidebar({
+      namesByWorkspaceKey: {},
+      pinnedWorkspaceKeys: [],
+      archivedWorkspaceKeys: [],
+    });
+
+    expect(useWorkspaceSidebarStore.getState().pinnedWorkspaceKeys).toEqual([]);
+  });
+
+  it("leaves the state untouched when the remote value already matches", () => {
+    useWorkspaceSidebarStore.getState().renameWorkspace("workspace-a", "Same");
+    const before = useWorkspaceSidebarStore.getState().namesByWorkspaceKey;
+
+    useWorkspaceSidebarStore.getState().applyRemoteSidebar({
+      namesByWorkspaceKey: { "workspace-a": "Same" },
+      pinnedWorkspaceKeys: [],
+      archivedWorkspaceKeys: [],
+    });
+
+    expect(useWorkspaceSidebarStore.getState().namesByWorkspaceKey).toBe(before);
   });
 });

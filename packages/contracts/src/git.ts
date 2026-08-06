@@ -5,6 +5,8 @@ import { VcsDriverKind } from "./vcs.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
+export const GIT_LIST_COMMITS_MAX_LIMIT = 500;
+export const GIT_LIST_COMMITS_DEFAULT_LIMIT = 200;
 
 // Domain Types
 
@@ -83,6 +85,33 @@ export const VcsRef = Schema.Struct({
 });
 export type VcsRef = typeof VcsRef.Type;
 
+/**
+ * A ref decoration attached to a commit in the history graph. `kind` mirrors
+ * how `git log --format=%D` labels the ref, so the UI can badge locals,
+ * remotes, and tags differently without re-parsing anything.
+ */
+export const VcsCommitRefKind = Schema.Literals(["head", "local", "remote", "tag"]);
+export type VcsCommitRefKind = typeof VcsCommitRefKind.Type;
+
+export const VcsCommitRef = Schema.Struct({
+  name: TrimmedNonEmptyStringSchema,
+  kind: VcsCommitRefKind,
+  remoteName: Schema.optional(TrimmedNonEmptyStringSchema),
+  isCurrent: Schema.Boolean,
+});
+export type VcsCommitRef = typeof VcsCommitRef.Type;
+
+export const VcsCommit = Schema.Struct({
+  sha: TrimmedNonEmptyStringSchema,
+  shortSha: TrimmedNonEmptyStringSchema,
+  parents: Schema.Array(TrimmedNonEmptyStringSchema),
+  subject: Schema.String,
+  authorName: Schema.String,
+  authoredAt: Schema.DateTimeUtc,
+  refs: Schema.Array(VcsCommitRef),
+});
+export type VcsCommit = typeof VcsCommit.Type;
+
 const VcsWorktree = Schema.Struct({
   path: TrimmedNonEmptyStringSchema,
   refName: TrimmedNonEmptyStringSchema,
@@ -133,6 +162,20 @@ export const VcsListRefsInput = Schema.Struct({
   ),
 });
 export type VcsListRefsInput = typeof VcsListRefsInput.Type;
+
+/**
+ * Pages the commit graph. `refName` absent means "every ref", matching the
+ * "Show All" branch filter; `includeRemotes` toggles remote-tracking refs the
+ * same way the history toolbar does.
+ */
+export const VcsListCommitsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  refName: Schema.optional(TrimmedNonEmptyStringSchema),
+  includeRemotes: Schema.optional(Schema.Boolean),
+  cursor: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_COMMITS_MAX_LIMIT))),
+});
+export type VcsListCommitsInput = typeof VcsListCommitsInput.Type;
 
 export const VcsCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -261,6 +304,16 @@ export const VcsListRefsResult = Schema.Struct({
   totalCount: NonNegativeInt,
 });
 export type VcsListRefsResult = typeof VcsListRefsResult.Type;
+
+export const VcsListCommitsResult = Schema.Struct({
+  commits: Schema.Array(VcsCommit),
+  isRepo: Schema.Boolean,
+  headSha: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  headRefName: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  workingTreeFileCount: NonNegativeInt,
+  nextCursor: NonNegativeInt.pipe(Schema.NullOr),
+});
+export type VcsListCommitsResult = typeof VcsListCommitsResult.Type;
 
 export const VcsCreateWorktreeResult = Schema.Struct({
   worktree: VcsWorktree,

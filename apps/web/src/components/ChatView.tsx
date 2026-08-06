@@ -426,6 +426,8 @@ const PreviewPanel = lazy(() =>
 );
 const DiffPanel = lazy(() => import("./DiffPanel"));
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
+const GitHistoryPanel = lazy(() => import("./history/GitHistoryPanel"));
+const CommitDiffPanel = lazy(() => import("./history/CommitDiffPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   "input",
@@ -1710,7 +1712,9 @@ function ChatViewContent(props: ChatViewProps) {
   );
   useEffect(() => {
     if (!activeThreadRef || !activeEnvironmentBootstrapComplete) return;
-    useRightPanelStore.getState().reconcileFileSurfaces(activeThreadRef, activeProject !== null);
+    useRightPanelStore
+      .getState()
+      .reconcileWorkspaceSurfaces(activeThreadRef, activeProject !== null);
   }, [activeEnvironmentBootstrapComplete, activeProject, activeThreadRef]);
 
   // Compute the list of environments this logical project spans, used to
@@ -3525,6 +3529,17 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const addHistorySurface = useCallback(() => {
+    if (!activeThreadRef || !activeProject || !isGitRepo) return;
+    useRightPanelStore.getState().open(activeThreadRef, "history");
+  }, [activeProject, activeThreadRef, isGitRepo]);
+  const openCommitSurface = useCallback(
+    (commit: { sha: string; shortSha: string; subject: string }) => {
+      if (!activeThreadRef) return;
+      useRightPanelStore.getState().openCommit(activeThreadRef, commit);
+    },
+    [activeThreadRef],
+  );
   const addAgentsSurface = useCallback(() => {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "agents");
@@ -6253,6 +6268,27 @@ function ChatViewContent(props: ChatViewProps) {
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
       />
+    ) : activeRightPanelSurface?.kind === "history" && activeProject && activeWorkspaceRoot ? (
+      <Suspense fallback={null}>
+        <GitHistoryPanel
+          key={`${activeProject.environmentId}:${activeWorkspaceRoot}`}
+          environmentId={activeProject.environmentId}
+          cwd={activeWorkspaceRoot}
+          onOpenCommit={openCommitSurface}
+        />
+      </Suspense>
+    ) : activeRightPanelSurface?.kind === "commit" && activeProject && activeWorkspaceRoot ? (
+      <Suspense fallback={null}>
+        <CommitDiffPanel
+          key={activeRightPanelSurface.sha}
+          environmentId={activeProject.environmentId}
+          cwd={activeWorkspaceRoot}
+          sha={activeRightPanelSurface.sha}
+          shortSha={activeRightPanelSurface.shortSha}
+          subject={activeRightPanelSurface.subject}
+          composerDraftTarget={composerDraftTarget}
+        />
+      </Suspense>
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
@@ -6719,10 +6755,12 @@ function ChatViewContent(props: ChatViewProps) {
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
+          onAddHistory={addHistorySurface}
           onAddAgents={addAgentsSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
+          historyAvailable={activeProject !== null && isGitRepo}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -6747,10 +6785,12 @@ function ChatViewContent(props: ChatViewProps) {
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
+            onAddHistory={addHistorySurface}
             onAddAgents={addAgentsSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
+            historyAvailable={activeProject !== null && isGitRepo}
           >
             {rightPanelContent}
           </RightPanelTabs>

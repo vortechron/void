@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
+import type { WorkspaceSidebarSettings } from "@t3tools/contracts/settings";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -15,6 +16,66 @@ interface WorkspaceSidebarState {
   renameWorkspace: (workspaceKey: string, name: string) => void;
   toggleWorkspacePinned: (workspaceKey: string) => void;
   toggleWorkspaceArchived: (workspaceKey: string) => void;
+  /** Adopt the labelling another device published. */
+  applyRemoteSidebar: (remote: WorkspaceSidebarSettings) => void;
+}
+
+/** The whole store travels: a rename, a pin and an archive are opinions about
+    the work rather than about the machine it was expressed on. */
+export type SyncableWorkspaceSidebar = WorkspaceSidebarSettings;
+
+export function selectSyncableWorkspaceSidebar(
+  state: Pick<
+    WorkspaceSidebarState,
+    "namesByWorkspaceKey" | "pinnedWorkspaceKeys" | "archivedWorkspaceKeys"
+  >,
+): SyncableWorkspaceSidebar {
+  return {
+    namesByWorkspaceKey: state.namesByWorkspaceKey,
+    pinnedWorkspaceKeys: state.pinnedWorkspaceKeys,
+    archivedWorkspaceKeys: state.archivedWorkspaceKeys,
+  };
+}
+
+function keyListsEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((key, index) => key === right[index]);
+}
+
+function nameMapsEqual(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  return (
+    leftKeys.length === Object.keys(right).length &&
+    leftKeys.every((key) => left[key] === right[key])
+  );
+}
+
+/**
+ * Converges on the remote labelling. Replacement rather than a union: an
+ * unpin or an unarchive is a removal, and merging would make it impossible to
+ * undo one from the other device.
+ */
+export function applyRemoteWorkspaceSidebar<
+  State extends Pick<
+    WorkspaceSidebarState,
+    "namesByWorkspaceKey" | "pinnedWorkspaceKeys" | "archivedWorkspaceKeys"
+  >,
+>(state: State, remote: SyncableWorkspaceSidebar): State {
+  if (
+    nameMapsEqual(state.namesByWorkspaceKey, remote.namesByWorkspaceKey) &&
+    keyListsEqual(state.pinnedWorkspaceKeys, remote.pinnedWorkspaceKeys) &&
+    keyListsEqual(state.archivedWorkspaceKeys, remote.archivedWorkspaceKeys)
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    namesByWorkspaceKey: { ...remote.namesByWorkspaceKey },
+    pinnedWorkspaceKeys: [...remote.pinnedWorkspaceKeys],
+    archivedWorkspaceKeys: [...remote.archivedWorkspaceKeys],
+  };
 }
 
 function withoutKey(keys: readonly string[], workspaceKey: string): string[] {
@@ -80,6 +141,7 @@ export const useWorkspaceSidebarStore = create<WorkspaceSidebarState>()(
               : withoutKey(state.pinnedWorkspaceKeys, workspaceKey),
           };
         }),
+      applyRemoteSidebar: (remote) => set((state) => applyRemoteWorkspaceSidebar(state, remote)),
     }),
     {
       name: WORKSPACE_SIDEBAR_STORAGE_KEY,

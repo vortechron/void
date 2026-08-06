@@ -256,6 +256,33 @@ it("carries a known percentage across events that omit it", () => {
   assert.equal(merged[0]?.usedPercent, 92);
 });
 
+it("carries the percentage when the two Claude sources date the same window differently", () => {
+  // `/usage` dates `resets_at` with a sub-second component that drifts between
+  // polls, while `rate_limit_event` reports the same boundary as whole epoch
+  // seconds. Comparing the two as strings would read one window as two.
+  const merged = mergeUsageWindows(
+    [
+      {
+        key: "five_hour",
+        label: "5h",
+        usedPercent: 10,
+        resetsAt: "2026-08-06T14:00:00.563Z",
+        updatedAt: OBSERVED_AT,
+      },
+    ],
+    [
+      {
+        key: "five_hour",
+        label: "5h",
+        resetsAt: "2026-08-06T14:00:00.000Z",
+        updatedAt: "2026-08-06T11:00:00.000Z",
+      },
+    ],
+  );
+
+  assert.equal(merged[0]?.usedPercent, 10);
+});
+
 it("drops a stale percentage once the window rolls over", () => {
   const merged = mergeUsageWindows(
     [

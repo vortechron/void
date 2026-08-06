@@ -1,4 +1,11 @@
-import { memo, useEffect, useRef, type MouseEventHandler, type PointerEventHandler } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEventHandler,
+  type PointerEventHandler,
+} from "react";
 import { ChevronDownIcon, ChevronLeftIcon, MicIcon } from "lucide-react";
 import type { VoiceDictationStatus } from "~/hooks/useVoiceDictation";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
@@ -25,6 +32,13 @@ interface PendingActionState {
  * that ends it comes later, whenever the user is done talking.
  */
 export const DICTATION_HOLD_DELAY_MS = 280;
+
+/**
+ * How long the ring that marks the end of a session stays on screen. Long
+ * enough to register as a deliberate "that's closed", short enough that it is
+ * gone before the user looks back at what they dictated.
+ */
+const DICTATION_STOP_FLASH_MS = 420;
 
 export interface ComposerDictationControls {
   readonly status: VoiceDictationStatus;
@@ -130,6 +144,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const pressPointerRef = useRef<number | null>(null);
   const startedDictationRef = useRef(false);
   const suppressClickRef = useRef(false);
+  // The button is held but the hold has not counted out yet. Rendered as a
+  // ring closing in on the button, so the wait is something the user can watch
+  // rather than a press that appears to do nothing for a quarter of a second.
+  const [isArming, setIsArming] = useState(false);
   useEffect(
     () => () => {
       if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
@@ -161,6 +179,29 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     if (isDictating && !rendersDictationControl) dictation?.onStop();
   }, [dictation, isDictating, rendersDictationControl]);
 
+  // A session ending is as worth seeing as one starting, and the button losing
+  // its colour is easy to miss — so the moment it stops listening it throws
+  // off one ring. It keys off "listening" rather than the wider dictating
+  // state so the ring lands with the closing sound, not seconds later when the
+  // socket finally winds down. The counter only exists to restart the
+  // animation when a user opens and closes several sessions in a row.
+  const isListening = dictation?.status === "listening";
+  const [stopFlashKey, setStopFlashKey] = useState(0);
+  const wasListeningRef = useRef(false);
+  useEffect(() => {
+    if (isListening) {
+      wasListeningRef.current = true;
+      return;
+    }
+    if (!wasListeningRef.current) return;
+    wasListeningRef.current = false;
+    setStopFlashKey((key) => key + 1);
+    const timer = window.setTimeout(() => setStopFlashKey(0), DICTATION_STOP_FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [isListening]);
+
+  const rendersDictationRings = isArming || isDictating || stopFlashKey > 0;
+
   const clearHoldTimer = () => {
     if (holdTimerRef.current === null) return;
     window.clearTimeout(holdTimerRef.current);
@@ -169,6 +210,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
 
   const endPress = () => {
     clearHoldTimer();
+    setIsArming(false);
     pressPointerRef.current = null;
     if (!startedDictationRef.current) return;
     startedDictationRef.current = false;
@@ -200,9 +242,11 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     // press here rather than leaving the hold timer armed.
     event.currentTarget.setPointerCapture(event.pointerId);
     clearHoldTimer();
+    setIsArming(true);
     holdTimerRef.current = window.setTimeout(() => {
       holdTimerRef.current = null;
       startedDictationRef.current = true;
+      setIsArming(false);
       dictation?.onStart();
     }, DICTATION_HOLD_DELAY_MS);
   };
@@ -357,12 +401,19 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       className={cn(
         // `select-none touch-none` keep a long press on a touch device a hold
         // rather than a text selection or the start of a scroll gesture.
-        "relative isolate flex h-9 w-9 touch-none select-none items-center justify-center overflow-hidden rounded-full text-primary-foreground shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
+        "relative isolate flex h-9 w-9 touch-none select-none items-center justify-center rounded-full text-primary-foreground shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
+        // Every dictation ring is drawn outside the button's own circle, so
+        // the clip that keeps the backdrop artwork in bounds has to lift while
+        // one is on screen.
+        rendersDictationRings ? null : "overflow-hidden",
         isDictating
           ? "bg-destructive/90 text-white shadow-destructive/24 hover:bg-destructive"
           : stageBackdropVariant
             ? "bg-transparent enabled:shadow-black/24 enabled:hover:brightness-110"
             : "bg-primary/90 enabled:shadow-primary/24 hover:bg-primary",
+        // The squeeze is the first thing that happens on a hold, before the
+        // ring has moved at all, so a press never reads as unregistered.
+        isArming && "scale-90 hover:scale-90",
       )}
       {...pointerFocusProps}
       onPointerDown={handleSendPointerDown}
@@ -409,14 +460,35 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       }
     >
       {stageBackdropVariant && !isDictating ? (
-        <span className="absolute inset-0 -z-10" aria-hidden="true">
+        <span className="absolute inset-0 -z-10 overflow-hidden rounded-full" aria-hidden="true">
           <StageBackdropButtonArt variant={stageBackdropVariant} />
         </span>
+      ) : null}
+      {isArming ? (
+        <span
+          className="dictation-arm-ring"
+          // The ring lands on the button's edge exactly as the hold counts out,
+          // so the two are driven by the same constant.
+          style={{ animationDuration: `${DICTATION_HOLD_DELAY_MS}ms` }}
+          aria-hidden="true"
+        />
+      ) : null}
+      {isListening ? (
+        <>
+          <span className="dictation-listen-ring" aria-hidden="true" />
+          <span className="dictation-listen-ring dictation-listen-ring-late" aria-hidden="true" />
+        </>
+      ) : null}
+      {stopFlashKey > 0 ? (
+        <span key={stopFlashKey} className="dictation-stop-ring" aria-hidden="true" />
       ) : null}
       {dictation?.status === "starting" ? (
         <Spinner className="size-3.5" aria-hidden="true" />
       ) : isDictating ? (
-        <MicIcon className="size-3.5" aria-hidden="true" />
+        <MicIcon
+          className={cn("size-3.5", isListening ? "dictation-mic-live" : "opacity-70")}
+          aria-hidden="true"
+        />
       ) : isConnecting || isSendBusy ? (
         <Spinner className="size-3.5" aria-hidden="true" />
       ) : (

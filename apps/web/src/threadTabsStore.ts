@@ -2,6 +2,7 @@
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { WorkspaceThreadTab, WorkspaceThreadTabsSettings } from "@t3tools/contracts/settings";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -179,6 +180,110 @@ export function openWorkspaceThreadTab(
   };
 }
 
+/**
+ * The slice of the strip that travels between devices: which real chats are
+ * open, in tab order.
+ *
+ * Draft tabs are dropped — their thread ids are reserved client-side and mean
+ * nothing to another device — and a workspace whose tabs are all drafts is
+ * omitted entirely. An absent workspace therefore reads the same as an empty
+ * one: nothing open here.
+ */
+export function selectSyncableWorkspaceThreadTabs(
+  state: WorkspaceThreadTabsState,
+): Record<string, WorkspaceThreadTab[]> {
+  return Object.fromEntries(
+    Object.entries(state.byWorkspaceKey).flatMap(([workspaceKey, tabs]) => {
+      const shared = tabs.tabs
+        .filter((tab) => tab.draftId === null)
+        .map((tab) => ({ environmentId: tab.environmentId, threadId: tab.threadId }));
+      return shared.length > 0 ? [[workspaceKey, shared] as const] : [];
+    }),
+  );
+}
+
+function remoteTabsForWorkspace(
+  current: ThreadTabsState,
+  remoteTabs: ReadonlyArray<WorkspaceThreadTab>,
+): readonly ThreadTab[] {
+  const existingByKey = new Map(current.tabs.map((tab) => [tab.key, tab] as const));
+  const seen = new Set<string>();
+  const adopted: ThreadTab[] = [];
+
+  for (const entry of remoteTabs) {
+    if (entry.environmentId.length === 0 || entry.threadId.length === 0) continue;
+    const ref = scopeThreadRef(
+      EnvironmentId.make(entry.environmentId),
+      ThreadId.make(entry.threadId),
+    );
+    const key = threadTabKey(ref);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Reuse the local object when this chat is already open here: the tab
+    // rows are memoized on identity, so a re-sync that changes nothing must
+    // not hand React a fresh array of fresh objects.
+    adopted.push(
+      existingByKey.get(key) ?? {
+        key,
+        environmentId: ref.environmentId,
+        threadId: ref.threadId,
+        draftId: null,
+      },
+    );
+  }
+
+  // Unsent draft sessions never left this browser, so the remote set has
+  // nothing to say about them: they keep their tabs, after the shared ones.
+  for (const tab of current.tabs) {
+    if (tab.draftId === null || seen.has(tab.key)) continue;
+    seen.add(tab.key);
+    adopted.push(tab);
+  }
+
+  return adopted;
+}
+
+function tabListsEqual(left: readonly ThreadTab[], right: readonly ThreadTab[]): boolean {
+  return left.length === right.length && left.every((tab, index) => tab === right[index]);
+}
+
+/**
+ * Converges this device's strip on the open set another device published.
+ *
+ * The remote value is authoritative for real chats — that is what makes a
+ * chat started on the phone appear on the laptop, and a tab closed on the
+ * laptop close on the phone. The active tab is resolved locally: it is the
+ * one thing about the strip that is per-device.
+ */
+export function applyRemoteWorkspaceThreadTabs(
+  state: WorkspaceThreadTabsState,
+  remote: WorkspaceThreadTabsSettings,
+): WorkspaceThreadTabsState {
+  const workspaceKeys = new Set([...Object.keys(state.byWorkspaceKey), ...Object.keys(remote)]);
+  const next: Record<string, ThreadTabsState> = {};
+  let changed = false;
+
+  for (const workspaceKey of workspaceKeys) {
+    const known = workspaceKey in state.byWorkspaceKey;
+    const current = selectWorkspaceThreadTabs(state, workspaceKey);
+    const tabs = remoteTabsForWorkspace(current, remote[workspaceKey] ?? []);
+    // A remote workspace this device has never opened and has nothing open in
+    // adds no information — recording it would just grow the stored map.
+    if (!known && tabs.length === 0) continue;
+    if (tabListsEqual(current.tabs, tabs)) {
+      next[workspaceKey] = current;
+      continue;
+    }
+    changed = true;
+    const activeKey = tabs.some((tab) => tab.key === current.activeKey)
+      ? current.activeKey
+      : (tabs[tabs.length - 1]?.key ?? null);
+    next[workspaceKey] = { tabs, activeKey };
+  }
+
+  return changed ? { ...state, byWorkspaceKey: next } : state;
+}
+
 interface ThreadTabsStore extends WorkspaceThreadTabsState {
   openTab: (workspaceKey: string, ref: ScopedThreadRef, draftId: DraftId | null) => void;
   closeTab: (workspaceKey: string, key: string) => void;
@@ -187,6 +292,8 @@ interface ThreadTabsStore extends WorkspaceThreadTabsState {
   closeAll: (workspaceKey: string) => void;
   moveTab: (workspaceKey: string, key: string, toIndex: number) => void;
   reconcile: (workspaceKey: string, liveKeys: ReadonlySet<string>) => void;
+  /** Adopt the open set published by another device. */
+  applyRemoteTabs: (remote: WorkspaceThreadTabsSettings) => void;
 }
 
 function updateWorkspace(
@@ -237,6 +344,7 @@ export const useThreadTabsStore = create<ThreadTabsStore>()(
         set((state) =>
           updateWorkspace(state, workspaceKey, (tabs) => reconcileThreadTabs(tabs, liveKeys)),
         ),
+      applyRemoteTabs: (remote) => set((state) => applyRemoteWorkspaceThreadTabs(state, remote)),
     }),
     {
       name: THREAD_TABS_STORAGE_KEY,

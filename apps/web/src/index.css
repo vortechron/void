@@ -2136,3 +2136,119 @@ label:has(> select#reasoning-effort) select {
   opacity: 0.3;
   pointer-events: none;
 }
+
+/* Voice dictation feedback on the composer's send button.
+ *
+ * The microphone is the one control here whose state the user cannot glance
+ * at while using it, so each step gets its own shape: a ring closing in while
+ * the button is held, rings going out while it listens, and one ring on the
+ * way out when it stops. They are drawn outside the button's own circle,
+ * which is why it drops its clip while any of them is on screen.
+ *
+ * Unlike the always-on indicators above, these are short-lived and directly
+ * under the user's finger, so they animate smoothly instead of in steps. */
+.dictation-arm-ring,
+.dictation-listen-ring,
+.dictation-stop-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid currentColor;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* Closes in on the button's edge, arriving exactly as the hold counts out.
+   Its duration comes from the component, off the same constant as the timer. */
+.dictation-arm-ring {
+  animation-name: dictation-arm-ring;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
+}
+
+@keyframes dictation-arm-ring {
+  from {
+    opacity: 0.35;
+    transform: scale(2);
+  }
+  to {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
+.dictation-listen-ring {
+  animation: dictation-listen-ring 1.8s ease-out infinite;
+}
+
+/* The second ring rides half a cycle behind the first, so the button reads as
+   continuously emitting rather than blinking once every two seconds. */
+.dictation-listen-ring-late {
+  animation-delay: 0.9s;
+}
+
+@keyframes dictation-listen-ring {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(2.1);
+  }
+}
+
+.dictation-stop-ring {
+  animation: dictation-stop-ring 420ms ease-out forwards;
+}
+
+@keyframes dictation-stop-ring {
+  from {
+    opacity: 0.7;
+    transform: scale(1.5);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* A slow breath on the icon, so a session that is open but silent still looks
+   alive between rings. */
+.dictation-mic-live {
+  animation: dictation-mic-live 1.8s ease-in-out infinite;
+}
+
+@keyframes dictation-mic-live {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+/* Reduced motion keeps the meaning and drops the movement: a steady ring while
+   listening says the same thing as one that pulses. */
+@media (prefers-reduced-motion: reduce) {
+  .dictation-arm-ring,
+  .dictation-listen-ring,
+  .dictation-stop-ring,
+  .dictation-mic-live {
+    animation: none;
+  }
+
+  .dictation-arm-ring,
+  .dictation-listen-ring {
+    opacity: 0.7;
+  }
+
+  .dictation-listen-ring-late {
+    display: none;
+  }
+}

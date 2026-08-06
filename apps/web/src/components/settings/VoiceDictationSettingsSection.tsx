@@ -105,6 +105,27 @@ export function VoiceDictationSettingsSection() {
       />
 
       <SettingsRow
+        {...searchableSetting("voice-dictation-sound-cues")}
+        description="A short rising tone when the microphone opens and a falling one when it closes, plus a buzz on phones that support it. Turn it off in a quiet room — the button still shows what it is doing."
+        resetAction={
+          !voiceDictation.soundCues ? (
+            <SettingResetButton
+              label="dictation sounds"
+              onClick={() => patchVoiceDictation({ soundCues: true })}
+            />
+          ) : null
+        }
+        control={
+          <Switch
+            disabled={isOff}
+            checked={voiceDictation.soundCues}
+            onCheckedChange={(checked) => patchVoiceDictation({ soundCues: Boolean(checked) })}
+            aria-label="Dictation sounds"
+          />
+        }
+      />
+
+      <SettingsRow
         {...searchableSetting("voice-dictation-model")}
         description="Live transcribe writes words as you say them. Transcribe waits until you release the button, and is worth trying if live results come back wrong."
         resetAction={

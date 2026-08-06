@@ -1,6 +1,17 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import { Bot, ClipboardList, FileDiff, Files, Globe2, Plus, TerminalSquare, X } from "lucide-react";
+import {
+  Bot,
+  ClipboardList,
+  FileDiff,
+  Files,
+  GitBranch,
+  GitCommitHorizontal,
+  Globe2,
+  Plus,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -44,16 +55,19 @@ interface RightPanelTabsProps {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
+  onAddHistory: () => void;
   onAddAgents: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
+  historyAvailable: boolean;
   children: ReactNode;
 }
 
 const SURFACE_DISABLED_REASONS = {
   browser: "Browser previews are only available in the T3 Code desktop app.",
   files: "Files are only available when a project is open.",
+  history: "History is only available for projects in Git repositories.",
   diff: "Diff is only available for server threads in Git repositories.",
 } as const;
 
@@ -92,10 +106,12 @@ function RightPanelEmptyState(props: {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
+  onAddHistory: () => void;
   onAddAgents: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
+  historyAvailable: boolean;
 }) {
   const actions = [
     {
@@ -129,6 +145,16 @@ function RightPanelEmptyState(props: {
       available: props.diffAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.diff,
       onClick: props.onAddDiff,
+    },
+    // Sits directly under Files in the two-column grid: both are repository
+    // browsing surfaces, so they read as a pair.
+    {
+      label: "History",
+      description: "Browse the commit graph and branches.",
+      icon: GitBranch,
+      available: props.historyAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.history,
+      onClick: props.onAddHistory,
     },
     {
       label: "Agents",
@@ -215,6 +241,10 @@ function surfaceTitle(
       );
     case "plan":
       return "Plan";
+    case "history":
+      return "History";
+    case "commit":
+      return surface.shortSha;
     case "agents":
       return "Agents";
     case "preview": {
@@ -278,6 +308,10 @@ function SurfaceIcon({
       return <TerminalSquare className="size-3 shrink-0" />;
     case "plan":
       return <ClipboardList className="size-3 shrink-0" />;
+    case "history":
+      return <GitBranch className="size-3 shrink-0" />;
+    case "commit":
+      return <GitCommitHorizontal className="size-3 shrink-0" />;
     case "agents":
       return <Bot className="size-3 shrink-0" />;
   }
@@ -473,6 +507,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     Files
                   </SurfaceMenuItem>
                   <SurfaceMenuItem
+                    available={props.historyAvailable}
+                    disabledReason={SURFACE_DISABLED_REASONS.history}
+                    onClick={props.onAddHistory}
+                  >
+                    <GitBranch />
+                    History
+                  </SurfaceMenuItem>
+                  <SurfaceMenuItem
                     available={props.diffAvailable}
                     disabledReason={SURFACE_DISABLED_REASONS.diff}
                     onClick={props.onAddDiff}
@@ -498,10 +540,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}
             onAddFiles={props.onAddFiles}
+            onAddHistory={props.onAddHistory}
             onAddAgents={props.onAddAgents}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
+            historyAvailable={props.historyAvailable}
           />
         ) : (
           props.children

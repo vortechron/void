@@ -199,6 +199,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/voice",
   },
   {
+    id: "voice-dictation-sound-cues",
+    title: "Dictation sounds",
+    to: "/settings/voice",
+  },
+  {
     id: "voice-dictation-model",
     title: "Dictation model",
     to: "/settings/voice",

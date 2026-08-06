@@ -2626,6 +2626,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     polishModel: voiceDictationSettings.polishModel,
     dictionary: voiceDictationSettings.dictionary,
     snippets: voiceDictationSettings.snippets,
+    soundCues: voiceDictationSettings.soundCues,
     onDictationStart: handleDictationStart,
     onTranscript: handleDictationTranscript,
     onPolished: handleDictationPolished,

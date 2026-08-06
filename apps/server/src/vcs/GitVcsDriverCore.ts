@@ -20,6 +20,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  GIT_LIST_COMMITS_DEFAULT_LIMIT,
   GitCommandError,
   type ReviewDiffFileContentsInput,
   type ReviewDiffPreviewInput,
@@ -31,6 +32,7 @@ import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import { COMMIT_LOG_FORMAT, parseCommitLog } from "../git/commitLog.ts";
 import {
   parseRemoteNames,
   parseRemoteNamesInGitOrder,
@@ -49,6 +51,9 @@ const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
+// 500 commits of metadata land well under this; the cap only guards a repo with
+// pathological subjects or decoration lists.
+const COMMIT_LOG_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 // An SSH fetch against GitHub costs ~3s on a healthy connection, so a tight
 // budget times out on jitter alone. Stay under the 30s status poll cycle.
@@ -2140,6 +2145,64 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     };
   });
 
+  const hashReviewDiff = (cwd: string, diff: string) =>
+    crypto.digest("SHA-256", new TextEncoder().encode(diff)).pipe(
+      Effect.map(Encoding.encodeHex),
+      Effect.mapError(
+        (cause) =>
+          new GitCommandError({
+            operation: "GitVcsDriver.getReviewDiffPreview.hash",
+            command: "crypto.digest SHA-256",
+            cwd,
+            detail: "Failed to hash review diff.",
+            cause,
+          }),
+      ),
+    );
+
+  /**
+   * One commit's own patch, compared against its first parent so a merge shows
+   * what it brought in rather than an empty combined diff.
+   */
+  const readCommitReviewDiff = Effect.fn("readCommitReviewDiff")(function* (
+    input: ReviewDiffPreviewInput & { readonly commitSha: string },
+  ) {
+    const result = yield* executeGit(
+      "GitVcsDriver.getReviewDiffPreview.commit",
+      input.cwd,
+      [
+        "show",
+        "--patch",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--first-parent",
+        "--format=",
+        ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
+        input.commitSha,
+        "--",
+      ],
+      {
+        allowNonZeroExit: true,
+        maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
+        appendTruncationMarker: true,
+      },
+    );
+    const parentResult = yield* executeGit(
+      "GitVcsDriver.getReviewDiffPreview.commitParent",
+      input.cwd,
+      ["rev-parse", "--verify", "--quiet", `${input.commitSha}^`],
+      { allowNonZeroExit: true },
+    );
+    const parentSha = parentResult.exitCode === 0 ? parentResult.stdout.trim() : "";
+
+    return {
+      diff: result.exitCode === 0 ? result.stdout : "",
+      truncated: result.stdoutTruncated,
+      baseRef: parentSha.length > 0 ? parentSha : null,
+    };
+  });
+
   const getReviewDiffPreview = Effect.fn("getReviewDiffPreview")(function* (
     input: ReviewDiffPreviewInput,
   ) {
@@ -2149,6 +2212,28 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         cwd: input.cwd,
         generatedAt: yield* DateTime.now,
         sources: [],
+      };
+    }
+
+    if (input.commitSha) {
+      const commitSha = input.commitSha;
+      const commit = yield* readCommitReviewDiff({ ...input, commitSha });
+      const diffHash = yield* hashReviewDiff(input.cwd, commit.diff);
+      return {
+        cwd: input.cwd,
+        generatedAt: yield* DateTime.now,
+        sources: [
+          {
+            id: "commit",
+            kind: "commit" as const,
+            title: `Commit ${commitSha.slice(0, 8)}`,
+            baseRef: commit.baseRef,
+            headRef: commitSha,
+            diff: commit.diff,
+            diffHash,
+            truncated: commit.truncated,
+          },
+        ],
       };
     }
 
@@ -2225,23 +2310,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           )
         : null;
     const baseDiff = baseResult?.stdout ?? "";
-    const hashDiff = (diff: string) =>
-      crypto.digest("SHA-256", new TextEncoder().encode(diff)).pipe(
-        Effect.map(Encoding.encodeHex),
-        Effect.mapError(
-          (cause) =>
-            new GitCommandError({
-              operation: "GitVcsDriver.getReviewDiffPreview.hash",
-              command: "crypto.digest SHA-256",
-              cwd: input.cwd,
-              detail: "Failed to hash review diff.",
-              cause,
-            }),
-        ),
-      );
     const [dirtyDiffHash, baseDiffHash] = yield* Effect.all([
-      hashDiff(dirtyDiff),
-      hashDiff(baseDiff),
+      hashReviewDiff(input.cwd, dirtyDiff),
+      hashReviewDiff(input.cwd, baseDiff),
     ]);
 
     const sources: ReviewDiffPreviewSource[] = [
@@ -2737,6 +2808,95 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  const listCommits: GitVcsDriver.GitVcsDriver["Service"]["listCommits"] = Effect.fn("listCommits")(
+    function* (input) {
+      const details = yield* readStatusDetailsLocal(input.cwd).pipe(
+        Effect.catchTags({
+          GitCommandError: (error) =>
+            isMissingGitCwdError(error) ? Effect.succeed(null) : Effect.fail(error),
+        }),
+      );
+      if (details === null || !details.isRepo) {
+        return {
+          commits: [],
+          isRepo: false,
+          headSha: null,
+          headRefName: null,
+          workingTreeFileCount: 0,
+          nextCursor: null,
+        };
+      }
+
+      const limit = input.limit ?? GIT_LIST_COMMITS_DEFAULT_LIMIT;
+      const cursor = input.cursor ?? 0;
+      // One extra row tells us whether another page exists without a count pass.
+      const selector = input.refName
+        ? [input.refName]
+        : input.includeRemotes
+          ? ["HEAD", "--branches", "--tags", "--remotes"]
+          : ["HEAD", "--branches", "--tags"];
+
+      const [logResult, remoteNames] = yield* Effect.all(
+        [
+          executeGit(
+            "GitVcsDriver.listCommits.log",
+            input.cwd,
+            [
+              "log",
+              "--date-order",
+              "--decorate=full",
+              `--skip=${cursor}`,
+              `--max-count=${limit + 1}`,
+              `--format=${COMMIT_LOG_FORMAT}`,
+              ...selector,
+              "--",
+            ],
+            {
+              allowNonZeroExit: true,
+              maxOutputBytes: COMMIT_LOG_MAX_OUTPUT_BYTES,
+            },
+          ),
+          listRemoteNames(input.cwd).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>)),
+        ],
+        { concurrency: 2 },
+      );
+
+      // An unborn branch (`git log` on a fresh repo) is not an error worth
+      // surfacing: the graph simply has nothing but uncommitted changes yet.
+      const parsed =
+        logResult.exitCode === 0
+          ? parseCommitLog(
+              logResult.stdout,
+              remoteNames.toSorted((left, right) => right.length - left.length),
+            )
+          : { commits: [], headRefName: null };
+
+      const hasMore = parsed.commits.length > limit;
+      const commits = hasMore ? parsed.commits.slice(0, limit) : parsed.commits;
+      const headSha = yield* runGitStdout(
+        "GitVcsDriver.listCommits.head",
+        input.cwd,
+        ["rev-parse", "HEAD"],
+        true,
+      ).pipe(
+        Effect.map((stdout) => {
+          const value = stdout.trim();
+          return value.length > 0 && !value.startsWith("HEAD") ? value : null;
+        }),
+        Effect.orElseSucceed(() => null),
+      );
+
+      return {
+        commits: [...commits],
+        isRepo: true,
+        headSha,
+        headRefName: details.branch ?? parsed.headRefName,
+        workingTreeFileCount: details.workingTree.files.length,
+        nextCursor: hasMore ? cursor + limit : null,
+      };
+    },
+  );
+
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input) {
@@ -3067,6 +3227,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     getReviewDiffFileContents,
     readConfigValue,
     listRefs,
+    listCommits,
     createWorktree: (input) => withListRefsInvalidation(input.cwd, createWorktree(input)),
     fetchPullRequestBranch: (input) =>
       withListRefsInvalidation(input.cwd, fetchPullRequestBranch(input)),

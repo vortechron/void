@@ -546,14 +546,24 @@ export function buildReviewSectionItems(input: {
     },
   );
 
-  const gitItems = input.gitSections.map<ReviewSectionItem>((section) => ({
-    id: `git:${section.kind}`,
-    kind: section.kind,
-    title: section.title,
-    subtitle: gitSubtitle(section),
-    diff: section.diff,
-    isLoading: false,
-  }));
+  // Review only shows the thread's own worktree and branch sources. Other
+  // preview kinds (a single commit, requested by the desktop history graph)
+  // are never asked for here and have no section to land in.
+  const gitItems = input.gitSections
+    .filter(
+      (
+        section,
+      ): section is ReviewDiffPreviewSource & { readonly kind: "working-tree" | "branch-range" } =>
+        section.kind === "working-tree" || section.kind === "branch-range",
+    )
+    .map<ReviewSectionItem>((section) => ({
+      id: `git:${section.kind}`,
+      kind: section.kind,
+      title: section.title,
+      subtitle: gitSubtitle(section),
+      diff: section.diff,
+      isLoading: false,
+    }));
   const hasDirtyWorktreeItem = gitItems.some((item) => item.id === DIRTY_WORKTREE_SECTION_ID);
   const visibleGitItems =
     input.loadingGitSections && !hasDirtyWorktreeItem
