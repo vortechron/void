@@ -78,15 +78,24 @@ export interface DiffLineStat {
   deletions: number;
 }
 
+export function getFileDiffLineStat(file: FileDiffMetadata): DiffLineStat {
+  return file.hunks.reduce<DiffLineStat>(
+    (total, hunk) => ({
+      additions: total.additions + hunk.additionLines,
+      deletions: total.deletions + hunk.deletionLines,
+    }),
+    { additions: 0, deletions: 0 },
+  );
+}
+
 export function getDiffLineStat(files: ReadonlyArray<FileDiffMetadata>): DiffLineStat {
   return files.reduce<DiffLineStat>(
     (total, file) => {
-      for (const hunk of file.hunks) {
-        total.additions += hunk.additionLines;
-        total.deletions += hunk.deletionLines;
-      }
-
-      return total;
+      const fileStat = getFileDiffLineStat(file);
+      return {
+        additions: total.additions + fileStat.additions,
+        deletions: total.deletions + fileStat.deletions,
+      };
     },
     { additions: 0, deletions: 0 },
   );
