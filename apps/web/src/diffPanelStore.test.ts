@@ -7,7 +7,13 @@ import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelSt
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
 
 describe("diffPanelStore", () => {
-  beforeEach(() => useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} }));
+  beforeEach(() =>
+    useDiffPanelStore.setState({
+      byThreadKey: {},
+      branchBaseRefByThreadKey: {},
+      fileTreeVisible: false,
+    }),
+  );
 
   it("defaults each thread to branch changes when the working tree is clean", () => {
     expect(
@@ -62,6 +68,14 @@ describe("diffPanelStore", () => {
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
     ).toEqual({ kind: "branch", baseRef: "origin/main" });
+  });
+
+  it("keeps the file tree toggle shared across threads", () => {
+    useDiffPanelStore.getState().setFileTreeVisible(true);
+    expect(useDiffPanelStore.getState().fileTreeVisible).toBe(true);
+
+    useDiffPanelStore.getState().setFileTreeVisible(false);
+    expect(useDiffPanelStore.getState().fileTreeVisible).toBe(false);
   });
 
   it("reconciles a missing turn selection to the latest available turn", () => {
