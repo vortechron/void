@@ -330,17 +330,11 @@ export const WorkspaceSidebarSettings = Schema.Struct({
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type WorkspaceSidebarSettings = typeof WorkspaceSidebarSettings.Type;
 
-/**
- * Unsent composer text, keyed by composer target (a scoped thread key, or a
- * draft session's key). Only the prompt travels: image attachments are
- * base64 blobs and the terminal/element/preview contexts are bound to a live
- * session on one machine, so both stay in local storage where they were.
- */
-export const ComposerPromptDraftsSettings = Schema.Record(
-  TrimmedNonEmptyString,
-  Schema.String,
-).pipe(Schema.withDecodingDefault(Effect.succeed({})));
-export type ComposerPromptDraftsSettings = typeof ComposerPromptDraftsSettings.Type;
+// Unsent composer text deliberately does NOT travel. A prompt only has one
+// safe reading when both sides can be ordered in time, and these values carry
+// no timestamp: on a cold load, "empty here, text on the server" is either
+// "never typed on this device" or "just sent from this device", and guessing
+// the first resurrects a message the user already sent.
 
 /**
  * Theme values live here rather than in the web app so the schema that
@@ -478,7 +472,6 @@ export const ClientSettingsSchema = Schema.Struct({
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Patched whole, like `usageMeter`: the syncing client always holds the
   // complete value it is replacing.
-  composerPromptDrafts: ComposerPromptDraftsSettings,
   workspaceSidebar: WorkspaceSidebarSettings,
   workspaceThreadTabs: WorkspaceThreadTabsSettings,
 });
@@ -1111,8 +1104,7 @@ export const ClientSettingsPatch = Schema.Struct({
   voiceDictation: Schema.optionalKey(VoiceDictationSettings),
   wordWrap: Schema.optionalKey(Schema.Boolean),
   // Whole-blob replacements too: the syncing client sends the complete open
-  // set / label set / draft set it wants the other devices to converge on.
-  composerPromptDrafts: Schema.optionalKey(ComposerPromptDraftsSettings),
+  // set / label set it wants the other devices to converge on.
   workspaceSidebar: Schema.optionalKey(WorkspaceSidebarSettings),
   workspaceThreadTabs: Schema.optionalKey(WorkspaceThreadTabsSettings),
 });

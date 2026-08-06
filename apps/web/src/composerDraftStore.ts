@@ -505,11 +505,6 @@ interface ComposerDraftStoreState {
    * session-bound contexts would destroy state nothing can restore.
    */
   clearComposerPromptAndImages: (threadRef: ComposerThreadTarget) => void;
-  /** Adopt the unsent thread prompts published by another device. */
-  applyRemotePrompts: (
-    remote: Readonly<Record<string, string>>,
-    options?: { readonly agreed?: Readonly<Record<string, string>> | null },
-  ) => void;
 }
 
 export interface EffectiveComposerModelState {
@@ -704,74 +699,6 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.runtimeMode === null &&
     draft.interactionMode === null
   );
-}
-
-/**
- * Unsent composer text that travels between devices.
- *
- * Only prompts written against real server threads: a draft session is keyed
- * by a `DraftId` minted in this browser, so another device cannot open the
- * chat that text belongs to even if it arrived. Images and the terminal /
- * element / preview contexts stay local either way — they are base64 blobs or
- * are bound to a session on one machine.
- */
-export function selectSyncableComposerPrompts(
-  state: Pick<ComposerDraftStoreState, "draftsByThreadKey">,
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(state.draftsByThreadKey).flatMap(([threadKey, draft]) =>
-      draft.prompt.trim().length > 0 && parseScopedThreadKey(threadKey) !== null
-        ? [[threadKey, draft.prompt] as const]
-        : [],
-    ),
-  );
-}
-
-/**
- * Converges this device's unsent text on what another device published. A key
- * the remote set omits was cleared or sent over there, so the local prompt
- * clears too — but only the prompt: whatever else the draft carries (images,
- * contexts, model choice) is local and survives.
- */
-export function applyRemoteComposerPrompts(
-  state: Pick<ComposerDraftStoreState, "draftsByThreadKey">,
-  remote: Readonly<Record<string, string>>,
-  options?: {
-    /**
-     * The prompts both devices last agreed on. A local prompt that has moved
-     * away from it is text typed here that has not been published yet, and it
-     * outranks the incoming value — otherwise a remote change to some other
-     * chat, landing mid-sentence, would take the sentence with it.
-     */
-    readonly agreed?: Readonly<Record<string, string>> | null;
-  },
-): Pick<ComposerDraftStoreState, "draftsByThreadKey"> {
-  const threadKeys = new Set([...Object.keys(state.draftsByThreadKey), ...Object.keys(remote)]);
-  const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
-  const agreed = options?.agreed ?? null;
-  let changed = false;
-
-  for (const threadKey of threadKeys) {
-    // Draft-session entries are addressed by `DraftId` and never sync.
-    if (parseScopedThreadKey(threadKey) === null) continue;
-    const existing = state.draftsByThreadKey[threadKey];
-    const prompt = remote[threadKey] ?? "";
-    if (agreed !== null && (existing?.prompt ?? "") !== (agreed[threadKey] ?? "")) continue;
-    if ((existing?.prompt ?? "") === prompt) continue;
-
-    changed = true;
-    const nextDraft: ComposerThreadDraftState = {
-      ...(existing ?? createEmptyThreadDraft()),
-      prompt,
-    };
-    if (shouldRemoveDraft(nextDraft)) {
-      delete nextDraftsByThreadKey[threadKey];
-    } else {
-      nextDraftsByThreadKey[threadKey] = nextDraft;
-    }
-  }
-
-  return changed ? { draftsByThreadKey: nextDraftsByThreadKey } : state;
 }
 
 function normalizeProviderDriverKind(value: unknown): ProviderDriverKind | null {
@@ -2667,9 +2594,6 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             }
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });
-        },
-        applyRemotePrompts: (remote, options) => {
-          set((state) => applyRemoteComposerPrompts(state, remote, options));
         },
         setTerminalContexts: (threadRef, contexts) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);

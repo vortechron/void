@@ -550,11 +550,10 @@ describe("ServerSettings global actions", () => {
 });
 
 describe("ClientSettings workspace state", () => {
-  it("defaults to nothing open, nothing labelled, nothing drafted", () => {
+  it("defaults to nothing open and nothing labelled", () => {
     const settings = decodeClientSettings({});
 
     expect(settings.workspaceThreadTabs).toEqual({});
-    expect(settings.composerPromptDrafts).toEqual({});
     expect(settings.workspaceSidebar).toEqual({
       namesByWorkspaceKey: {},
       pinnedWorkspaceKeys: [],
@@ -586,7 +585,7 @@ describe("ClientSettings workspace state", () => {
     ).toThrow();
   });
 
-  it("accepts patches for each of the three workspace slices", () => {
+  it("accepts patches for both workspace slices", () => {
     const patch = decodeClientSettingsPatch({
       workspaceThreadTabs: { w: [{ environmentId: "env-1", threadId: "thread-a" }] },
       workspaceSidebar: {
@@ -594,11 +593,10 @@ describe("ClientSettings workspace state", () => {
         pinnedWorkspaceKeys: ["w"],
         archivedWorkspaceKeys: [],
       },
-      composerPromptDrafts: { "env-1:thread-a": "half a thought" },
     });
 
+    expect(patch.workspaceThreadTabs?.w?.[0]?.threadId).toBe("thread-a");
     expect(patch.workspaceSidebar?.pinnedWorkspaceKeys).toEqual(["w"]);
-    expect(patch.composerPromptDrafts?.["env-1:thread-a"]).toBe("half a thought");
   });
 
   it("fills in the sidebar slices a partial value omits", () => {
