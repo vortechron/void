@@ -5,7 +5,7 @@
  * readable at a glance without the name being repeated on every row.
  */
 import type { VcsCommitRef } from "@t3tools/contracts";
-import { GitBranch, Tag } from "lucide-react";
+import { Archive, GitBranch, Tag } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
@@ -17,6 +17,15 @@ const KIND_CLASS: Record<VcsCommitRef["kind"], string> = {
   local: "bg-muted text-foreground",
   remote: "bg-info/15 text-info-foreground",
   tag: "bg-warning/15 text-warning-foreground",
+  stash: "bg-accent text-accent-foreground",
+};
+
+const KIND_ICON: Record<VcsCommitRef["kind"], typeof GitBranch> = {
+  head: GitBranch,
+  local: GitBranch,
+  remote: GitBranch,
+  tag: Tag,
+  stash: Archive,
 };
 
 export function CommitRefBadge({
@@ -27,7 +36,7 @@ export function CommitRefBadge({
   onContextMenu?: (event: ReactMouseEvent, refValue: VcsCommitRef) => void;
 }) {
   const { remote, branch } = splitRemoteRefName(refValue);
-  const Icon = refValue.kind === "tag" ? Tag : GitBranch;
+  const Icon = KIND_ICON[refValue.kind];
 
   return (
     <span

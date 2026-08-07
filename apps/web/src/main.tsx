@@ -19,6 +19,16 @@ import {
   syncDocumentWindowControlsOverlayClass,
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
+import { installChunkLoadRecovery } from "./chunkLoadRecovery";
+
+if (import.meta.env.PROD) {
+  installChunkLoadRecovery({
+    target: window,
+    getStorage: () => window.sessionStorage,
+    buildId: import.meta.url,
+    reload: () => window.location.reload(),
+  });
+}
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();

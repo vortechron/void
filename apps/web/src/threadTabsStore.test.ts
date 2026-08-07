@@ -252,13 +252,15 @@ describe("cross-device tab sync", () => {
     );
 
     expect(selectSyncableWorkspaceThreadTabs(draftsOnly)).toEqual({
-      [BASE]: [{ environmentId: ENV, threadId: "a" }],
+      version: 0,
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a" }] },
     });
   });
 
   it("opens a chat another device started", () => {
     const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, {
-      [BASE]: [{ environmentId: ENV, threadId: "remote" }],
+      version: 1,
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "remote" }] },
     });
 
     expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["remote"]);
@@ -273,7 +275,10 @@ describe("cross-device tab sync", () => {
       DraftId.make("draft-1"),
     );
 
-    const applied = applyRemoteWorkspaceThreadTabs(seeded, { [BASE]: [] });
+    const applied = applyRemoteWorkspaceThreadTabs(seeded, {
+      version: 1,
+      byWorkspaceKey: { [BASE]: [] },
+    });
 
     expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["draft-thread"]);
   });
@@ -287,11 +292,14 @@ describe("cross-device tab sync", () => {
     );
 
     const applied = applyRemoteWorkspaceThreadTabs(seeded, {
-      [BASE]: [
-        { environmentId: ENV, threadId: "a" },
-        { environmentId: ENV, threadId: "b" },
-        { environmentId: ENV, threadId: "c" },
-      ],
+      version: 1,
+      byWorkspaceKey: {
+        [BASE]: [
+          { environmentId: ENV, threadId: "a" },
+          { environmentId: ENV, threadId: "b" },
+          { environmentId: ENV, threadId: "c" },
+        ],
+      },
     });
 
     expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("b"));
@@ -307,7 +315,8 @@ describe("cross-device tab sync", () => {
     );
 
     const applied = applyRemoteWorkspaceThreadTabs(seeded, {
-      [BASE]: [{ environmentId: ENV, threadId: "a" }],
+      version: 1,
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a" }] },
     });
 
     expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("a"));
@@ -316,7 +325,8 @@ describe("cross-device tab sync", () => {
   it("keeps tab identity so unchanged rows do not re-render", () => {
     const seeded = openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null);
     const applied = applyRemoteWorkspaceThreadTabs(seeded, {
-      [BASE]: [{ environmentId: ENV, threadId: "a" }],
+      version: 0,
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a" }] },
     });
 
     expect(applied).toBe(seeded);
@@ -324,10 +334,20 @@ describe("cross-device tab sync", () => {
 
   it("ignores a remote workspace this device has nothing open in", () => {
     const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, {
-      "unknown-workspace": [],
+      version: 0,
+      byWorkspaceKey: { "unknown-workspace": [] },
     });
 
     expect(applied).toBe(EMPTY_WORKSPACE_THREAD_TABS_STATE);
+  });
+
+  it("adopts the remote ordering so the next local change outranks it", () => {
+    const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, {
+      version: 7,
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "remote" }] },
+    });
+
+    expect(applied.syncVersion).toBe(7);
   });
 
   it("round-trips: what one device publishes is what the other opens", () => {
@@ -343,8 +363,8 @@ describe("cross-device tab sync", () => {
       selectSyncableWorkspaceThreadTabs(seeded),
     );
 
-    expect(selectSyncableWorkspaceThreadTabs(applied)).toEqual(
-      selectSyncableWorkspaceThreadTabs(seeded),
+    expect(selectSyncableWorkspaceThreadTabs(applied).byWorkspaceKey).toEqual(
+      selectSyncableWorkspaceThreadTabs(seeded).byWorkspaceKey,
     );
   });
 });

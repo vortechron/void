@@ -31,6 +31,10 @@ import {
   type VcsRemoveWorktreeInput,
   type VcsStatusInput,
   type VcsStatusResult,
+  type VcsHistoryActionInput,
+  type VcsHistoryActionResult,
+  type VcsListStashesInput,
+  type VcsListStashesResult,
 } from "@t3tools/contracts";
 import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
@@ -274,6 +278,12 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
     readonly initRepo: (input: VcsInitInput) => Effect.Effect<void, GitCommandError>;
     readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
+    readonly runHistoryAction: (
+      input: VcsHistoryActionInput,
+    ) => Effect.Effect<VcsHistoryActionResult, GitCommandError>;
+    readonly listStashes: (
+      input: VcsListStashesInput,
+    ) => Effect.Effect<VcsListStashesResult, GitCommandError>;
   }
 >()("t3/vcs/GitVcsDriver") {}
 

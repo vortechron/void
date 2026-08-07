@@ -553,8 +553,9 @@ describe("ClientSettings workspace state", () => {
   it("defaults to nothing open and nothing labelled", () => {
     const settings = decodeClientSettings({});
 
-    expect(settings.workspaceThreadTabs).toEqual({});
+    expect(settings.workspaceThreadTabs).toEqual({ version: 0, byWorkspaceKey: {} });
     expect(settings.workspaceSidebar).toEqual({
+      version: 0,
       namesByWorkspaceKey: {},
       pinnedWorkspaceKeys: [],
       archivedWorkspaceKeys: [],
@@ -564,38 +565,48 @@ describe("ClientSettings workspace state", () => {
   it("keeps open chats in tab order, per workspace", () => {
     const decoded = decodeClientSettings({
       workspaceThreadTabs: {
-        "env-1:project-1": [
-          { environmentId: "env-1", threadId: "thread-b" },
-          { environmentId: "env-1", threadId: "thread-a" },
-        ],
+        version: 3,
+        byWorkspaceKey: {
+          "env-1:project-1": [
+            { environmentId: "env-1", threadId: "thread-b" },
+            { environmentId: "env-1", threadId: "thread-a" },
+          ],
+        },
       },
     });
 
-    expect(decoded.workspaceThreadTabs["env-1:project-1"]?.map((tab) => tab.threadId)).toEqual([
-      "thread-b",
-      "thread-a",
-    ]);
+    expect(decoded.workspaceThreadTabs.version).toBe(3);
+    expect(
+      decoded.workspaceThreadTabs.byWorkspaceKey["env-1:project-1"]?.map((tab) => tab.threadId),
+    ).toEqual(["thread-b", "thread-a"]);
   });
 
   it("rejects a tab with no thread behind it", () => {
     expect(() =>
       decodeClientSettingsPatch({
-        workspaceThreadTabs: { "env-1:project-1": [{ environmentId: "env-1", threadId: "" }] },
+        workspaceThreadTabs: {
+          version: 1,
+          byWorkspaceKey: { "env-1:project-1": [{ environmentId: "env-1", threadId: "" }] },
+        },
       }),
     ).toThrow();
   });
 
   it("accepts patches for both workspace slices", () => {
     const patch = decodeClientSettingsPatch({
-      workspaceThreadTabs: { w: [{ environmentId: "env-1", threadId: "thread-a" }] },
+      workspaceThreadTabs: {
+        version: 2,
+        byWorkspaceKey: { w: [{ environmentId: "env-1", threadId: "thread-a" }] },
+      },
       workspaceSidebar: {
+        version: 2,
         namesByWorkspaceKey: { w: "Review queue" },
         pinnedWorkspaceKeys: ["w"],
         archivedWorkspaceKeys: [],
       },
     });
 
-    expect(patch.workspaceThreadTabs?.w?.[0]?.threadId).toBe("thread-a");
+    expect(patch.workspaceThreadTabs?.byWorkspaceKey.w?.[0]?.threadId).toBe("thread-a");
     expect(patch.workspaceSidebar?.pinnedWorkspaceKeys).toEqual(["w"]);
   });
 

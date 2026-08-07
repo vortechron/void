@@ -28,6 +28,10 @@ import {
   type VcsStatusLocalResult,
   type VcsStatusRemoteResult,
   type VcsStatusResult,
+  type VcsHistoryActionInput,
+  type VcsHistoryActionResult,
+  type VcsListStashesInput,
+  type VcsListStashesResult,
 } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
@@ -96,6 +100,12 @@ export class GitWorkflowService extends Context.Service<
       readonly oldBranch: string;
       readonly newBranch: string;
     }) => Effect.Effect<{ readonly branch: string }, GitManagerServiceError>;
+    readonly runHistoryAction: (
+      input: VcsHistoryActionInput,
+    ) => Effect.Effect<VcsHistoryActionResult, GitCommandError>;
+    readonly listStashes: (
+      input: VcsListStashesInput,
+    ) => Effect.Effect<VcsListStashesResult, GitCommandError>;
   }
 >()("t3/git/GitWorkflowService") {}
 
@@ -344,6 +354,14 @@ export const make = Effect.gen(function* () {
     renameBranch: (input) =>
       ensureGit("GitWorkflowService.renameBranch", input.cwd).pipe(
         Effect.andThen(git.renameBranch(input)),
+      ),
+    runHistoryAction: (input) =>
+      ensureGitCommand("GitWorkflowService.runHistoryAction", input.cwd).pipe(
+        Effect.andThen(Effect.scoped(git.runHistoryAction(input))),
+      ),
+    listStashes: (input) =>
+      ensureGitCommand("GitWorkflowService.listStashes", input.cwd).pipe(
+        Effect.andThen(Effect.scoped(git.listStashes(input))),
       ),
   });
 });

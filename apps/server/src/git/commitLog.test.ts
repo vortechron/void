@@ -1,8 +1,11 @@
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
+import type { VcsCommit } from "@t3tools/contracts";
+
 import {
   COMMIT_LOG_FIELD_SEPARATOR as SEP,
+  decorateStashCommits,
   parseCommitDecorations,
   parseCommitLog,
 } from "./commitLog.ts";
@@ -122,5 +125,54 @@ describe("parseCommitLog", () => {
     );
 
     expect(parsed.commits.map((commit) => commit.sha)).toEqual(["abc123"]);
+  });
+});
+
+describe("decorateStashCommits", () => {
+  const stashCommit = {
+    sha: "stash1",
+    shortSha: "stash1",
+    parents: ["base1", "index1", "untracked1"],
+    subject: "WIP on main",
+    authorName: "Ada Lovelace",
+    authoredAt: DateTime.makeUnsafe(0),
+    refs: [],
+  };
+  const plain = (sha: string, refs: VcsCommit["refs"] = []) => ({
+    ...stashCommit,
+    sha,
+    shortSha: sha,
+    parents: [],
+    refs,
+  });
+
+  it("leaves the list untouched when there are no stashes", () => {
+    const commits = [plain("abc")];
+    expect(decorateStashCommits(commits, new Map())).toBe(commits);
+  });
+
+  it("badges the stash and re-parents it onto the commit it was taken from", () => {
+    const [decorated] = decorateStashCommits([stashCommit], new Map([["stash1", "stash@{0}"]]));
+
+    expect(decorated?.parents).toEqual(["base1"]);
+    expect(decorated?.refs).toEqual([{ name: "stash@{0}", kind: "stash", isCurrent: false }]);
+  });
+
+  it("drops the index and untracked snapshot commits from the graph", () => {
+    const decorated = decorateStashCommits(
+      [stashCommit, plain("index1"), plain("untracked1"), plain("base1")],
+      new Map([["stash1", "stash@{0}"]]),
+    );
+
+    expect(decorated.map((commit) => commit.sha)).toEqual(["stash1", "base1"]);
+  });
+
+  it("keeps a snapshot commit that carries a ref, since it is a real commit too", () => {
+    const decorated = decorateStashCommits(
+      [stashCommit, plain("index1", [{ name: "main", kind: "local", isCurrent: true }])],
+      new Map([["stash1", "stash@{0}"]]),
+    );
+
+    expect(decorated.map((commit) => commit.sha)).toEqual(["stash1", "index1"]);
   });
 });

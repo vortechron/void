@@ -90,7 +90,7 @@ export type VcsRef = typeof VcsRef.Type;
  * how `git log --format=%D` labels the ref, so the UI can badge locals,
  * remotes, and tags differently without re-parsing anything.
  */
-export const VcsCommitRefKind = Schema.Literals(["head", "local", "remote", "tag"]);
+export const VcsCommitRefKind = Schema.Literals(["head", "local", "remote", "tag", "stash"]);
 export type VcsCommitRefKind = typeof VcsCommitRefKind.Type;
 
 export const VcsCommitRef = Schema.Struct({
@@ -172,6 +172,8 @@ export const VcsListCommitsInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   refName: Schema.optional(TrimmedNonEmptyStringSchema),
   includeRemotes: Schema.optional(Schema.Boolean),
+  /** Weaves `stash@{n}` commits into the graph so they can be acted on there. */
+  includeStashes: Schema.optional(Schema.Boolean),
   cursor: Schema.optional(NonNegativeInt),
   limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_COMMITS_MAX_LIMIT))),
 });

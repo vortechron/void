@@ -13,11 +13,16 @@ interface WorkspaceSidebarState {
   readonly namesByWorkspaceKey: Readonly<Record<string, string>>;
   readonly pinnedWorkspaceKeys: readonly string[];
   readonly archivedWorkspaceKeys: readonly string[];
+  /** Orders this device's labelling against the other devices'. See
+      `WorkspaceSyncVersion`. */
+  readonly syncVersion: number;
   renameWorkspace: (workspaceKey: string, name: string) => void;
   toggleWorkspacePinned: (workspaceKey: string) => void;
   toggleWorkspaceArchived: (workspaceKey: string) => void;
-  /** Adopt the labelling another device published. */
+  /** Adopt the labelling another device published, and its ordering. */
   applyRemoteSidebar: (remote: WorkspaceSidebarSettings) => void;
+  /** Claim a version for a change made here, before publishing it. */
+  stampSyncVersion: (version: number) => void;
 }
 
 /** The whole store travels: a rename, a pin and an archive are opinions about
@@ -27,10 +32,11 @@ export type SyncableWorkspaceSidebar = WorkspaceSidebarSettings;
 export function selectSyncableWorkspaceSidebar(
   state: Pick<
     WorkspaceSidebarState,
-    "namesByWorkspaceKey" | "pinnedWorkspaceKeys" | "archivedWorkspaceKeys"
+    "namesByWorkspaceKey" | "pinnedWorkspaceKeys" | "archivedWorkspaceKeys" | "syncVersion"
   >,
 ): SyncableWorkspaceSidebar {
   return {
+    version: state.syncVersion,
     namesByWorkspaceKey: state.namesByWorkspaceKey,
     pinnedWorkspaceKeys: state.pinnedWorkspaceKeys,
     archivedWorkspaceKeys: state.archivedWorkspaceKeys,
@@ -60,10 +66,11 @@ function nameMapsEqual(
 export function applyRemoteWorkspaceSidebar<
   State extends Pick<
     WorkspaceSidebarState,
-    "namesByWorkspaceKey" | "pinnedWorkspaceKeys" | "archivedWorkspaceKeys"
+    "namesByWorkspaceKey" | "pinnedWorkspaceKeys" | "archivedWorkspaceKeys" | "syncVersion"
   >,
 >(state: State, remote: SyncableWorkspaceSidebar): State {
   if (
+    state.syncVersion === remote.version &&
     nameMapsEqual(state.namesByWorkspaceKey, remote.namesByWorkspaceKey) &&
     keyListsEqual(state.pinnedWorkspaceKeys, remote.pinnedWorkspaceKeys) &&
     keyListsEqual(state.archivedWorkspaceKeys, remote.archivedWorkspaceKeys)
@@ -75,6 +82,7 @@ export function applyRemoteWorkspaceSidebar<
     namesByWorkspaceKey: { ...remote.namesByWorkspaceKey },
     pinnedWorkspaceKeys: [...remote.pinnedWorkspaceKeys],
     archivedWorkspaceKeys: [...remote.archivedWorkspaceKeys],
+    syncVersion: remote.version,
   };
 }
 
@@ -111,6 +119,7 @@ export const useWorkspaceSidebarStore = create<WorkspaceSidebarState>()(
       namesByWorkspaceKey: {},
       pinnedWorkspaceKeys: [],
       archivedWorkspaceKeys: [],
+      syncVersion: 0,
       renameWorkspace: (workspaceKey, name) => {
         const trimmedName = name.trim();
         if (!trimmedName) return;
@@ -142,6 +151,8 @@ export const useWorkspaceSidebarStore = create<WorkspaceSidebarState>()(
           };
         }),
       applyRemoteSidebar: (remote) => set((state) => applyRemoteWorkspaceSidebar(state, remote)),
+      stampSyncVersion: (version) =>
+        set((state) => (state.syncVersion === version ? state : { syncVersion: version })),
     }),
     {
       name: WORKSPACE_SIDEBAR_STORAGE_KEY,
@@ -153,6 +164,7 @@ export const useWorkspaceSidebarStore = create<WorkspaceSidebarState>()(
         namesByWorkspaceKey: state.namesByWorkspaceKey,
         pinnedWorkspaceKeys: state.pinnedWorkspaceKeys,
         archivedWorkspaceKeys: state.archivedWorkspaceKeys,
+        syncVersion: state.syncVersion,
       }),
     },
   ),

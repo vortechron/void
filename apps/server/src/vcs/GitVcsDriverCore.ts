@@ -32,7 +32,8 @@ import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
-import { COMMIT_LOG_FORMAT, parseCommitLog } from "../git/commitLog.ts";
+import { makeGitHistoryActions } from "./GitHistoryActions.ts";
+import { COMMIT_LOG_FORMAT, decorateStashCommits, parseCommitLog } from "../git/commitLog.ts";
 import {
   parseRemoteNames,
   parseRemoteNamesInGitOrder,
@@ -2829,12 +2830,24 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
       const limit = input.limit ?? GIT_LIST_COMMITS_DEFAULT_LIMIT;
       const cursor = input.cursor ?? 0;
+
+      // Stash commits are not reachable from any branch, so they only enter the
+      // walk when their SHAs are named explicitly.
+      const stashes = input.includeStashes
+        ? yield* historyActions.listStashes({ cwd: input.cwd }).pipe(
+            Effect.map((result) => result.stashes),
+            Effect.orElseSucceed(() => []),
+          )
+        : [];
+      const stashRefBySha = new Map(stashes.map((stash) => [stash.sha, stash.ref]));
+
       // One extra row tells us whether another page exists without a count pass.
-      const selector = input.refName
+      const baseSelector = input.refName
         ? [input.refName]
         : input.includeRemotes
           ? ["HEAD", "--branches", "--tags", "--remotes"]
           : ["HEAD", "--branches", "--tags"];
+      const selector = [...baseSelector, ...stashes.map((stash) => stash.sha)];
 
       const [logResult, remoteNames] = yield* Effect.all(
         [
@@ -2871,8 +2884,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             )
           : { commits: [], headRefName: null };
 
-      const hasMore = parsed.commits.length > limit;
-      const commits = hasMore ? parsed.commits.slice(0, limit) : parsed.commits;
+      const decorated = decorateStashCommits(parsed.commits, stashRefBySha);
+      const hasMore = decorated.length > limit;
+      const commits = hasMore ? decorated.slice(0, limit) : decorated;
       const headSha = yield* runGitStdout(
         "GitVcsDriver.listCommits.head",
         input.cwd,
@@ -3184,6 +3198,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }),
     );
 
+  const historyActions = makeGitHistoryActions({
+    runGit: (operation, cwd, args, options) => executeGit(operation, cwd, args, options ?? {}),
+    resolvePrimaryRemoteName,
+  });
+
   const withListRefsInvalidation = <A, E>(
     cwd: string,
     effect: Effect.Effect<A, E>,
@@ -3245,5 +3264,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     switchRef: (input) => withListRefsInvalidation(input.cwd, switchRef(input)),
     initRepo: initRepoWithListRefsInvalidation,
     listLocalBranchNames,
+    // Any of these can move a ref, so the snapshot is always invalidated —
+    // including on failure, where a partial step may still have landed.
+    runHistoryAction: (input) =>
+      withListRefsInvalidation(input.cwd, historyActions.runHistoryAction(input)),
+    listStashes: historyActions.listStashes,
   });
 });
