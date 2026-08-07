@@ -2,11 +2,17 @@
  * Shared decision logic for the client stores that mirror themselves into
  * server-owned client settings.
  *
- * These stores (open chat tabs, workspace labelling, unsent prompts) were
- * browser-local, which meant a second device — a phone on the tailnet, the
- * same server reached by another hostname — started empty and stayed empty.
- * The server is the one thing every device shares, so it holds the value and
- * each device converges on it.
+ * These stores (open chat tabs, workspace labelling) were browser-local, which
+ * meant a second device — a phone on the tailnet, the same server reached by
+ * another hostname — started empty and stayed empty. The server is the one
+ * thing every device shares, so it holds the value and each device converges
+ * on it.
+ *
+ * Convergence is decided by a counter, never by content. Content cannot decide
+ * it: an empty set is both "I just closed everything" and "I have not synced
+ * yet", and reading it the second way is what makes closed tabs come back.
+ * Every local change claims `max(versions seen) + 1`, so the later edit always
+ * wins and no device has to trust another's clock.
  */
 
 /** Key order in a `Record` is incidental, so compare a sorted rendering. */
@@ -29,40 +35,40 @@ export function serializeSyncedValue(value: unknown): string {
 }
 
 export type SettingsSyncAction =
-  /** Nothing to do: the two sides already agree, or settings have not landed. */
+  /** The two sides agree, or settings have not landed yet. */
   | "idle"
-  /** Publish what this device already had. Only ever the first exchange. */
-  | "adopt-local"
-  /** Take the remote value, including removals. */
+  /** This device holds the later edit; publish it. */
+  | "publish-local"
+  /** The server holds the later edit; take it, removals included. */
   | "apply-remote";
 
 /**
  * Which way the next exchange should move.
  *
- * `agreedSerialized` is the last value both sides were known to hold. A remote
- * value that still matches it carries no news — that is what stops an echo of
- * this device's own write from being re-applied — and a local value that
- * differs from it is an unpublished local edit.
- *
- * The one asymmetry is the first exchange: a server that has never stored this
- * value must not be read as "everything was closed elsewhere" and wipe the
- * tabs, names and drafts this browser has been holding on its own. It adopts
- * them instead. After that the remote value wins in both directions, so
- * closing the last tab on one device closes it on the others.
+ * Equal versions with different content is the first exchange: a browser
+ * carrying tabs from before syncing existed (version 0) against a server that
+ * has never stored any (also version 0). The non-empty side wins there, which
+ * is what lifts an existing strip onto the server instead of wiping it. Every
+ * exchange after that is ordered by the counter alone.
  */
 export function resolveSettingsSyncAction(input: {
   readonly hydrated: boolean;
-  readonly remoteSerialized: string;
-  readonly localSerialized: string;
-  readonly agreedSerialized: string | null;
-  readonly remoteIsEmpty: boolean;
+  readonly remoteVersion: number;
+  readonly localVersion: number;
+  readonly sameContent: boolean;
   readonly localIsEmpty: boolean;
 }): SettingsSyncAction {
   if (!input.hydrated) return "idle";
-  if (input.remoteSerialized === input.agreedSerialized) return "idle";
-  if (input.agreedSerialized === null && input.remoteIsEmpty && !input.localIsEmpty) {
-    return "adopt-local";
-  }
-  if (input.remoteSerialized === input.localSerialized) return "idle";
-  return "apply-remote";
+  if (input.sameContent) return "idle";
+  if (input.remoteVersion > input.localVersion) return "apply-remote";
+  if (input.localVersion > input.remoteVersion) return "publish-local";
+  return input.localIsEmpty ? "apply-remote" : "publish-local";
+}
+
+/** The version a local change claims: past everything either side has seen. */
+export function nextSyncVersion(input: {
+  readonly localVersion: number;
+  readonly remoteVersion: number;
+}): number {
+  return Math.max(input.localVersion, input.remoteVersion) + 1;
 }

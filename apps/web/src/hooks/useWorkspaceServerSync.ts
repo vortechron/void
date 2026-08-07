@@ -7,10 +7,10 @@
  * chats are open* lived in each browser's localStorage, so on the laptop the
  * chat was only reachable through the workspace's chat history menu.
  *
- * Same shape as `useThemeServerSync`: the server owns the value, each device
- * converges on it, and a value that has not changed since the last agreement
- * carries no news — which is what keeps a device from re-applying the echo of
- * its own write.
+ * Each mirrored value carries a version (see `WorkspaceSyncVersion`). A local
+ * change claims the next one the moment it happens — before the debounced
+ * publish, so a reload or a remount in that window still knows this device
+ * holds the later edit. Everything else follows from comparing versions.
  *
  * Only values that survive being re-applied belong here. An open tab does: the
  * worst a stale one can do is reopen a chat that was closed a moment ago.
@@ -19,7 +19,11 @@
  */
 import { useCallback, useEffect, useRef } from "react";
 
-import { resolveSettingsSyncAction, serializeSyncedValue } from "../lib/settingsSync";
+import {
+  nextSyncVersion,
+  resolveSettingsSyncAction,
+  serializeSyncedValue,
+} from "../lib/settingsSync";
 import { selectSyncableWorkspaceThreadTabs, useThreadTabsStore } from "../threadTabsStore";
 import { selectSyncableWorkspaceSidebar, useWorkspaceSidebarStore } from "../workspaceSidebarStore";
 import {
@@ -31,50 +35,69 @@ import {
 /** Tab and label changes are discrete user actions, so they can travel fast. */
 const WORKSPACE_SYNC_DEBOUNCE_MS = 400;
 
-interface SettingsMirror<Value> {
+/** A mirrored value: the payload plus the counter that orders it. */
+interface VersionedValue {
+  readonly version: number;
+}
+
+interface SettingsMirror<Value extends VersionedValue> {
   /** The value as the server currently holds it. */
   readonly remote: Value;
   /** The syncable projection of the local store. */
   readonly readLocal: () => Value;
   readonly subscribe: (listener: () => void) => () => void;
   readonly applyRemote: (remote: Value) => void;
+  /** Record a version for a local change, before it is published. */
+  readonly stampVersion: (version: number) => void;
   readonly publish: (local: Value) => void;
   readonly isEmpty: (value: Value) => boolean;
   readonly debounceMs: number;
 }
 
-function useSettingsMirror<Value>(mirror: SettingsMirror<Value>): void {
+/** Compare payloads only: the version is the ordering, not the content. */
+function serializeContent<Value extends VersionedValue>(value: Value): string {
+  const { version: _version, ...content } = value;
+  return serializeSyncedValue(content);
+}
+
+function useSettingsMirror<Value extends VersionedValue>(mirror: SettingsMirror<Value>): void {
   const hydrated = useClientSettingsHydrated();
-  /** The last value both sides were known to hold. */
-  const agreed = useRef<string | null>(null);
   const latest = useRef(mirror);
   latest.current = mirror;
+  /** Local content as of the last time this hook looked, to tell a real local
+      change apart from a re-render or an echo of the server's own value. */
+  const lastLocalContent = useRef<string | null>(null);
 
   useEffect(() => {
-    const { remote, readLocal, applyRemote, publish, isEmpty } = latest.current;
+    const { remote, readLocal, applyRemote, publish, stampVersion, isEmpty } = latest.current;
     const local = readLocal();
-    const remoteSerialized = serializeSyncedValue(remote);
+    const localContent = serializeContent(local);
     const action = resolveSettingsSyncAction({
       hydrated,
-      remoteSerialized,
-      localSerialized: serializeSyncedValue(local),
-      agreedSerialized: agreed.current,
-      remoteIsEmpty: isEmpty(remote),
+      remoteVersion: remote.version,
+      localVersion: local.version,
+      sameContent: localContent === serializeContent(remote),
       localIsEmpty: isEmpty(local),
     });
 
     switch (action) {
       case "idle":
-        if (hydrated) agreed.current = remoteSerialized;
-        return;
-      case "adopt-local":
-        agreed.current = serializeSyncedValue(local);
-        publish(local);
+        lastLocalContent.current = localContent;
         return;
       case "apply-remote":
         applyRemote(remote);
-        agreed.current = remoteSerialized;
+        lastLocalContent.current = serializeContent(remote);
         return;
+      case "publish-local": {
+        const version = nextSyncVersion({
+          localVersion: local.version,
+          remoteVersion: remote.version,
+        });
+        stampVersion(version);
+        lastLocalContent.current = localContent;
+        publish({ ...local, version });
+        return;
+      }
     }
   }, [hydrated, mirror.remote]);
 
@@ -82,20 +105,38 @@ function useSettingsMirror<Value>(mirror: SettingsMirror<Value>): void {
     if (!hydrated) return;
     let timer: number | null = null;
 
-    const flush = () => {
+    const publishLocal = () => {
       timer = null;
       const local = latest.current.readLocal();
-      const serialized = serializeSyncedValue(local);
-      // Equal to the agreement means this change came from the server (or
-      // undid itself) — publishing it would only bounce back.
-      if (serialized === agreed.current) return;
-      agreed.current = serialized;
+      const remote = latest.current.remote;
+      if (serializeContent(local) === serializeContent(remote)) {
+        // Nothing to say after all: a change that undid itself, or one the
+        // server already had. Give the claimed version back, or a later edit
+        // from another device would lose to an edit that never happened.
+        latest.current.stampVersion(remote.version);
+        return;
+      }
       latest.current.publish(local);
     };
 
     const unsubscribe = latest.current.subscribe(() => {
+      const local = latest.current.readLocal();
+      const localContent = serializeContent(local);
+      if (localContent === lastLocalContent.current) return;
+      lastLocalContent.current = localContent;
+
+      // Claim the version now rather than at publish time: a reload, a remount
+      // or an incoming remote value inside the debounce window must already
+      // see that this device holds the later edit. Otherwise closing every tab
+      // loses to the pre-close set that is still sitting on the server.
+      const version = nextSyncVersion({
+        localVersion: local.version,
+        remoteVersion: latest.current.remote.version,
+      });
+      latest.current.stampVersion(version);
+
       if (timer !== null) window.clearTimeout(timer);
-      timer = window.setTimeout(flush, latest.current.debounceMs);
+      timer = window.setTimeout(publishLocal, latest.current.debounceMs);
     });
 
     return () => {
@@ -119,11 +160,17 @@ function useThreadTabsServerSync(): void {
     applyRemote: useCallback((value: typeof remote) => {
       useThreadTabsStore.getState().applyRemoteTabs(value);
     }, []),
+    stampVersion: useCallback((version: number) => {
+      useThreadTabsStore.getState().stampSyncVersion(version);
+    }, []),
     publish: useCallback(
       (value: typeof remote) => updateClientSettings({ workspaceThreadTabs: value }),
       [updateClientSettings],
     ),
-    isEmpty: useCallback((value: typeof remote) => Object.keys(value).length === 0, []),
+    isEmpty: useCallback(
+      (value: typeof remote) => Object.keys(value.byWorkspaceKey).length === 0,
+      [],
+    ),
     debounceMs: WORKSPACE_SYNC_DEBOUNCE_MS,
   });
 }
@@ -144,6 +191,9 @@ function useWorkspaceSidebarServerSync(): void {
     ),
     applyRemote: useCallback((value: typeof remote) => {
       useWorkspaceSidebarStore.getState().applyRemoteSidebar(value);
+    }, []),
+    stampVersion: useCallback((version: number) => {
+      useWorkspaceSidebarStore.getState().stampSyncVersion(version);
     }, []),
     publish: useCallback(
       (value: typeof remote) => updateClientSettings({ workspaceSidebar: value }),

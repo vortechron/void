@@ -30,12 +30,20 @@ export interface ThreadTabsState {
 export interface WorkspaceThreadTabsState {
   readonly byWorkspaceKey: Readonly<Record<string, ThreadTabsState>>;
   readonly activeWorkspaceKey: string | null;
+  /**
+   * Orders this device's open set against the other devices'. Bumped past
+   * every version seen whenever the tabs change here, so "I just closed
+   * everything" always outranks an older set — see `WorkspaceSyncVersion`.
+   * Persisted, because the ordering has to survive a reload.
+   */
+  readonly syncVersion: number;
 }
 
 export const EMPTY_THREAD_TABS_STATE: ThreadTabsState = { tabs: [], activeKey: null };
 export const EMPTY_WORKSPACE_THREAD_TABS_STATE: WorkspaceThreadTabsState = {
   byWorkspaceKey: {},
   activeWorkspaceKey: null,
+  syncVersion: 0,
 };
 
 export function threadTabKey(ref: ScopedThreadRef): string {
@@ -158,12 +166,12 @@ export function selectWorkspaceThreadTabs(
  * tab left behind in the old checkout would send that workspace's row straight
  * back to the chat that left it.
  */
-export function openWorkspaceThreadTab(
-  state: WorkspaceThreadTabsState,
+export function openWorkspaceThreadTab<State extends WorkspaceThreadTabsState>(
+  state: State,
   workspaceKey: string,
   ref: ScopedThreadRef,
   draftId: DraftId | null,
-): WorkspaceThreadTabsState {
+): State {
   const key = threadTabKey(ref);
   const opened = openThreadTab(selectWorkspaceThreadTabs(state, workspaceKey), ref, draftId);
   const others = Object.entries(state.byWorkspaceKey).flatMap(([candidateKey, tabs]) =>
@@ -175,6 +183,7 @@ export function openWorkspaceThreadTab(
     others.every(([candidateKey, tabs]) => state.byWorkspaceKey[candidateKey] === tabs);
   if (unchanged) return state;
   return {
+    ...state,
     byWorkspaceKey: { ...Object.fromEntries(others), [workspaceKey]: opened },
     activeWorkspaceKey: workspaceKey,
   };
@@ -191,15 +200,18 @@ export function openWorkspaceThreadTab(
  */
 export function selectSyncableWorkspaceThreadTabs(
   state: WorkspaceThreadTabsState,
-): Record<string, WorkspaceThreadTab[]> {
-  return Object.fromEntries(
-    Object.entries(state.byWorkspaceKey).flatMap(([workspaceKey, tabs]) => {
-      const shared = tabs.tabs
-        .filter((tab) => tab.draftId === null)
-        .map((tab) => ({ environmentId: tab.environmentId, threadId: tab.threadId }));
-      return shared.length > 0 ? [[workspaceKey, shared] as const] : [];
-    }),
-  );
+): WorkspaceThreadTabsSettings {
+  return {
+    version: state.syncVersion,
+    byWorkspaceKey: Object.fromEntries(
+      Object.entries(state.byWorkspaceKey).flatMap(([workspaceKey, tabs]) => {
+        const shared: WorkspaceThreadTab[] = tabs.tabs
+          .filter((tab) => tab.draftId === null)
+          .map((tab) => ({ environmentId: tab.environmentId, threadId: tab.threadId }));
+        return shared.length > 0 ? [[workspaceKey, shared] as const] : [];
+      }),
+    ),
+  };
 }
 
 function remoteTabsForWorkspace(
@@ -255,18 +267,21 @@ function tabListsEqual(left: readonly ThreadTab[], right: readonly ThreadTab[]):
  * laptop close on the phone. The active tab is resolved locally: it is the
  * one thing about the strip that is per-device.
  */
-export function applyRemoteWorkspaceThreadTabs(
-  state: WorkspaceThreadTabsState,
+export function applyRemoteWorkspaceThreadTabs<State extends WorkspaceThreadTabsState>(
+  state: State,
   remote: WorkspaceThreadTabsSettings,
-): WorkspaceThreadTabsState {
-  const workspaceKeys = new Set([...Object.keys(state.byWorkspaceKey), ...Object.keys(remote)]);
+): State {
+  const workspaceKeys = new Set([
+    ...Object.keys(state.byWorkspaceKey),
+    ...Object.keys(remote.byWorkspaceKey),
+  ]);
   const next: Record<string, ThreadTabsState> = {};
-  let changed = false;
+  let changed = state.syncVersion !== remote.version;
 
   for (const workspaceKey of workspaceKeys) {
     const known = workspaceKey in state.byWorkspaceKey;
     const current = selectWorkspaceThreadTabs(state, workspaceKey);
-    const tabs = remoteTabsForWorkspace(current, remote[workspaceKey] ?? []);
+    const tabs = remoteTabsForWorkspace(current, remote.byWorkspaceKey[workspaceKey] ?? []);
     // A remote workspace this device has never opened and has nothing open in
     // adds no information — recording it would just grow the stored map.
     if (!known && tabs.length === 0) continue;
@@ -281,7 +296,7 @@ export function applyRemoteWorkspaceThreadTabs(
     next[workspaceKey] = { tabs, activeKey };
   }
 
-  return changed ? { ...state, byWorkspaceKey: next } : state;
+  return changed ? { ...state, byWorkspaceKey: next, syncVersion: remote.version } : state;
 }
 
 interface ThreadTabsStore extends WorkspaceThreadTabsState {
@@ -292,8 +307,10 @@ interface ThreadTabsStore extends WorkspaceThreadTabsState {
   closeAll: (workspaceKey: string) => void;
   moveTab: (workspaceKey: string, key: string, toIndex: number) => void;
   reconcile: (workspaceKey: string, liveKeys: ReadonlySet<string>) => void;
-  /** Adopt the open set published by another device. */
+  /** Adopt the open set published by another device, and its ordering. */
   applyRemoteTabs: (remote: WorkspaceThreadTabsSettings) => void;
+  /** Claim a version for a change made here, before publishing it. */
+  stampSyncVersion: (version: number) => void;
 }
 
 function updateWorkspace(
@@ -317,6 +334,7 @@ export const useThreadTabsStore = create<ThreadTabsStore>()(
     (set) => ({
       byWorkspaceKey: {},
       activeWorkspaceKey: null,
+      syncVersion: 0,
       openTab: (workspaceKey, ref, draftId) =>
         set((state) => openWorkspaceThreadTab(state, workspaceKey, ref, draftId)),
       closeTab: (workspaceKey, key) =>
@@ -345,6 +363,8 @@ export const useThreadTabsStore = create<ThreadTabsStore>()(
           updateWorkspace(state, workspaceKey, (tabs) => reconcileThreadTabs(tabs, liveKeys)),
         ),
       applyRemoteTabs: (remote) => set((state) => applyRemoteWorkspaceThreadTabs(state, remote)),
+      stampSyncVersion: (version) =>
+        set((state) => (state.syncVersion === version ? state : { syncVersion: version })),
     }),
     {
       name: THREAD_TABS_STORAGE_KEY,
@@ -355,6 +375,7 @@ export const useThreadTabsStore = create<ThreadTabsStore>()(
       partialize: (state) => ({
         byWorkspaceKey: state.byWorkspaceKey,
         activeWorkspaceKey: state.activeWorkspaceKey,
+        syncVersion: state.syncVersion,
       }),
       migrate: migratePersistedThreadTabs,
     },
@@ -411,5 +432,13 @@ export function migratePersistedThreadTabs(persistedState: unknown): WorkspaceTh
       typeof raw.activeWorkspaceKey === "string" && raw.byWorkspaceKey[raw.activeWorkspaceKey]
         ? raw.activeWorkspaceKey
         : null,
+    // A strip persisted before syncing existed has never been published, so
+    // it starts at zero and hands itself over on first contact.
+    syncVersion:
+      typeof raw.syncVersion === "number" &&
+      Number.isInteger(raw.syncVersion) &&
+      raw.syncVersion > 0
+        ? raw.syncVersion
+        : 0,
   };
 }

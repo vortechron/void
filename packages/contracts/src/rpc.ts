@@ -47,6 +47,12 @@ import {
   VcsStatusStreamEvent,
 } from "./git.ts";
 import {
+  VcsHistoryActionInput,
+  VcsHistoryActionResult,
+  VcsListStashesInput,
+  VcsListStashesResult,
+} from "./vcsHistoryAction.ts";
+import {
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
   ReviewDiffPreviewError,
@@ -195,6 +201,8 @@ export const WS_METHODS = {
   vcsRemoveWorktree: "vcs.removeWorktree",
   vcsCreateRef: "vcs.createRef",
   vcsSwitchRef: "vcs.switchRef",
+  vcsRunHistoryAction: "vcs.runHistoryAction",
+  vcsListStashes: "vcs.listStashes",
   vcsInit: "vcs.init",
 
   // Git workflow methods
@@ -565,6 +573,23 @@ export const WsVcsSwitchRefRpc = Rpc.make(WS_METHODS.vcsSwitchRef, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+/**
+ * Every mutating commit-graph menu entry. The result union carries refusals and
+ * rolled-back conflicts as successes, so only genuine Git failures surface as
+ * errors.
+ */
+export const WsVcsRunHistoryActionRpc = Rpc.make(WS_METHODS.vcsRunHistoryAction, {
+  payload: VcsHistoryActionInput,
+  success: VcsHistoryActionResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsListStashesRpc = Rpc.make(WS_METHODS.vcsListStashes, {
+  payload: VcsListStashesInput,
+  success: VcsListStashesResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   payload: VcsInitInput,
   error: Schema.Union([VcsError, EnvironmentAuthorizationError]),
@@ -866,6 +891,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsRemoveWorktreeRpc,
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
+  WsVcsRunHistoryActionRpc,
+  WsVcsListStashesRpc,
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,

@@ -128,6 +128,45 @@ function parseCommitLine(
 }
 
 /**
+ * Turns the raw stash commits `git log` returns into single graph nodes.
+ *
+ * A stash is a merge commit: parent 1 is the commit it was taken from, parent 2
+ * is the index snapshot and parent 3 the untracked snapshot. Those snapshots
+ * are implementation detail, so they are dropped from the walk and the stash is
+ * re-parented onto its base — which is how it reads in Fork and Git Graph.
+ */
+export function decorateStashCommits(
+  commits: ReadonlyArray<VcsCommit>,
+  stashRefBySha: ReadonlyMap<string, string>,
+): ReadonlyArray<VcsCommit> {
+  if (stashRefBySha.size === 0) return commits;
+
+  const snapshotShas = new Set<string>();
+  for (const commit of commits) {
+    if (!stashRefBySha.has(commit.sha)) continue;
+    for (const parent of commit.parents.slice(1)) snapshotShas.add(parent);
+  }
+
+  const decorated: Array<VcsCommit> = [];
+  for (const commit of commits) {
+    const stashRef = stashRefBySha.get(commit.sha);
+    if (stashRef !== undefined) {
+      decorated.push({
+        ...commit,
+        parents: commit.parents.slice(0, 1),
+        refs: [...commit.refs, { name: stashRef, kind: "stash", isCurrent: false }],
+      });
+      continue;
+    }
+    // A snapshot carrying a ref is a real commit that happens to be shared, so
+    // it stays; an undecorated one only exists to hold the stash.
+    if (snapshotShas.has(commit.sha) && commit.refs.length === 0) continue;
+    decorated.push(commit);
+  }
+  return decorated;
+}
+
+/**
  * Parses the full `git log` payload. Malformed lines are dropped rather than
  * failing the request: a single unreadable record should not blank the graph.
  */

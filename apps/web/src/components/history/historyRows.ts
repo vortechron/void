@@ -74,6 +74,7 @@ const REF_SORT_WEIGHT: Record<VcsCommitRef["kind"], number> = {
   local: 1,
   remote: 2,
   tag: 3,
+  stash: 4,
 };
 
 export function sortCommitRefs(refs: ReadonlyArray<VcsCommitRef>): ReadonlyArray<VcsCommitRef> {
@@ -125,9 +126,12 @@ export function splitRemoteRefName(ref: VcsCommitRef): {
   return { remote, branch: ref.name.slice(remote.length + 1) };
 }
 
-/** The branch a checkout should target for a badge, or null when it has none. */
+/**
+ * The ref a checkout should target for a badge, or null when it has none.
+ * `HEAD` is already where you are, and a stash is applied rather than checked
+ * out.
+ */
 export function checkoutRefName(ref: VcsCommitRef): string | null {
-  if (ref.kind === "head") return null;
-  if (ref.kind === "tag") return ref.name;
+  if (ref.kind === "head" || ref.kind === "stash") return null;
   return ref.name;
 }

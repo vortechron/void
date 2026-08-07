@@ -303,21 +303,57 @@ export const WorkspaceThreadTab = Schema.Struct({
 export type WorkspaceThreadTab = typeof WorkspaceThreadTab.Type;
 
 /**
+ * Orders one device's edit against another's.
+ *
+ * Every publish carries `max(every version this device has seen) + 1`, so the
+ * later edit always outranks the earlier one without anyone trusting anyone
+ * else's clock. Content alone cannot do this: an empty set is both "I closed
+ * everything just now" and "I have not synced yet", and without a counter the
+ * second reading resurrects the tabs the first one closed.
+ *
+ * `0` means never published, which is what lets a browser that has only ever
+ * had local tabs hand them over on first contact.
+ */
+export const WorkspaceSyncVersion = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+export type WorkspaceSyncVersion = typeof WorkspaceSyncVersion.Type;
+
+const workspaceSyncVersionField = WorkspaceSyncVersion.pipe(
+  Schema.withDecodingDefault(Effect.succeed(0)),
+);
+
+/**
  * Open chats per workspace key, in tab-strip order.
  *
  * Which tab is *active* stays device-local: that is where a person is
  * looking right now, not a shared fact, and syncing it would make one device
  * yank the other's view mid-read.
  */
-export const WorkspaceThreadTabsSettings = Schema.Record(
-  TrimmedNonEmptyString,
-  Schema.Array(WorkspaceThreadTab),
-).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export const WorkspaceThreadTabsSettings = Schema.Struct({
+  version: workspaceSyncVersionField,
+  byWorkspaceKey: Schema.Record(TrimmedNonEmptyString, Schema.Array(WorkspaceThreadTab)).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+});
 export type WorkspaceThreadTabsSettings = typeof WorkspaceThreadTabsSettings.Type;
 
+/**
+ * Stored form of the above. A value written by a build that kept the bare
+ * record must not take the whole settings file down over a tab strip: it reads
+ * as "never published" and the next local change republishes it in the current
+ * shape. The bare schema above stays strict, so a client sending a bogus patch
+ * is still rejected rather than silently reset — same split as
+ * `chatBackgroundEffect`.
+ */
+const storedWorkspaceThreadTabs = WorkspaceThreadTabsSettings.pipe(
+  Schema.catchDecoding(() => Effect.succeed(Option.some({ version: 0, byWorkspaceKey: {} }))),
+  Schema.withDecodingDefault(Effect.succeed({})),
+);
+
 /** Per-workspace sidebar labelling. Renames, pins and archives are opinions
-    about the work, not about the machine, so they travel. */
+    about the work, not about the machine, so they travel — ordered by the
+    same counter, so an unpin cannot be undone by a device that missed it. */
 export const WorkspaceSidebarSettings = Schema.Struct({
+  version: workspaceSyncVersionField,
   namesByWorkspaceKey: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -473,7 +509,7 @@ export const ClientSettingsSchema = Schema.Struct({
   // Patched whole, like `usageMeter`: the syncing client always holds the
   // complete value it is replacing.
   workspaceSidebar: WorkspaceSidebarSettings,
-  workspaceThreadTabs: WorkspaceThreadTabsSettings,
+  workspaceThreadTabs: storedWorkspaceThreadTabs,
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 

@@ -1,10 +1,10 @@
 /**
  * History right-panel surface: the repository's commit graph.
  *
- * The panel is deliberately read-mostly. It answers "what landed, on which
- * branch, by whom", offers checkout and copy from a right-click, and hands the
- * commit off to the diff surface for anything deeper. Mutating branch actions
- * (merge, delete remote, pull into branch) are not here yet.
+ * The panel answers "what landed, on which branch, by whom", hands a commit off
+ * to the diff surface, and is the place branches, commits, tags and stashes are
+ * acted on. What each right-click offers lives in `historyMenu.ts`; running it
+ * and reporting the outcome lives in `useHistoryActions.ts`.
  */
 import { ContextMenu } from "@base-ui/react/context-menu";
 import type { EnvironmentId, VcsCommitRef } from "@t3tools/contracts";
@@ -20,7 +20,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
-import { MenuItem, MenuPopup, MenuSeparator } from "~/components/ui/menu";
+import { MenuPopup } from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import {
   Select,
@@ -33,12 +33,22 @@ import { toastManager } from "~/components/ui/toast";
 
 import { CommitRefBadge } from "./CommitRefBadge";
 import { GRAPH_LANE_WIDTH, GRAPH_ROW_HEIGHT, GitGraphColumn } from "./GitGraphColumn";
-import { buildHistoryView, checkoutRefName, formatCommitDate, sortCommitRefs } from "./historyRows";
+import { HistoryConfirmDialog, HistoryPromptDialog } from "./HistoryActionDialogs";
+import { HistoryContextMenuItems } from "./HistoryContextMenuItems";
+import {
+  type HistoryConfirm,
+  type HistoryMenuAction,
+  type HistoryPrompt,
+  buildHistoryMenu,
+} from "./historyMenu";
+import { buildHistoryView, formatCommitDate, sortCommitRefs } from "./historyRows";
+import { useHistoryActions } from "./useHistoryActions";
 
 const HISTORY_PAGE_SIZE = 100;
 const HISTORY_MAX_COMMITS = 500;
 const BRANCH_LIST_LIMIT = 100;
 const ALL_BRANCHES = "__all__";
+const DEFAULT_REMOTE_NAME = "origin";
 
 export interface GitHistoryCommitTarget {
   readonly sha: string;
@@ -50,6 +60,7 @@ interface ContextTarget {
   readonly commitSha: string | null;
   readonly commitSubject: string | null;
   readonly refValue: VcsCommitRef | null;
+  readonly isPendingRow: boolean;
 }
 
 function readContextTarget(element: HTMLElement | null): ContextTarget {
@@ -60,6 +71,7 @@ function readContextTarget(element: HTMLElement | null): ContextTarget {
   return {
     commitSha: row?.dataset.commitSha ?? null,
     commitSubject: row?.dataset.commitSubject ?? null,
+    isPendingRow: element?.closest("[data-pending-row]") !== null,
     refValue:
       refName && refKind
         ? {
@@ -93,6 +105,8 @@ export function GitHistoryPanel({
   const [limit, setLimit] = useState(HISTORY_PAGE_SIZE);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
   const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<HistoryPrompt | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<HistoryConfirm | null>(null);
 
   const commitsQuery = useEnvironmentQuery(
     vcsEnvironment.listCommits({
@@ -100,6 +114,7 @@ export function GitHistoryPanel({
       input: {
         cwd,
         limit,
+        includeStashes: true,
         ...(refFilter ? { refName: refFilter } : {}),
         ...(includeRemotes ? { includeRemotes: true } : {}),
       },
@@ -127,9 +142,49 @@ export function GitHistoryPanel({
     [cwd, environmentId, refresh, switchRef],
   );
 
+  const { run: runHistoryAction, isRunning } = useHistoryActions({
+    environmentId,
+    cwd,
+    onCompleted: refresh,
+  });
+
   const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     setContextTarget(readContextTarget(event.target as HTMLElement | null));
   }, []);
+
+  const menuGroups = useMemo(
+    () =>
+      contextTarget === null
+        ? []
+        : buildHistoryMenu(contextTarget, {
+            currentRefName: commitsQuery.data?.headRefName ?? null,
+            hasRemote: branchesQuery.data?.hasPrimaryRemote ?? false,
+            defaultRemoteName: DEFAULT_REMOTE_NAME,
+          }),
+    [branchesQuery.data?.hasPrimaryRemote, commitsQuery.data?.headRefName, contextTarget],
+  );
+
+  const selectMenuAction = useCallback(
+    (action: HistoryMenuAction) => {
+      switch (action.kind) {
+        case "run":
+          void runHistoryAction(action.action);
+          return;
+        case "checkout":
+          void checkout(action.refName);
+          return;
+        case "copy":
+          copyOrWarn(action.value, action.label);
+          return;
+        case "prompt":
+          setPendingPrompt(action.prompt);
+          return;
+        case "confirm":
+          setPendingConfirm(action.confirm);
+      }
+    },
+    [checkout, runHistoryAction],
+  );
 
   if (commitsQuery.data && !commitsQuery.data.isRepo) {
     return (
@@ -142,8 +197,6 @@ export function GitHistoryPanel({
       </div>
     );
   }
-
-  const contextRefName = contextTarget?.refValue ? checkoutRefName(contextTarget.refValue) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -181,6 +234,11 @@ export function GitHistoryPanel({
           Show remote branches
         </label>
         <div className="flex-1" />
+        {isRunning ? (
+          <span className="text-xs text-muted-foreground" role="status">
+            Running...
+          </span>
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -217,6 +275,7 @@ export function GitHistoryPanel({
                 return (
                   <div
                     key={row.sha}
+                    data-pending-row
                     className="flex shrink-0 items-center gap-2 px-2 text-xs"
                     style={{ height: GRAPH_ROW_HEIGHT }}
                   >
@@ -302,39 +361,8 @@ export function GitHistoryPanel({
             })}
           </ContextMenu.Trigger>
 
-          <MenuPopup className="min-w-48">
-            {contextRefName ? (
-              <>
-                <MenuItem
-                  disabled={contextTarget?.refValue?.isCurrent === true}
-                  onClick={() => void checkout(contextRefName)}
-                >
-                  Check out {contextRefName}
-                </MenuItem>
-                <MenuItem onClick={() => copyOrWarn(contextRefName, "branch name")}>
-                  Copy branch name
-                </MenuItem>
-                <MenuSeparator />
-              </>
-            ) : null}
-            <MenuItem
-              disabled={!contextTarget?.commitSha}
-              onClick={() => {
-                if (contextTarget?.commitSha) copyOrWarn(contextTarget.commitSha, "commit SHA");
-              }}
-            >
-              Copy commit SHA
-            </MenuItem>
-            <MenuItem
-              disabled={!contextTarget?.commitSubject}
-              onClick={() => {
-                if (contextTarget?.commitSubject) {
-                  copyOrWarn(contextTarget.commitSubject, "commit message");
-                }
-              }}
-            >
-              Copy commit message
-            </MenuItem>
+          <MenuPopup className="min-w-56">
+            <HistoryContextMenuItems groups={menuGroups} onSelect={selectMenuAction} />
           </MenuPopup>
         </ContextMenu.Root>
 
@@ -363,6 +391,21 @@ export function GitHistoryPanel({
           </div>
         ) : null}
       </ScrollArea>
+
+      <HistoryPromptDialog
+        prompt={pendingPrompt}
+        onSubmit={(value) => {
+          if (pendingPrompt) void runHistoryAction(pendingPrompt.build(value));
+        }}
+        onClose={() => setPendingPrompt(null)}
+      />
+      <HistoryConfirmDialog
+        confirm={pendingConfirm}
+        onConfirm={() => {
+          if (pendingConfirm) void runHistoryAction(pendingConfirm.action);
+        }}
+        onClose={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }

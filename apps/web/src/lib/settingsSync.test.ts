@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveSettingsSyncAction, serializeSyncedValue } from "./settingsSync";
+import { nextSyncVersion, resolveSettingsSyncAction, serializeSyncedValue } from "./settingsSync";
 
 const base = {
   hydrated: true,
-  remoteSerialized: "{}",
-  localSerialized: "{}",
-  agreedSerialized: null as string | null,
-  remoteIsEmpty: true,
-  localIsEmpty: true,
+  remoteVersion: 0,
+  localVersion: 0,
+  sameContent: false,
+  localIsEmpty: false,
 };
 
 describe("serializeSyncedValue", () => {
@@ -21,67 +20,55 @@ describe("serializeSyncedValue", () => {
   });
 });
 
+describe("nextSyncVersion", () => {
+  it("claims a version past everything either side has seen", () => {
+    expect(nextSyncVersion({ localVersion: 2, remoteVersion: 7 })).toBe(8);
+    expect(nextSyncVersion({ localVersion: 9, remoteVersion: 7 })).toBe(10);
+  });
+});
+
 describe("resolveSettingsSyncAction", () => {
   it("waits for settings to land", () => {
     expect(resolveSettingsSyncAction({ ...base, hydrated: false })).toBe("idle");
   });
 
-  it("adopts what this browser already had when the server has nothing", () => {
+  it("does nothing when the two sides already hold the same thing", () => {
     expect(
-      resolveSettingsSyncAction({
-        ...base,
-        localSerialized: '{"w":[{"environmentId":"e","threadId":"t"}]}',
-        localIsEmpty: false,
-      }),
-    ).toBe("adopt-local");
+      resolveSettingsSyncAction({ ...base, sameContent: true, remoteVersion: 4, localVersion: 2 }),
+    ).toBe("idle");
   });
 
-  it("takes the server value once the two sides have exchanged once", () => {
+  it("takes the server value when it is the later edit", () => {
+    expect(resolveSettingsSyncAction({ ...base, remoteVersion: 6, localVersion: 5 })).toBe(
+      "apply-remote",
+    );
+  });
+
+  it("takes an emptied server value too — that is a close, not a gap", () => {
     expect(
       resolveSettingsSyncAction({
         ...base,
-        remoteSerialized: '{"w":["b"]}',
-        localSerialized: '{"w":["a"]}',
-        agreedSerialized: '{"w":["a"]}',
-        remoteIsEmpty: false,
+        remoteVersion: 6,
+        localVersion: 5,
         localIsEmpty: false,
       }),
     ).toBe("apply-remote");
   });
 
-  it("applies an emptied server value rather than re-adopting local", () => {
+  // The bug this counter exists for: closing every tab leaves an empty local
+  // set that content alone reads as "not synced yet", so the pre-close set
+  // still sitting on the server came back.
+  it("does not resurrect a set this device just closed", () => {
     expect(
-      resolveSettingsSyncAction({
-        ...base,
-        localSerialized: '{"w":["a"]}',
-        agreedSerialized: '{"w":["a"]}',
-        localIsEmpty: false,
-      }),
-    ).toBe("apply-remote");
+      resolveSettingsSyncAction({ ...base, remoteVersion: 5, localVersion: 6, localIsEmpty: true }),
+    ).toBe("publish-local");
   });
 
-  it("ignores the echo of this device's own write", () => {
-    expect(
-      resolveSettingsSyncAction({
-        ...base,
-        remoteSerialized: '{"w":["a"]}',
-        localSerialized: '{"w":["a"]}',
-        agreedSerialized: '{"w":["a"]}',
-        remoteIsEmpty: false,
-        localIsEmpty: false,
-      }),
-    ).toBe("idle");
+  it("hands an unsynced browser's tabs to a server that has never stored any", () => {
+    expect(resolveSettingsSyncAction({ ...base, localIsEmpty: false })).toBe("publish-local");
   });
 
-  it("does nothing when the sides already match", () => {
-    expect(
-      resolveSettingsSyncAction({
-        ...base,
-        remoteSerialized: '{"w":["a"]}',
-        localSerialized: '{"w":["a"]}',
-        remoteIsEmpty: false,
-        localIsEmpty: false,
-      }),
-    ).toBe("idle");
+  it("takes the server's first value when this browser has nothing to offer", () => {
+    expect(resolveSettingsSyncAction({ ...base, localIsEmpty: true })).toBe("apply-remote");
   });
 });

@@ -282,6 +282,11 @@ export function createVcsEnvironmentAtoms<R, E>(
       tag: WS_METHODS.vcsListCommits,
       idleTtlMs: VCS_COMMITS_IDLE_TTL_MS,
     }),
+    listStashes: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:list-stashes",
+      tag: WS_METHODS.vcsListStashes,
+      idleTtlMs: VCS_COMMITS_IDLE_TTL_MS,
+    }),
     status: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:status",
       subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.subscribeVcsStatus>) =>
@@ -333,6 +338,15 @@ export function createVcsEnvironmentAtoms<R, E>(
     switchRef: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:switch-ref",
       tag: WS_METHODS.vcsSwitchRef,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+      onSettled: invalidateRefs,
+    }),
+    // Every commit-graph mutation. Refs are invalidated on settle because even
+    // a refused or rolled-back action can have moved a ref in an earlier step.
+    runHistoryAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:run-history-action",
+      tag: WS_METHODS.vcsRunHistoryAction,
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
       onSettled: invalidateRefs,

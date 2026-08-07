@@ -1855,6 +1855,16 @@ const makeWsRpcLayer = (
             gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
+        [WS_METHODS.vcsRunHistoryAction]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsRunHistoryAction,
+            gitWorkflow.runHistoryAction(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsListStashes]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsListStashes, gitWorkflow.listStashes(input), {
+            "rpc.aggregate": "vcs",
+          }),
         [WS_METHODS.vcsInit]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsInit,

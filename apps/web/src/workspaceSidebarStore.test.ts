@@ -11,6 +11,7 @@ beforeEach(() => {
     namesByWorkspaceKey: {},
     pinnedWorkspaceKeys: [],
     archivedWorkspaceKeys: [],
+    syncVersion: 0,
   });
 });
 
@@ -66,6 +67,7 @@ describe("cross-device workspace labelling", () => {
     useWorkspaceSidebarStore.getState().toggleWorkspacePinned("workspace-b");
 
     expect(selectSyncableWorkspaceSidebar(useWorkspaceSidebarStore.getState())).toEqual({
+      version: 0,
       namesByWorkspaceKey: { "workspace-a": "Review queue" },
       pinnedWorkspaceKeys: ["workspace-b"],
       archivedWorkspaceKeys: [],
@@ -74,6 +76,7 @@ describe("cross-device workspace labelling", () => {
 
   it("adopts a rename and a pin made on another device", () => {
     useWorkspaceSidebarStore.getState().applyRemoteSidebar({
+      version: 1,
       namesByWorkspaceKey: { "workspace-a": "From the phone" },
       pinnedWorkspaceKeys: ["workspace-a"],
       archivedWorkspaceKeys: [],
@@ -87,6 +90,7 @@ describe("cross-device workspace labelling", () => {
   it("applies removals, so an unpin elsewhere unpins here", () => {
     useWorkspaceSidebarStore.getState().toggleWorkspacePinned("workspace-a");
     useWorkspaceSidebarStore.getState().applyRemoteSidebar({
+      version: 1,
       namesByWorkspaceKey: {},
       pinnedWorkspaceKeys: [],
       archivedWorkspaceKeys: [],
@@ -100,6 +104,7 @@ describe("cross-device workspace labelling", () => {
     const before = useWorkspaceSidebarStore.getState().namesByWorkspaceKey;
 
     useWorkspaceSidebarStore.getState().applyRemoteSidebar({
+      version: 0,
       namesByWorkspaceKey: { "workspace-a": "Same" },
       pinnedWorkspaceKeys: [],
       archivedWorkspaceKeys: [],
