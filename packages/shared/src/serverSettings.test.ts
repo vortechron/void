@@ -553,6 +553,58 @@ describe("applyServerSettingsPatch global actions", () => {
     expect(next.globalPromptActions).toEqual([]);
   });
 
+  it("replaces the client settings blob so a removed record key stays removed", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      clientSettings: {
+        ...DEFAULT_SERVER_SETTINGS.clientSettings,
+        workspaceThreadTabs: {
+          version: 1,
+          byWorkspaceKey: {
+            kept: [{ environmentId: "env", threadId: "kept-thread" }],
+            closed: [{ environmentId: "env", threadId: "closed-thread" }],
+          },
+        },
+        sidebarProjectGroupingOverrides: {
+          kept: "repository" as const,
+          dropped: "separate" as const,
+        },
+      },
+    };
+
+    const next = applyServerSettingsPatch(current, {
+      clientSettings: {
+        ...current.clientSettings,
+        workspaceThreadTabs: {
+          version: 2,
+          byWorkspaceKey: {
+            kept: [{ environmentId: "env", threadId: "kept-thread" }],
+          },
+        },
+        sidebarProjectGroupingOverrides: { kept: "repository" as const },
+      },
+    });
+
+    // A deep merge would resurrect "closed" and "dropped", and the client that
+    // sent the removal would keep republishing it forever.
+    expect(Object.keys(next.clientSettings.workspaceThreadTabs.byWorkspaceKey)).toEqual(["kept"]);
+    expect(next.clientSettings.sidebarProjectGroupingOverrides).toEqual({ kept: "repository" });
+  });
+
+  it("leaves the client settings blob untouched when the patch does not mention it", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      clientSettings: {
+        ...DEFAULT_SERVER_SETTINGS.clientSettings,
+        sidebarHiddenProjectKeys: ["github.com/acme/hidden"],
+      },
+    };
+
+    const next = applyServerSettingsPatch(current, { enableAssistantStreaming: true });
+
+    expect(next.clientSettings.sidebarHiddenProjectKeys).toEqual(["github.com/acme/hidden"]);
+  });
+
   it("leaves both lists untouched when the patch does not mention them", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,
