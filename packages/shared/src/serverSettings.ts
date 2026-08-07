@@ -187,6 +187,13 @@ export function applyServerSettingsPatch(
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
       : {}),
+    // The blob replaces whole, as its contract note says. A deep merge cannot
+    // express a removal inside it: dropping a key from a nested record
+    // (`workspaceThreadTabs.byWorkspaceKey`, `sidebarProjectGroupingOverrides`)
+    // would leave the old key behind, the client would see its own write come
+    // back changed, and the workspace sync would republish it on every echo —
+    // a settings write loop that never settles.
+    ...(patch.clientSettings !== undefined ? { clientSettings: patch.clientSettings } : {}),
     // Arrays must replace, not merge: deepMerge splices them element-wise, so
     // removing an action would leave the tail of the old list behind.
     ...(patch.globalScripts !== undefined ? { globalScripts: patch.globalScripts } : {}),

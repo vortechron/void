@@ -67,16 +67,25 @@ function useSettingsMirror<Value extends VersionedValue>(mirror: SettingsMirror<
   /** Local content as of the last time this hook looked, to tell a real local
       change apart from a re-render or an echo of the server's own value. */
   const lastLocalContent = useRef<string | null>(null);
+  /**
+   * The (local, remote) pair the last publish was decided from. Publishing
+   * makes the server's value match, so the same pair coming back means the
+   * write did not take — and repeating it on every echo would spin at the
+   * speed of the RPC. Any real change on either side is a different pair and
+   * goes through.
+   */
+  const lastPublishAttempt = useRef<string | null>(null);
 
   useEffect(() => {
     const { remote, readLocal, applyRemote, publish, stampVersion, isEmpty } = latest.current;
     const local = readLocal();
     const localContent = serializeContent(local);
+    const remoteContent = serializeContent(remote);
     const action = resolveSettingsSyncAction({
       hydrated,
       remoteVersion: remote.version,
       localVersion: local.version,
-      sameContent: localContent === serializeContent(remote),
+      sameContent: localContent === remoteContent,
       localIsEmpty: isEmpty(local),
     });
 
@@ -89,6 +98,9 @@ function useSettingsMirror<Value extends VersionedValue>(mirror: SettingsMirror<
         lastLocalContent.current = serializeContent(remote);
         return;
       case "publish-local": {
+        const attempt = `${localContent}\u0000${remoteContent}`;
+        if (attempt === lastPublishAttempt.current) return;
+        lastPublishAttempt.current = attempt;
         const version = nextSyncVersion({
           localVersion: local.version,
           remoteVersion: remote.version,
@@ -109,13 +121,16 @@ function useSettingsMirror<Value extends VersionedValue>(mirror: SettingsMirror<
       timer = null;
       const local = latest.current.readLocal();
       const remote = latest.current.remote;
-      if (serializeContent(local) === serializeContent(remote)) {
+      const localContent = serializeContent(local);
+      const remoteContent = serializeContent(remote);
+      if (localContent === remoteContent) {
         // Nothing to say after all: a change that undid itself, or one the
         // server already had. Give the claimed version back, or a later edit
         // from another device would lose to an edit that never happened.
         latest.current.stampVersion(remote.version);
         return;
       }
+      lastPublishAttempt.current = `${localContent}\u0000${remoteContent}`;
       latest.current.publish(local);
     };
 
