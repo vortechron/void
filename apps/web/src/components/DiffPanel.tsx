@@ -6,6 +6,11 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import {
+  getGitDiffRevision,
+  shouldRefreshGitDiffPreview,
+  type GitDiffRefreshSnapshot,
+} from "@t3tools/client-runtime/state/review-diff-refresh";
 import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
 import {
   ArrowRightIcon,
@@ -128,10 +133,7 @@ export default function DiffPanel({
   const [codeViewRevision, setCodeViewRevision] = useState(0);
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
   const fileTreeVisible = useDiffPanelStore((state) => state.fileTreeVisible);
-  const lastCompletedTurnRefreshRef = useRef<{
-    readonly threadKey: string | null;
-    readonly turnId: TurnId | null;
-  } | null>(null);
+  const lastGitDiffRefreshSnapshotRef = useRef<GitDiffRefreshSnapshot | null>(null);
 
   const routeThreadRef = useParams({
     strict: false,
@@ -274,6 +276,10 @@ export default function DiffPanel({
   const activeThreadRefreshKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}`
     : null;
+  const gitDiffRevision = useMemo(
+    () => getGitDiffRevision(gitStatusQuery.data),
+    [gitStatusQuery.data],
+  );
 
   useEffect(() => {
     if (!canRefreshGitDiff) return;
@@ -286,19 +292,30 @@ export default function DiffPanel({
     const current = {
       threadKey: activeThreadRefreshKey,
       turnId: latestTurn?.turnId ?? null,
+      gitRevision: gitDiffRevision,
+      hasWorkingTreeChanges: gitStatusQuery.data?.hasWorkingTreeChanges === true,
     };
-    const previous = lastCompletedTurnRefreshRef.current;
     if (!canRefreshGitDiff) {
       return;
     }
-    if (previous === null || previous.threadKey !== current.threadKey) {
-      lastCompletedTurnRefreshRef.current = current;
+    if (branchDiffPreview.data === null) {
       return;
     }
-    if (previous.turnId === current.turnId) return;
-    refreshBranchDiffPreview();
-    lastCompletedTurnRefreshRef.current = current;
-  }, [activeThreadRefreshKey, canRefreshGitDiff, latestTurn?.turnId, refreshBranchDiffPreview]);
+    const shouldRefresh = shouldRefreshGitDiffPreview(
+      lastGitDiffRefreshSnapshotRef.current,
+      current,
+    );
+    lastGitDiffRefreshSnapshotRef.current = current;
+    if (shouldRefresh) refreshBranchDiffPreview();
+  }, [
+    activeThreadRefreshKey,
+    branchDiffPreview.data?.generatedAt,
+    canRefreshGitDiff,
+    gitDiffRevision,
+    gitStatusQuery.data?.hasWorkingTreeChanges,
+    latestTurn?.turnId,
+    refreshBranchDiffPreview,
+  ]);
 
   const selectedGitSource = branchDiffPreview.data?.sources.find(
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),

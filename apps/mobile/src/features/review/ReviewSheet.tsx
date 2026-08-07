@@ -381,6 +381,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     useReviewSections({
       enabled: isEnvironmentReady,
       environmentId,
+      gitStatus: gitStatusQuery.data,
       threadId,
       reviewCache,
     });
