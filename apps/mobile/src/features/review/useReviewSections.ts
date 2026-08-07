@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import type { EnvironmentId, OrchestrationCheckpointSummary, ThreadId } from "@t3tools/contracts";
+import {
+  getGitDiffRevision,
+  shouldRefreshGitDiffPreview,
+  type GitDiffRefreshSnapshot,
+} from "@t3tools/client-runtime/state/review-diff-refresh";
+import type {
+  EnvironmentId,
+  OrchestrationCheckpointSummary,
+  ThreadId,
+  VcsStatusResult,
+} from "@t3tools/contracts";
 
 import { useCheckpointDiff } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
@@ -25,11 +35,13 @@ import {
 export function useReviewSections(input: {
   readonly enabled?: boolean;
   readonly environmentId?: EnvironmentId;
+  readonly gitStatus: VcsStatusResult | null;
   readonly threadId?: ThreadId;
   readonly reviewCache: ReviewCacheForThread;
 }) {
   const { environmentId, reviewCache, threadId } = input;
   const enabled = input.enabled ?? true;
+  const lastGitDiffRefreshSnapshotRef = useRef<GitDiffRefreshSnapshot | null>(null);
   const selectedThread = useSelectedThreadDetail();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const diffPreview = useEnvironmentQuery(
@@ -52,6 +64,33 @@ export function useReviewSections(input: {
     () => getReadyReviewCheckpoints(selectedThread?.checkpoints ?? []),
     [selectedThread?.checkpoints],
   );
+  const gitDiffRevision = useMemo(() => getGitDiffRevision(input.gitStatus), [input.gitStatus]);
+
+  useEffect(() => {
+    if (!enabled || !reviewCache.threadKey || diffPreview.data === null) {
+      return;
+    }
+    const current = {
+      threadKey: reviewCache.threadKey,
+      turnId: readyCheckpoints[0]?.turnId ?? null,
+      gitRevision: gitDiffRevision,
+      hasWorkingTreeChanges: input.gitStatus?.hasWorkingTreeChanges === true,
+    };
+    const shouldRefresh = shouldRefreshGitDiffPreview(
+      lastGitDiffRefreshSnapshotRef.current,
+      current,
+    );
+    lastGitDiffRefreshSnapshotRef.current = current;
+    if (shouldRefresh) diffPreview.refresh();
+  }, [
+    diffPreview.data?.generatedAt,
+    diffPreview.refresh,
+    enabled,
+    gitDiffRevision,
+    input.gitStatus?.hasWorkingTreeChanges,
+    readyCheckpoints,
+    reviewCache.threadKey,
+  ]);
   const checkpointBySectionId = useMemo(
     () =>
       Object.fromEntries(
