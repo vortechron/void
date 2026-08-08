@@ -195,6 +195,7 @@ import {
 import { sortThreads } from "../lib/threadSort";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { LONG_PRESS_TARGET_STYLE, useLongPressContextMenu } from "~/hooks/useLongPressContextMenu";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
@@ -565,16 +566,15 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     },
     [navigateToThread, threadRef],
   );
-  const handleRowContextMenu = useCallback(
-    (event: React.MouseEvent) => {
-      event.preventDefault();
+  const openRowContextMenu = useCallback(
+    (position: { readonly x: number; readonly y: number }) => {
       const hasSelection = useThreadSelectionStore.getState().hasSelection();
       if (hasSelection && isSelected) {
         void (async () => {
           const result = await settlePromise(() =>
             handleMultiSelectContextMenu({
-              x: event.clientX,
-              y: event.clientY,
+              x: position.x,
+              y: position.y,
             }),
           );
           if (result._tag === "Failure") {
@@ -597,8 +597,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       void (async () => {
         const result = await settlePromise(() =>
           handleThreadContextMenu(threadRef, {
-            x: event.clientX,
-            y: event.clientY,
+            x: position.x,
+            y: position.y,
           }),
         );
         if (result._tag === "Failure") {
@@ -615,6 +615,14 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     },
     [clearSelection, handleMultiSelectContextMenu, handleThreadContextMenu, isSelected, threadRef],
   );
+  const handleRowContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      openRowContextMenu({ x: event.clientX, y: event.clientY });
+    },
+    [openRowContextMenu],
+  );
+  const rowLongPressHandlers = useLongPressContextMenu(openRowContextMenu);
   const handlePrClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       if (!prStatus) return;
@@ -726,10 +734,12 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           isActive,
           isSelected,
         })} relative isolate`}
+        style={LONG_PRESS_TARGET_STYLE}
         onClick={handleRowClick}
         onDoubleClick={handleRowDoubleClick}
         onKeyDown={handleRowKeyDown}
         onContextMenu={handleRowContextMenu}
+        {...rowLongPressHandlers}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
           {prStatus && (
@@ -1081,16 +1091,14 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     setRenameDialogOpen(false);
   }, [renameDraft, renameWorkspace, workspace.key]);
 
-  const handleContextMenu = useCallback(
-    (event: React.MouseEvent<HTMLElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
+  const openWorkspaceContextMenu = useCallback(
+    (position: { readonly x: number; readonly y: number }) => {
       void (async () => {
         const api = readLocalApi();
         if (!api) return;
         const action = await api.contextMenu.show(
           buildWorkspaceContextMenuItems({ isPinned, isArchived }),
-          { x: event.clientX, y: event.clientY },
+          { x: position.x, y: position.y },
         );
         if (action === "rename") {
           openRenameDialog();
@@ -1111,6 +1119,16 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     ],
   );
 
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openWorkspaceContextMenu({ x: event.clientX, y: event.clientY });
+    },
+    [openWorkspaceContextMenu],
+  );
+  const workspaceLongPressHandlers = useLongPressContextMenu(openWorkspaceContextMenu);
+
   return (
     <>
       <SidebarMenuSubItem
@@ -1123,9 +1141,11 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
           isActive={isActive}
           data-testid="workspace-row"
           data-workspace-key={workspace.key}
-          className="h-8 w-full translate-x-0 gap-1.5 px-2 text-left"
+          className="h-8 w-full translate-x-0 select-none gap-1.5 px-2 text-left"
+          style={LONG_PRESS_TARGET_STYLE}
           onClick={handleClick}
           onContextMenu={handleContextMenu}
+          {...workspaceLongPressHandlers}
         >
           {showProjectIcon ? (
             <ProjectFavicon
@@ -1776,9 +1796,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     [memberThreadCountByPhysicalKey, removeProject],
   );
 
-  const handleProjectButtonContextMenu = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.preventDefault();
+  const openProjectContextMenu = useCallback(
+    (position: { readonly x: number; readonly y: number }) => {
+      // dnd-kit activates its drag at 6px, tighter than the long-press slop, so
+      // a small drag can start a reorder while the hold timer is still armed.
+      if (dragInProgressRef.current) return;
       suppressProjectClickForContextMenuRef.current = true;
       void (async () => {
         const api = readLocalApi();
@@ -1871,8 +1893,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             }),
           ],
           {
-            x: event.clientX,
-            y: event.clientY,
+            x: position.x,
+            y: position.y,
           },
         );
 
@@ -1885,6 +1907,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     },
     [
       copyPathToClipboard,
+      dragInProgressRef,
       handleRemoveProject,
       hiddenProjectKeys,
       isProjectHidden,
@@ -1896,6 +1919,26 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       suppressProjectClickForContextMenuRef,
       updateSettings,
     ],
+  );
+
+  const handleProjectButtonContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      openProjectContextMenu({ x: event.clientX, y: event.clientY });
+    },
+    [openProjectContextMenu],
+  );
+  const projectLongPress = useLongPressContextMenu(openProjectContextMenu);
+  // dnd-kit's PointerSensor activator IS `onPointerDown`, and it is spread onto
+  // this button as a plain JSX prop rather than merged. Spreading the long-press
+  // bag would silently replace it and kill manual project reordering, so the
+  // press is fed in through the capture phase instead.
+  const handleProjectButtonPointerDownWithLongPress = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      handleProjectButtonPointerDownCapture(event);
+      projectLongPress.onPointerDown(event);
+    },
+    [handleProjectButtonPointerDownCapture, projectLongPress],
   );
 
   const navigateToThread = useCallback(
@@ -2440,7 +2483,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           } ${isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : ""}`}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
-          onPointerDownCapture={handleProjectButtonPointerDownCapture}
+          style={LONG_PRESS_TARGET_STYLE}
+          onPointerDownCapture={handleProjectButtonPointerDownWithLongPress}
+          onPointerMove={projectLongPress.onPointerMove}
+          onPointerUp={projectLongPress.onPointerUp}
+          onPointerCancel={projectLongPress.onPointerCancel}
           onClick={handleProjectButtonClick}
           onKeyDown={handleProjectButtonKeyDown}
           onContextMenu={handleProjectButtonContextMenu}

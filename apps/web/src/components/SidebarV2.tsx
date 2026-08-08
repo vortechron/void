@@ -89,6 +89,7 @@ import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { LONG_PRESS_TARGET_STYLE, useLongPressContextMenu } from "../hooks/useLongPressContextMenu";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
@@ -600,6 +601,17 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     },
     [onContextMenu, threadRef],
   );
+  const handleLongPress = useCallback(
+    (position: { readonly x: number; readonly y: number }) => {
+      onContextMenu(threadRef, { x: position.x, y: position.y });
+    },
+    [onContextMenu, threadRef],
+  );
+  // iPad Safari never fires `contextmenu` from a long press, so the row needs
+  // the gesture supplied explicitly. No target guard here: the row actions are
+  // hover-revealed, so on touch they sit invisible but hit-testable along the
+  // right edge, and guarding would leave a strip where nothing happens.
+  const longPressHandlers = useLongPressContextMenu(handleLongPress);
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
       if (event.target !== event.currentTarget) return;
@@ -804,10 +816,12 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 data-testid="sidebar-v2-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
+                style={LONG_PRESS_TARGET_STYLE}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onKeyDown={handleKeyDown}
                 onContextMenu={handleContextMenu}
+                {...longPressHandlers}
               />
             }
           >
@@ -920,10 +934,12 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               data-testid="sidebar-v2-row-card"
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
+              style={LONG_PRESS_TARGET_STYLE}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}
               onContextMenu={handleContextMenu}
+              {...longPressHandlers}
             />
           }
         >

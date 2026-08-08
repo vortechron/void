@@ -74,6 +74,10 @@ import {
 } from "../SidebarStageBackdrop";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
+import {
+  LONG_PRESS_TARGET_STYLE,
+  useLongPressContextMenu,
+} from "../../hooks/useLongPressContextMenu";
 import { useTheme } from "../../hooks/useTheme";
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
@@ -2614,6 +2618,40 @@ export function ArchivedThreadsPanel() {
     [confirmAndDeleteThread, refreshArchivedThreads, unarchiveThread],
   );
 
+  const openArchivedThreadMenu = useCallback(
+    (threadRef: ScopedThreadRef, position: { readonly x: number; readonly y: number }) => {
+      void (async () => {
+        const result = await settlePromise(() =>
+          handleArchivedThreadContextMenu(threadRef, { x: position.x, y: position.y }),
+        );
+        if (result._tag === "Failure") {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Archived thread action failed",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [handleArchivedThreadContextMenu],
+  );
+
+  // The rows are rendered inline, so one gesture instance is shared and each
+  // row records itself on the way down. Only one pointer is ever down at a time.
+  const pressedArchivedThreadRef = useRef<ScopedThreadRef | null>(null);
+  const archivedRowLongPress = useLongPressContextMenu(
+    useCallback(
+      (position: { readonly x: number; readonly y: number }) => {
+        const threadRef = pressedArchivedThreadRef.current;
+        if (threadRef) openArchivedThreadMenu(threadRef, position);
+      },
+      [openArchivedThreadMenu],
+    ),
+  );
+
   return (
     <SettingsPageContainer>
       {archivedGroups.length === 0 ? (
@@ -2654,30 +2692,21 @@ export function ArchivedThreadsPanel() {
             {projectThreads.map((thread) => (
               <SettingsRow
                 key={thread.id}
+                style={LONG_PRESS_TARGET_STYLE}
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  void (async () => {
-                    const result = await settlePromise(() =>
-                      handleArchivedThreadContextMenu(
-                        scopeThreadRef(thread.environmentId, thread.id),
-                        {
-                          x: event.clientX,
-                          y: event.clientY,
-                        },
-                      ),
-                    );
-                    if (result._tag === "Failure") {
-                      const error = squashAtomCommandFailure(result);
-                      toastManager.add(
-                        stackedThreadToast({
-                          type: "error",
-                          title: "Archived thread action failed",
-                          description:
-                            error instanceof Error ? error.message : "An error occurred.",
-                        }),
-                      );
-                    }
-                  })();
+                  openArchivedThreadMenu(scopeThreadRef(thread.environmentId, thread.id), {
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                {...archivedRowLongPress}
+                onPointerDown={(event) => {
+                  pressedArchivedThreadRef.current = scopeThreadRef(
+                    thread.environmentId,
+                    thread.id,
+                  );
+                  archivedRowLongPress.onPointerDown(event);
                 }}
                 title={thread.title}
                 description={
