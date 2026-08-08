@@ -33,6 +33,7 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { vcsEnvironment } from "../state/vcs";
 import { cn } from "../lib/utils";
 import { parsePullRequestReference } from "../pullRequestReference";
+import { LONG_PRESS_TARGET_STYLE, useLongPressContextMenu } from "../hooks/useLongPressContextMenu";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
 import {
   deriveLocalBranchNameFromRemoteRef,
@@ -353,21 +354,41 @@ export function BranchToolbarBranchSelector({
     );
   }, []);
 
-  const handleBranchContextMenu = useCallback(
-    (event: ReactMouseEvent, branchName: string | null) => {
+  const openBranchContextMenu = useCallback(
+    (branchName: string | null, position: { readonly x: number; readonly y: number }) => {
       if (!branchName) return;
       const api = readLocalApi();
       if (!api) return;
-      event.preventDefault();
-      event.stopPropagation();
       const items: ContextMenuItem<"copy-branch-name">[] = [
         { id: "copy-branch-name", label: "Copy branch name", icon: "copy" },
       ];
-      void api.contextMenu.show(items, { x: event.clientX, y: event.clientY }).then((action) => {
+      void api.contextMenu.show(items, { x: position.x, y: position.y }).then((action) => {
         if (action === "copy-branch-name") copyBranchName(branchName);
       });
     },
     [copyBranchName],
+  );
+
+  const handleBranchContextMenu = useCallback(
+    (event: ReactMouseEvent, branchName: string | null) => {
+      if (!branchName) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openBranchContextMenu(branchName, { x: event.clientX, y: event.clientY });
+    },
+    [openBranchContextMenu],
+  );
+
+  // One gesture instance covers the trigger and every list item; each records
+  // which branch it is on the way down, and only one pointer is down at a time.
+  const pressedBranchRef = useRef<string | null>(null);
+  const branchLongPress = useLongPressContextMenu(
+    useCallback(
+      (position: { readonly x: number; readonly y: number }) => {
+        openBranchContextMenu(pressedBranchRef.current, position);
+      },
+      [openBranchContextMenu],
+    ),
   );
 
   const runBranchAction = (action: () => Promise<void>) => {
@@ -684,8 +705,14 @@ export function BranchToolbarBranchSelector({
         index={index}
         value={itemValue}
         className="pe-1.5"
+        style={LONG_PRESS_TARGET_STYLE}
         onClick={() => selectBranch(refName)}
         onContextMenu={(event) => handleBranchContextMenu(event, itemValue)}
+        {...branchLongPress}
+        onPointerDown={(event) => {
+          pressedBranchRef.current = itemValue;
+          branchLongPress.onPointerDown(event);
+        }}
       >
         <div className="flex w-full min-w-0 items-center justify-between gap-2">
           <span className="min-w-0 flex-1 truncate">{itemValue}</span>
@@ -741,7 +768,13 @@ export function BranchToolbarBranchSelector({
             while refs are loading or a branch action is pending. */}
         <span
           className="flex min-w-0"
+          style={LONG_PRESS_TARGET_STYLE}
           onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
+          {...branchLongPress}
+          onPointerDown={(event) => {
+            pressedBranchRef.current = resolvedActiveBranch;
+            branchLongPress.onPointerDown(event);
+          }}
         >
           <ComboboxTrigger
             render={<Button variant="ghost" size="xs" />}

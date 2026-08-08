@@ -139,6 +139,14 @@ class FakeDocument {
     }
   }
 
+  dispatchEvent(event: FakeDomEvent) {
+    // Snapshot: cleanup() detaches document listeners while they are running.
+    for (const listener of (this.listeners.get(event.type) ?? []).slice()) {
+      listener(event);
+    }
+    return true;
+  }
+
   querySelectorAll(tagName: string) {
     return this.body.querySelectorAll(tagName);
   }
@@ -148,6 +156,23 @@ function findButton(label: string): FakeElement | undefined {
   return (document as unknown as FakeDocument)
     .querySelectorAll("button")
     .find((button) => button.textContent.includes(label));
+}
+
+/** The document-level press that precedes every genuine pointer click. */
+function pointerDownInside(target: FakeElement, pointerType = "touch") {
+  (document as unknown as FakeDocument).dispatchEvent(
+    new PointerEvent("pointerdown", { target, pointerType } as unknown as PointerEventInit),
+  );
+}
+
+/** A click as a browser reports it from a pointer: `detail` is 1, not 0. */
+function pointerClick(target: FakeElement | undefined) {
+  target?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+}
+
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 beforeEach(() => {
@@ -170,6 +195,14 @@ beforeEach(() => {
   );
   vi.stubGlobal(
     "KeyboardEvent",
+    class extends FakeDomEvent {
+      constructor(type: string, init: Record<string, unknown> = {}) {
+        super(type, init);
+      }
+    },
+  );
+  vi.stubGlobal(
+    "PointerEvent",
     class extends FakeDomEvent {
       constructor(type: string, init: Record<string, unknown> = {}) {
         super(type, init);
@@ -234,5 +267,83 @@ describe("showContextMenuFallback", () => {
     childButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     await expect(selectionPromise).resolves.toBe("rename:project-b");
+  });
+
+  it("drops the compatibility click iOS synthesises after a long press", async () => {
+    const selectionPromise = showContextMenuFallback([{ id: "rename", label: "Rename" }]);
+    let settled = false;
+    void selectionPromise.then(() => {
+      settled = true;
+    });
+
+    // The long press landed on the row, before this menu existed, so no
+    // pointerdown was ever seen inside the menu.
+    pointerClick(findButton("Rename"));
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    // A genuine tap presses inside the menu first.
+    const renameButton = findButton("Rename");
+    if (renameButton) pointerDownInside(renameButton);
+    pointerClick(renameButton);
+
+    await expect(selectionPromise).resolves.toBe("rename");
+  });
+
+  it("opens a submenu from a touch pointerup and resolves the tapped leaf", async () => {
+    const selectionPromise = showContextMenuFallback([
+      {
+        id: "snooze",
+        label: "Snooze",
+        children: [
+          { id: "snooze:1h", label: "1 hour" },
+          { id: "snooze:tomorrow", label: "Tomorrow" },
+        ],
+      },
+    ]);
+
+    const parentButton = findButton("Snooze");
+    expect(parentButton).toBeTruthy();
+    parentButton?.dispatchEvent(new PointerEvent("pointerup", { pointerType: "touch" }));
+
+    const childButton = findButton("Tomorrow");
+    expect(childButton).toBeTruthy();
+    if (childButton) pointerDownInside(childButton);
+    pointerClick(childButton);
+
+    await expect(selectionPromise).resolves.toBe("snooze:tomorrow");
+  });
+
+  it("leaves submenus to hover for a mouse pointerup", async () => {
+    const selectionPromise = showContextMenuFallback([
+      { id: "snooze", label: "Snooze", children: [{ id: "snooze:1h", label: "1 hour" }] },
+    ]);
+
+    findButton("Snooze")?.dispatchEvent(new PointerEvent("pointerup", { pointerType: "mouse" }));
+    expect(findButton("1 hour")).toBeUndefined();
+
+    (document as unknown as FakeDocument).dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape" }),
+    );
+    await expect(selectionPromise).resolves.toBeNull();
+  });
+
+  it("does not rebuild a submenu that is already open", async () => {
+    const selectionPromise = showContextMenuFallback([
+      { id: "snooze", label: "Snooze", children: [{ id: "snooze:1h", label: "1 hour" }] },
+    ]);
+
+    const parentButton = findButton("Snooze");
+    parentButton?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    const firstChild = findButton("1 hour");
+
+    parentButton?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    parentButton?.dispatchEvent(new PointerEvent("pointerup", { pointerType: "touch" }));
+
+    expect(findButton("1 hour")).toBe(firstChild);
+
+    if (firstChild) pointerDownInside(firstChild);
+    pointerClick(firstChild);
+    await expect(selectionPromise).resolves.toBe("snooze:1h");
   });
 });

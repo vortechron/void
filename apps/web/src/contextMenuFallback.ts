@@ -125,8 +125,22 @@ export function showContextMenuFallback<T extends string>(
 ): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
     const menuStack: HTMLDivElement[] = [];
+    // Kept in lockstep with menuStack: the button each submenu hangs off, so
+    // both the hover and the tap path can ask "is this one already open?".
+    const submenuParents: (HTMLElement | null)[] = [];
     let isDisposed = false;
     let canDismissFromPointer = false;
+    // Whether a pointer has gone down inside the menu since it opened. A real
+    // pointer click is always preceded by one; the compatibility click iOS
+    // synthesises when a long press ends is not.
+    let lastPointerInsideMenu: { pointerType: string } | null = null;
+
+    // Touch targets need more room than a cursor does. Read once — a menu does
+    // not outlive an input-device change.
+    const isCoarsePointer =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: coarse)").matches;
 
     const cleanup = (result: T | null) => {
       if (isDisposed) {
@@ -150,7 +164,13 @@ export function showContextMenuFallback<T extends string>(
     };
 
     const onPointerDown = (event: PointerEvent) => {
-      if (!canDismissFromPointer || isNodeWithinMenuStack(event.target, menuStack)) {
+      // Containment is checked first so a press inside the menu is recorded
+      // even during the brief window where dismissal is still disabled.
+      if (isNodeWithinMenuStack(event.target, menuStack)) {
+        lastPointerInsideMenu = { pointerType: event.pointerType };
+        return;
+      }
+      if (!canDismissFromPointer) {
         return;
       }
       cleanup(null);
@@ -167,6 +187,7 @@ export function showContextMenuFallback<T extends string>(
     const closeMenusFromLevel = (level: number) => {
       while (menuStack.length > level) {
         menuStack.pop()?.remove();
+        submenuParents.pop();
       }
     };
 
@@ -175,6 +196,7 @@ export function showContextMenuFallback<T extends string>(
       preferredLeft: number,
       preferredTop: number,
       level: number,
+      parentButton: HTMLElement | null = null,
     ) => {
       closeMenusFromLevel(level);
 
@@ -182,7 +204,7 @@ export function showContextMenuFallback<T extends string>(
       menu.className =
         "dropdown-glass fixed z-[10000] min-w-32 max-w-sm overflow-hidden rounded-lg bg-clip-padding text-popover-foreground outline-none";
       menu.style.cssText =
-        "position:fixed;z-index:10000;min-width:8rem;max-width:24rem;overflow:hidden;border-radius:var(--radius-lg);background-clip:padding-box;color:var(--popover-foreground);outline:none;pointer-events:auto;";
+        "position:fixed;z-index:10000;min-width:8rem;max-width:24rem;overflow:hidden;border-radius:var(--radius-lg);background-clip:padding-box;color:var(--popover-foreground);outline:none;pointer-events:auto;-webkit-tap-highlight-color:transparent;";
       menu.style.left = `${preferredLeft}px`;
       menu.style.top = `${preferredTop}px`;
       menu.dataset.level = String(level);
@@ -217,8 +239,15 @@ export function showContextMenuFallback<T extends string>(
           : isLeafDestructive
             ? `${rowBase} text-destructive-foreground hover:bg-destructive/10 hover:text-destructive-foreground`
             : `${rowBase} text-foreground hover:bg-accent hover:text-accent-foreground`;
+        // The responsive classes above are inert here — inline style wins — so
+        // the touch sizing has to be interpolated rather than left to Tailwind.
         button.style.cssText =
-          "display:flex;width:100%;min-height:1.75rem;align-items:center;gap:0.5rem;border:0;border-radius:var(--radius-sm);background:transparent;padding:0.25rem 0.5rem;color:var(--foreground);font-family:var(--font-sans,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;text-align:left;cursor:default;";
+          `display:flex;width:100%;min-height:${isCoarsePointer ? "2.25rem" : "1.75rem"};` +
+          "align-items:center;gap:0.5rem;border:0;border-radius:var(--radius-sm);" +
+          "background:transparent;padding:0.25rem 0.5rem;color:var(--foreground);" +
+          "font-family:var(--font-sans,system-ui,sans-serif);" +
+          `font-size:${isCoarsePointer ? "1rem" : "0.875rem"};` +
+          `line-height:${isCoarsePointer ? "1.5rem" : "1.25rem"};text-align:left;cursor:default;`;
         if (isLeafDestructive) {
           button.style.color = "var(--destructive-foreground)";
         }
@@ -248,6 +277,9 @@ export function showContextMenuFallback<T extends string>(
         }
 
         if (!isDisabled) {
+          // On touch, `mouseenter` fires once on tap and `mouseleave` may never
+          // follow. That is fine: a leaf tap destroys the menu immediately, and
+          // a highlight left on an open submenu's parent is correct affordance.
           button.addEventListener("mouseenter", () => {
             button.style.background = isLeafDestructive
               ? "color-mix(in srgb, var(--destructive) 10%, transparent)"
@@ -265,19 +297,18 @@ export function showContextMenuFallback<T extends string>(
 
           if (hasChildren) {
             button.addEventListener("mouseenter", () => {
-              const rect = button.getBoundingClientRect();
-              const nextLeft = rect.right + 4;
-              const nextTop = rect.top;
-              openMenu(item.children!, nextLeft, nextTop, level + 1);
-
-              const childMenu = menuStack[level + 1];
-              if (!childMenu) {
-                return;
-              }
-              const childRect = childMenu.getBoundingClientRect();
-              if (childRect.right > window.innerWidth) {
-                clampMenuPosition(childMenu, rect.left - childRect.width - 4, rect.top);
-              }
+              openSubmenu(button, item.children!, level);
+            });
+            // Touch has no hover, so the submenu also has to be reachable by
+            // tap. This listens on `pointerup` rather than `click` because iOS
+            // emulates hover on first tap: `mouseenter` opens the submenu
+            // before `click` would ever arrive, so a click-toggle would close
+            // what the emulated hover just opened. `pointerup` beats every
+            // compatibility event, and `openSubmenu` is idempotent, so it does
+            // not matter which path wins the race.
+            button.addEventListener("pointerup", (event) => {
+              if (event.pointerType === "mouse") return;
+              openSubmenu(button, item.children!, level);
             });
             button.addEventListener("click", (event) => {
               event.preventDefault();
@@ -286,8 +317,16 @@ export function showContextMenuFallback<T extends string>(
             button.addEventListener("mouseenter", () => {
               closeMenusFromLevel(level + 1);
             });
-            button.addEventListener("click", () => {
-              if (canDismissFromPointer) cleanup(item.id);
+            button.addEventListener("click", (event) => {
+              if (!canDismissFromPointer) return;
+              // A click driven by a pointer always follows a `pointerdown`
+              // inside the menu. The compatibility click iOS synthesises when
+              // the opening long press ends does not, so it is dropped here.
+              // `detail` is 0 for keyboard and programmatic activation, which
+              // must still go through.
+              const isPointerClick = typeof event.detail === "number" && event.detail > 0;
+              if (isPointerClick && lastPointerInsideMenu === null) return;
+              cleanup(item.id);
             });
           }
         }
@@ -303,10 +342,36 @@ export function showContextMenuFallback<T extends string>(
 
       document.body.appendChild(menu);
       menuStack[level] = menu;
+      submenuParents[level] = parentButton;
 
       requestAnimationFrame(() => {
         clampMenuPosition(menu, preferredLeft, preferredTop);
       });
+    };
+
+    /**
+     * Ensures the submenu for `button` is open. Idempotent, so hover and tap
+     * can both call it without rebuilding or toggling an already-open menu.
+     */
+    const openSubmenu = (
+      button: HTMLElement,
+      children: readonly ContextMenuItem<T>[],
+      level: number,
+    ) => {
+      if (submenuParents[level + 1] === button) {
+        return;
+      }
+      const rect = button.getBoundingClientRect();
+      openMenu(children, rect.right + 4, rect.top, level + 1, button);
+
+      const childMenu = menuStack[level + 1];
+      if (!childMenu) {
+        return;
+      }
+      const childRect = childMenu.getBoundingClientRect();
+      if (childRect.right > window.innerWidth) {
+        clampMenuPosition(childMenu, rect.left - childRect.width - 4, rect.top);
+      }
     };
 
     document.addEventListener("keydown", onKeyDown);

@@ -18,6 +18,7 @@ import { resolveThreadAttentionStatus } from "~/components/sidebarWorkspaceStatu
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { LONG_PRESS_TARGET_STYLE, useLongPressContextMenu } from "~/hooks/useLongPressContextMenu";
 import { useProject, useThreadShell, useThreadShellsForProjectRefs } from "~/state/entities";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
@@ -101,10 +102,8 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
     [activate, activeKey, closeTab, props.onNewThread, props.workspaceKey],
   );
 
-  const handleContextMenu = useCallback(
-    async (event: ReactMouseEvent, tab: ThreadTab) => {
-      event.preventDefault();
-      event.stopPropagation();
+  const openTabContextMenu = useCallback(
+    async (position: { readonly x: number; readonly y: number }, tab: ThreadTab) => {
       const api = readLocalApi();
       if (!api) return;
 
@@ -118,7 +117,7 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
         { id: "close-all", label: "Close all" },
       ];
 
-      const action = await api.contextMenu.show(items, { x: event.clientX, y: event.clientY });
+      const action = await api.contextMenu.show(items, { x: position.x, y: position.y });
       switch (action) {
         case "close":
           close(tab);
@@ -162,6 +161,15 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
       props.workspaceKey,
       tabs,
     ],
+  );
+
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent, tab: ThreadTab) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openTabContextMenu({ x: event.clientX, y: event.clientY }, tab);
+    },
+    [openTabContextMenu],
   );
 
   const handleMouseDown = useCallback((event: ReactMouseEvent) => {
@@ -229,7 +237,8 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
               dragging={tab.key === draggingKey}
               onActivate={() => activate(tab)}
               onClose={() => close(tab)}
-              onContextMenu={(event) => void handleContextMenu(event, tab)}
+              onContextMenu={(event) => handleContextMenu(event, tab)}
+              onLongPress={(position) => void openTabContextMenu(position, tab)}
               onMouseDown={handleMouseDown}
               onAuxClick={(event) => handleAuxClick(event, tab)}
               onDragStart={() => setDraggingKey(tab.key)}
@@ -369,6 +378,7 @@ const ThreadTabButton = memo(function ThreadTabButton(props: {
   onActivate: () => void;
   onClose: () => void;
   onContextMenu: (event: ReactMouseEvent) => void;
+  onLongPress: (position: { readonly x: number; readonly y: number }) => void;
   onMouseDown: (event: ReactMouseEvent) => void;
   onAuxClick: (event: ReactMouseEvent) => void;
   onDragStart: () => void;
@@ -387,11 +397,15 @@ const ThreadTabButton = memo(function ThreadTabButton(props: {
     if (shell) markThreadVisited(tabKey, shell.updatedAt);
     onActivate();
   }, [markThreadVisited, onActivate, shell, tabKey]);
+  // HTML5 drag never starts from touch on iPadOS, and the hook only arms for
+  // touch, so the two cannot collide.
+  const longPressHandlers = useLongPressContextMenu(props.onLongPress);
 
   return (
     <div
       data-active-tab={props.active}
       draggable
+      style={LONG_PRESS_TARGET_STYLE}
       onDragStart={props.onDragStart}
       onDragEnd={props.onDragEnd}
       onDragOver={(event) => event.preventDefault()}
@@ -399,8 +413,9 @@ const ThreadTabButton = memo(function ThreadTabButton(props: {
       onMouseDown={props.onMouseDown}
       onAuxClick={props.onAuxClick}
       onContextMenu={props.onContextMenu}
+      {...longPressHandlers}
       className={cn(
-        "group relative flex h-9 min-w-24 max-w-44 shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-sm",
+        "group relative flex h-9 min-w-24 max-w-44 shrink-0 select-none items-center gap-1.5 border-b-2 px-2.5 text-sm",
         props.active
           ? "border-foreground text-foreground"
           : "border-transparent text-muted-foreground hover:text-foreground",

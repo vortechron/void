@@ -30,6 +30,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { faviconUrlForOrigin } from "~/lib/favicon";
+import { LONG_PRESS_TARGET_STYLE, useLongPressContextMenu } from "~/hooks/useLongPressContextMenu";
 import { useTheme } from "~/hooks/useTheme";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 
@@ -322,11 +323,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
 
-  const handleTabContextMenu = useCallback(
-    async (event: ReactMouseEvent, surface: RightPanelSurface) => {
-      event.preventDefault();
-      event.stopPropagation();
-
+  const openTabContextMenu = useCallback(
+    async (position: { readonly x: number; readonly y: number }, surface: RightPanelSurface) => {
       const api = readLocalApi();
       if (!api) return;
 
@@ -356,7 +354,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         },
       );
 
-      const action = await api.contextMenu.show(items, { x: event.clientX, y: event.clientY });
+      const action = await api.contextMenu.show(items, { x: position.x, y: position.y });
       switch (action) {
         case "copy-path":
           if (surface.kind === "file") props.onCopyFilePath(surface.relativePath);
@@ -379,6 +377,27 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     },
     [props],
   );
+  const handleTabContextMenu = useCallback(
+    (event: ReactMouseEvent, surface: RightPanelSurface) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openTabContextMenu({ x: event.clientX, y: event.clientY }, surface);
+    },
+    [openTabContextMenu],
+  );
+  // The tabs are rendered inline in a map, so the gesture lives on the strip
+  // and each tab records itself on the way down. Pointer events reach the tab
+  // before the strip, so the ref is always the tab actually being pressed.
+  const pressedSurfaceRef = useRef<RightPanelSurface | null>(null);
+  const handleTabLongPress = useCallback(
+    (position: { readonly x: number; readonly y: number }) => {
+      const surface = pressedSurfaceRef.current;
+      if (!surface) return;
+      void openTabContextMenu(position, surface);
+    },
+    [openTabContextMenu],
+  );
+  const tabStripLongPress = useLongPressContextMenu(handleTabLongPress);
   const handleTabMouseDown = useCallback((event: ReactMouseEvent) => {
     if (event.button !== 1) return;
     event.preventDefault();
@@ -420,7 +439,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           className={cn("min-w-0 flex-1 rounded-none", ownsDesktopTitleBar && "drag-region")}
           data-right-panel-tab-list
         >
-          <div className="flex h-full w-max min-w-full items-center gap-1">
+          <div className="flex h-full w-max min-w-full items-center gap-1" {...tabStripLongPress}>
             {props.surfaces.map((surface) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
@@ -429,11 +448,15 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 <div
                   key={surface.id}
                   data-active-tab={active}
+                  style={LONG_PRESS_TARGET_STYLE}
+                  onPointerDown={() => {
+                    pressedSurfaceRef.current = surface;
+                  }}
                   onMouseDown={handleTabMouseDown}
                   onAuxClick={(event) => handleTabAuxClick(event, surface)}
-                  onContextMenu={(event) => void handleTabContextMenu(event, surface)}
+                  onContextMenu={(event) => handleTabContextMenu(event, surface)}
                   className={cn(
-                    "group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+                    "group/tab flex h-6 max-w-36 shrink-0 select-none items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
                     active
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
