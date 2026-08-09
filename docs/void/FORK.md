@@ -44,6 +44,21 @@ changes back upstream, so a linear history buys nothing.
 Sync weekly rather than monthly. Conflict cost grows faster than linearly with
 the size of the gap.
 
+### The custom sidebar is fork-owned
+
+Void's customized project/workspace sidebar is the default. Upstream's flat
+sidebar v2 is optional and must stay behind **Settings → Beta → Sidebar v2**.
+
+During an upstream sync, never resolve sidebar conflicts by accepting upstream's
+`Sidebar.tsx`, deleting the Beta toggle, or promoting sidebar v2 to the default.
+Preserve Void's `SidebarWorkspaceRow` and `workspaceSidebarStore` integration,
+including custom labels, Pinned, and recoverable Archived workspaces. Port useful
+upstream sidebar changes deliberately into `SidebarV2.tsx`; do not replace the
+custom layout wholesale.
+
+After resolving a sidebar sync, verify both choices still exist and that
+`sidebarV2Enabled` defaults to `false`.
+
 ## Branding is deliberately minimal
 
 The fork does **not** rename T3 Code to Void in code, docs, CLI output, dialogs

@@ -6,6 +6,7 @@ export type SettingsPath =
   | "/settings/providers"
   | "/settings/source-control"
   | "/settings/connections"
+  | "/settings/beta"
   | "/settings/archived";
 
 export interface SettingsSearchItem {
@@ -27,6 +28,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/providers": "Providers",
   "/settings/source-control": "Source Control",
   "/settings/connections": "Connections",
+  "/settings/beta": "Beta",
   "/settings/archived": "Archive",
 };
 
@@ -257,9 +259,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
-    id: "legacy-sidebar",
-    title: "Sidebar (legacy)",
-    to: "/settings/general",
+    id: "sidebar-v2",
+    title: "Sidebar v2",
+    to: "/settings/beta",
   },
   {
     id: "keybindings",

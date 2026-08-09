@@ -198,18 +198,15 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
 }
 
 /**
- * Whether the legacy sidebar (Settings → General → Legacy features) replaces
- * the default one.
+ * Whether the upstream sidebar v2 is explicitly enabled in Settings → Beta.
  *
- * Held at the default sidebar until client settings hydrate: the pre-hydration
- * snapshot is just the schema defaults, so resolving against it could mount one
- * sidebar and then swap it out once persisted settings land — remounting the
- * whole tree for everyone instead of only for legacy opt-ins.
+ * Held at Void's custom sidebar until client settings hydrate so a cold load
+ * cannot briefly replace it with v2 before the persisted preference arrives.
  */
-export function useLegacySidebarEnabled(): boolean {
+export function useSidebarV2Enabled(): boolean {
   const settingsHydrated = useClientSettingsHydrated();
-  const legacySidebarEnabled = useClientSettingsValue().legacySidebarEnabled;
-  return settingsHydrated && legacySidebarEnabled;
+  const sidebarV2Enabled = useClientSettingsValue().sidebarV2Enabled;
+  return settingsHydrated && sidebarV2Enabled;
 }
 
 /** Presentation of the sidebar provider usage meter. */
