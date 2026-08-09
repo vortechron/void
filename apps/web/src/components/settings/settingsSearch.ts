@@ -168,6 +168,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
+    id: "project-new-thread-workspace",
+    title: "Project new-thread workspace",
+    to: "/settings/general",
+  },
+  {
     id: "start-from-origin",
     title: "Start from origin",
     to: "/settings/general",

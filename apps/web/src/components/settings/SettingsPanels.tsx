@@ -140,6 +140,7 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { UsageMeterSettingsSection } from "./UsageMeterSettingsSection";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { ProjectWorkspaceDefaultsSettings } from "./ProjectWorkspaceDefaultsSettings";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -2015,6 +2016,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ProjectWorkspaceDefaultsSettings />
 
       <SettingsSection title="About">
         {isElectron || HOSTED_APP_CHANNEL ? (

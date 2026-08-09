@@ -12,6 +12,7 @@ import {
   ProjectId,
   ProjectPromptAction,
   ProjectScript,
+  ThreadEnvMode,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -25,6 +26,7 @@ export const ProjectionProject = Schema.Struct({
   title: Schema.String,
   workspaceRoot: Schema.String,
   defaultModelSelection: Schema.NullOr(ModelSelection),
+  defaultThreadEnvMode: Schema.NullOr(ThreadEnvMode),
   scripts: Schema.Array(ProjectScript),
   promptActions: Schema.optionalKey(Schema.Array(ProjectPromptAction)),
   createdAt: IsoDateTime,
