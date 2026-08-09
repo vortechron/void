@@ -7,12 +7,35 @@ import {
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  getRawLocalStorageItem,
+  LocalStorageOperationError,
+  setLocalStorageItem,
+  useLocalStorage,
+} from "./hooks/useLocalStorage";
 import { useCallback, useMemo } from "react";
 import { shellEnvironment } from "./state/shell";
 import { useAtomCommand } from "./state/use-atom-command";
 
 const LAST_EDITOR_KEY = "t3code:last-editor";
+const isEditorId = Schema.is(EditorId);
+const isLocalStorageOperationError = Schema.is(LocalStorageOperationError);
+
+function getStoredEditor(): EditorId | null {
+  try {
+    return getLocalStorageItem(LAST_EDITOR_KEY, EditorId);
+  } catch (error) {
+    if (!isLocalStorageOperationError(error) || error.operation !== "decode") {
+      throw error;
+    }
+  }
+
+  const legacyEditor = getRawLocalStorageItem(LAST_EDITOR_KEY);
+  if (!isEditorId(legacyEditor)) return null;
+  setLocalStorageItem(LAST_EDITOR_KEY, legacyEditor, EditorId);
+  return legacyEditor;
+}
 
 export class PreferredEditorEnvironmentRequiredError extends Schema.TaggedErrorClass<PreferredEditorEnvironmentRequiredError>()(
   "PreferredEditorEnvironmentRequiredError",
@@ -53,7 +76,7 @@ export function resolveAndPersistPreferredEditor(
   availableEditors: readonly EditorId[],
 ): EditorId | null {
   const availableEditorIds = new Set(availableEditors);
-  const stored = getLocalStorageItem(LAST_EDITOR_KEY, EditorId);
+  const stored = getStoredEditor();
   if (stored && availableEditorIds.has(stored)) return stored;
   const editor = EDITORS.find((editor) => availableEditorIds.has(editor.id))?.id ?? null;
   if (editor) setLocalStorageItem(LAST_EDITOR_KEY, editor, EditorId);
@@ -72,6 +95,7 @@ export function useOpenInPreferredEditor(
   return useCallback(
     async (
       targetPath: string,
+      options?: { readonly activate?: boolean },
     ): Promise<
       AtomCommandResult<
         EditorId,
@@ -106,6 +130,7 @@ export function useOpenInPreferredEditor(
         input: {
           cwd: targetPath,
           editor,
+          activate: options?.activate,
         },
       });
       return mapAtomCommandResult(result, () => editor);

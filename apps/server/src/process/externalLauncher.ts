@@ -51,6 +51,7 @@ interface EditorLaunch {
   readonly target: string;
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+  readonly activation: Option.Option<ProcessLaunch>;
 }
 
 interface ProcessLaunch {
@@ -380,6 +381,14 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
         input.cwd,
         Option.isSome(targetInfo) && targetInfo.value.type === "Directory",
       ),
+      activation:
+        input.activate === true && platform === "darwin" && "macAppName" in editorDef
+          ? Option.some({
+              command: "open",
+              args: ["-a", editorDef.macAppName],
+              options: DETACHED_IGNORE_STDIO_OPTIONS,
+            })
+          : Option.none(),
     };
   }
 
@@ -392,6 +401,7 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
     target: input.cwd,
     command: fileManagerCommandForPlatform(platform),
     args: [input.cwd],
+    activation: Option.none(),
   };
 });
 
@@ -463,6 +473,21 @@ const launchEditorProcess = Effect.fn("externalLauncher.launchEditorProcess")(fu
         cause,
       }),
   );
+
+  if (Option.isSome(launch.activation)) {
+    const activation = launch.activation.value;
+    yield* launchAndUnref(
+      activation,
+      (cause) =>
+        new ExternalLauncherEditorSpawnError({
+          editor: launch.editor,
+          target: launch.target,
+          command: activation.command,
+          args: activation.args,
+          cause,
+        }),
+    );
+  }
 });
 
 export const make = Effect.gen(function* () {

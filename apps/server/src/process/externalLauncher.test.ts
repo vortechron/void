@@ -166,6 +166,44 @@ it.effect("opens VS Code workspace directories in a new window", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+it.effect("activates VS Code after opening a file when requested", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+    const filePath = path.join(binDir, "SKILL.md");
+    const codePath = path.join(binDir, "code");
+    yield* fileSystem.writeFileString(filePath, "# Skill\n");
+    yield* fileSystem.writeFileString(codePath, "#!/bin/sh\n");
+    yield* fileSystem.chmod(codePath, 0o755);
+
+    const spawned: ChildProcess.StandardCommand[] = [];
+    yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      yield* launcher.launchEditor({
+        editor: "vscode",
+        cwd: `${filePath}:11`,
+        activate: true,
+      });
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "darwin",
+          env: { PATH: binDir },
+          onSpawn: (command) => {
+            spawned.push(command);
+          },
+        }),
+      ),
+    );
+
+    assert.equal(spawned.length, 2);
+    assert.deepEqual(spawned[0]?.args, ["--goto", `${filePath}:11`]);
+    assert.equal(spawned[1]?.command, "open");
+    assert.deepEqual(spawned[1]?.args, ["-a", "Visual Studio Code"]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 it.effect("discovers editors through the service API", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
