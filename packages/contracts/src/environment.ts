@@ -47,6 +47,10 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server understands thread.snooze / thread.unsnooze commands. Same
       version-skew contract as threadSettlement. */
   threadSnooze: Schema.optionalKey(Schema.Boolean),
+  /** Kept in the wire schema for upstream compatibility. Void does not
+      advertise these capabilities, so clients keep pinning hidden. */
+  threadPinning: Schema.optionalKey(Schema.Boolean),
+  threadPinReorder: Schema.optionalKey(Schema.Boolean),
   /** Server understands regenerateTitle on thread.meta.update. Absent on
       older servers, so clients hide the action instead of sending it. */
   threadTitleRegeneration: Schema.optionalKey(Schema.Boolean),

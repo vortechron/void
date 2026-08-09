@@ -16,7 +16,7 @@
  * access is intentionally named as such so environment-sensitive consumers
  * cannot silently read the wrong server's settings.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -36,13 +36,17 @@ import {
   type UsageMeterSettings,
   type VoiceDictationSettings,
 } from "@t3tools/contracts/settings";
-import { APP_STAGE_LABEL } from "~/branding";
-import { resolveSidebarV2Enabled } from "~/branding.logic";
 import {
   clearBrowserClientSettings,
   readBrowserClientSettings,
   readBrowserThemePreference,
 } from "~/clientPersistenceStorage";
+import {
+  getThemeDefinition,
+  getThemePreviewSidebarArtwork,
+  resolveThemeHalf,
+  subscribeToThemePreview,
+} from "~/themePalette";
 import * as Struct from "effect/Struct";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import {
@@ -52,6 +56,7 @@ import {
 } from "~/state/server";
 import { usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { useTheme } from "./useTheme";
 
 type UnifiedSettingsPatch = ServerSettingsPatch & ClientSettingsPatch;
 
@@ -160,41 +165,51 @@ export function useClientSettings<T = ClientSettings>(
 export function resolveEnvironmentIdentificationMode(input: {
   mode: EnvironmentIdentificationMode;
   settingsHydrated: boolean;
+  paletteThemeActive?: boolean;
+  paletteThemeAllowsArtwork?: boolean;
 }): EnvironmentIdentificationMode {
   // Avoid briefly rendering the default artwork before a persisted pill/none choice loads.
-  return input.settingsHydrated ? input.mode : "none";
+  if (!input.settingsHydrated) return "none";
+  // Stage artwork has fixed colors that can clash with palette themes. Keep an
+  // explicit "none", but use the theme-aware pill in place of artwork.
+  return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && input.mode === "artwork"
+    ? "pill"
+    : input.mode;
 }
 
 export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMode {
   const settingsHydrated = useClientSettingsHydrated();
   const mode = useClientSettingsValue().environmentIdentificationMode;
-  return resolveEnvironmentIdentificationMode({ mode, settingsHydrated });
+  const { resolvedTheme, theme, themeHalves } = useTheme();
+  const previewSidebarArtwork = useSyncExternalStore(
+    subscribeToThemePreview,
+    getThemePreviewSidebarArtwork,
+    () => null,
+  );
+  const activeTheme = resolveThemeHalf(theme, themeHalves, resolvedTheme);
+  const activeThemeDefinition = getThemeDefinition(activeTheme);
+  return resolveEnvironmentIdentificationMode({
+    mode,
+    settingsHydrated,
+    paletteThemeActive: previewSidebarArtwork !== null || activeThemeDefinition !== null,
+    paletteThemeAllowsArtwork:
+      previewSidebarArtwork ?? activeThemeDefinition?.sidebarArtwork === true,
+  });
 }
 
 /**
- * Resolved sidebar v2 state: an explicit choice in Settings → Beta if the user
- * has made one, otherwise the default for this build stage (on for nightly and
- * dev, off for production). Every consumer must read through this rather than
- * `settings.sidebarV2Enabled`, which is only meaningful alongside
- * `sidebarV2ConfiguredByUser`.
+ * Whether the legacy sidebar (Settings → General → Legacy features) replaces
+ * the default one.
  *
- * Held at v1 until client settings hydrate. The pre-hydration snapshot is just
- * the schema defaults, so resolving against it would mount one sidebar and then
- * swap it out once persisted settings land — remounting the whole tree.
+ * Held at the default sidebar until client settings hydrate: the pre-hydration
+ * snapshot is just the schema defaults, so resolving against it could mount one
+ * sidebar and then swap it out once persisted settings land — remounting the
+ * whole tree for everyone instead of only for legacy opt-ins.
  */
-export function useSidebarV2Enabled(): boolean {
+export function useLegacySidebarEnabled(): boolean {
   const settingsHydrated = useClientSettingsHydrated();
-  const settings = useClientSettingsValue();
-  return useMemo(
-    () =>
-      resolveSidebarV2Enabled({
-        enabled: settings.sidebarV2Enabled,
-        configuredByUser: settings.sidebarV2ConfiguredByUser,
-        settingsHydrated,
-        stageLabel: APP_STAGE_LABEL,
-      }),
-    [settings.sidebarV2Enabled, settings.sidebarV2ConfiguredByUser, settingsHydrated],
-  );
+  const legacySidebarEnabled = useClientSettingsValue().legacySidebarEnabled;
+  return settingsHydrated && legacySidebarEnabled;
 }
 
 /** Presentation of the sidebar provider usage meter. */

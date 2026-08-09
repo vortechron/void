@@ -71,6 +71,9 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.connectionProbe).toBe(true);
       expect(second.capabilities.threadTitleRegeneration).toBe(true);
       expect(second.capabilities.projectPromptActions).toBe(true);
+      expect(second.capabilities.globalActions).toBe(true);
+      expect(second.capabilities.threadPinning).toBeUndefined();
+      expect(second.capabilities.threadPinReorder).toBeUndefined();
     }),
   );
 

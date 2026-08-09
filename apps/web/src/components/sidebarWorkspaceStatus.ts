@@ -1,10 +1,10 @@
 import {
-  resolveSidebarV2Status,
+  resolveSidebarThreadStatus,
   resolveThreadStatusPill,
-  type SidebarV2Status,
+  type SidebarThreadStatus,
 } from "./Sidebar.logic";
 
-export type ThreadAttentionStatus = SidebarV2Status | "plan" | "completed";
+export type ThreadAttentionStatus = SidebarThreadStatus | "plan" | "completed";
 type ThreadAttentionInput = Parameters<typeof resolveThreadStatusPill>[0]["thread"];
 
 // Monitoring sits just above `ready`: it is calm background presence, not
@@ -21,7 +21,7 @@ const WORKSPACE_STATUS_PRIORITY: Record<ThreadAttentionStatus, number> = {
 };
 
 export function resolveThreadAttentionStatus(thread: ThreadAttentionInput): ThreadAttentionStatus {
-  const liveStatus = resolveSidebarV2Status(thread);
+  const liveStatus = resolveSidebarThreadStatus(thread);
   if (liveStatus !== "ready") return liveStatus;
 
   switch (resolveThreadStatusPill({ thread })?.label) {
