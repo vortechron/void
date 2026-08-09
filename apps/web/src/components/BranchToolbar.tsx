@@ -9,7 +9,7 @@ import {
   HistoryIcon,
   MonitorIcon,
 } from "lucide-react";
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { useProject, useThread, useThreadShellsForProjectRefs } from "../state/entities";
@@ -44,6 +44,7 @@ import { Separator } from "./ui/separator";
 interface BranchToolbarProps {
   environmentId: EnvironmentId;
   threadId: ThreadId;
+  showGitControls: boolean;
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   effectiveEnvModeOverride?: EnvMode;
@@ -125,7 +126,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
 
   if (isLocked) {
     return (
-      <span className="inline-flex min-w-0 max-w-[48%] flex-1 items-center justify-start gap-1 rounded-md border border-transparent px-[calc(--spacing(2)-1px)] text-sm font-medium text-muted-foreground/70 md:hidden">
+      <span className="inline-flex h-7 min-w-0 max-w-[48%] flex-1 items-center justify-start gap-1 rounded-md border border-transparent px-[calc(--spacing(2)-1px)] text-sm font-medium text-muted-foreground/70 sm:h-6 md:hidden">
         {triggerContent}
       </span>
     );
@@ -214,9 +215,78 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   );
 });
 
+const COMPACT_EXPAND_HYSTERESIS_PX = 16;
+
+function useLabelsOverflow(element: HTMLDivElement | null): boolean {
+  const [overflows, setOverflows] = useState(false);
+  const stateRef = useRef({ element, overflows });
+  stateRef.current = { element, overflows };
+
+  const measure = useCallback(() => {
+    const { element: current, overflows: compact } = stateRef.current;
+    if (!current || current.clientWidth === 0) return;
+
+    const contentWidth = (parent: Element): number => {
+      const gap = Number.parseFloat(getComputedStyle(parent).columnGap) || 0;
+      let width = 0;
+      let counted = 0;
+      for (const child of parent.children) {
+        if (!(child instanceof HTMLElement) || child.offsetWidth <= 1) continue;
+        const position = getComputedStyle(child).position;
+        if (position === "absolute" || position === "fixed") continue;
+        width += child.offsetWidth;
+        counted += 1;
+      }
+      return width + gap * Math.max(0, counted - 1);
+    };
+
+    const stripGap = Number.parseFloat(getComputedStyle(current).columnGap) || 0;
+    let needed = 0;
+    let groups = 0;
+    for (const child of current.children) {
+      if (!(child instanceof HTMLElement) || child.offsetWidth <= 1) continue;
+      needed += contentWidth(child);
+      groups += 1;
+    }
+    needed += stripGap * Math.max(0, groups - 1);
+
+    for (const label of current.querySelectorAll<HTMLElement>("[data-composer-label]")) {
+      let textWidth = label.scrollWidth;
+      for (const inner of label.querySelectorAll<HTMLElement>("*")) {
+        textWidth = Math.max(textWidth, inner.scrollWidth);
+      }
+      needed += compact ? textWidth : Math.max(0, textWidth - label.clientWidth);
+    }
+
+    setOverflows(
+      compact
+        ? needed > current.clientWidth - COMPACT_EXPAND_HYSTERESIS_PX
+        : needed > current.clientWidth,
+    );
+  }, []);
+
+  useEffect(() => {
+    measure();
+  });
+
+  useEffect(() => {
+    if (!element) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    document.fonts.addEventListener("loadingdone", measure);
+    return () => {
+      observer.disconnect();
+      document.fonts.removeEventListener("loadingdone", measure);
+    };
+  }, [element, measure]);
+
+  return overflows;
+}
+
 export const BranchToolbar = memo(function BranchToolbar({
   environmentId,
   threadId,
+  showGitControls,
   draftId,
   onEnvModeChange,
   effectiveEnvModeOverride,
@@ -300,12 +370,18 @@ export const BranchToolbar = memo(function BranchToolbar({
     canPickEnvironment: showEnvironmentPicker,
   });
   const isMobile = useIsMobile();
+  const [stripElement, setStripElement] = useState<HTMLDivElement | null>(null);
+  const labelsOverflow = useLabelsOverflow(stripElement);
 
   if (!hasActiveThread || !activeProject) return null;
 
   return (
-    <div className="chat-composer-context-strip -mt-4 mx-auto flex items-center gap-2 ps-1 pe-2 pt-5 pb-1">
-      {isMobile ? (
+    <div
+      ref={setStripElement}
+      data-compact={labelsOverflow ? "" : undefined}
+      className="chat-composer-context-strip group/composer-context -mt-4 mx-auto flex w-[calc(100%-2.75rem)] max-w-[calc(48rem-2.75rem)] items-center gap-2 ps-1 pe-2 pt-5 pb-1"
+    >
+      {isMobile && showGitControls ? (
         <MobileRunContextSelector
           envLocked={envLocked}
           envModeLocked={envModeLocked}
@@ -330,34 +406,40 @@ export const BranchToolbar = memo(function BranchToolbar({
                 availableEnvironments={availableEnvironments}
                 {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
               />
-              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+              {showGitControls ? (
+                <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+              ) : null}
             </>
           )}
-          <BranchToolbarEnvModeSelector
-            envLocked={envModeLocked}
-            effectiveEnvMode={effectiveEnvMode}
-            activeWorktreePath={activeWorktreePath}
-            onEnvModeChange={onEnvModeChange}
-            previousWorktreeLabel={previousWorktreeLabel}
-            onUsePreviousWorktree={onUsePreviousWorktree}
-          />
+          {showGitControls ? (
+            <BranchToolbarEnvModeSelector
+              envLocked={envModeLocked}
+              effectiveEnvMode={effectiveEnvMode}
+              activeWorktreePath={activeWorktreePath}
+              onEnvModeChange={onEnvModeChange}
+              previousWorktreeLabel={previousWorktreeLabel}
+              onUsePreviousWorktree={onUsePreviousWorktree}
+            />
+          ) : null}
         </div>
       )}
 
-      <BranchToolbarBranchSelector
-        className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"
-        environmentId={environmentId}
-        threadId={threadId}
-        {...(draftId ? { draftId } : {})}
-        envLocked={envLocked}
-        {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
-        {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
-        {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
-        startFromOrigin={startFromOrigin}
-        onStartFromOriginChange={onStartFromOriginChange}
-        {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
-        {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
-      />
+      {showGitControls ? (
+        <BranchToolbarBranchSelector
+          className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"
+          environmentId={environmentId}
+          threadId={threadId}
+          {...(draftId ? { draftId } : {})}
+          envLocked={envLocked}
+          {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
+          {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
+          {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+          startFromOrigin={startFromOrigin}
+          onStartFromOriginChange={onStartFromOriginChange}
+          {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      ) : null}
     </div>
   );
 });

@@ -70,6 +70,18 @@ describe("theme failure handling", () => {
     }
   });
 
+  it("reads the persisted T3 Chat theme preference", async () => {
+    vi.stubGlobal("window", {
+      localStorage: createStorage({
+        getItem: () => "t3-chat",
+      }),
+    });
+
+    const { readThemePreference } = await import("./useTheme");
+
+    expect(readThemePreference()).toBe("t3-chat");
+  });
+
   it("falls back during initial theme application and logs only safe attributes", async () => {
     const cause = new Error("private browsing storage failure");
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -104,9 +116,10 @@ describe("theme failure handling", () => {
 
   it("retries a failed storage read only after a relevant storage event", async () => {
     const cause = new Error("persistent storage failure");
-    const getItem = vi.fn(() => {
+    const themeGetItem = vi.fn((): string | null => {
       throw cause;
     });
+    const getItem = vi.fn((key: string) => (key === "t3code:theme" ? themeGetItem() : null));
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     let readSnapshot: (() => unknown) | undefined;
     let subscribeToTheme: ((listener: () => void) => () => void) | undefined;
@@ -141,14 +154,14 @@ describe("theme failure handling", () => {
     readSnapshot?.();
     readSnapshot?.();
 
-    expect(getItem).toHaveBeenCalledTimes(1);
+    expect(themeGetItem).toHaveBeenCalledTimes(1);
     expect(errorLog).toHaveBeenCalledTimes(1);
 
     const unsubscribe = subscribeToTheme?.(() => undefined);
     storageHandler?.({ key: "t3code:theme" } as StorageEvent);
     readSnapshot?.();
 
-    expect(getItem).toHaveBeenCalledTimes(2);
+    expect(themeGetItem).toHaveBeenCalledTimes(2);
     expect(errorLog).toHaveBeenCalledTimes(2);
     unsubscribe?.();
   });
@@ -189,30 +202,5 @@ describe("theme failure handling", () => {
       expect(attributes).not.toHaveProperty("cause");
       expect(JSON.stringify(attributes)).not.toContain(cause.message);
     }
-  });
-
-  it("accepts named themes and maps them to the desktop shell color scheme", async () => {
-    const storage = createStorage();
-    storage.setItem("t3code:theme", "tokyo-night");
-    vi.stubGlobal("window", {
-      localStorage: storage,
-      matchMedia: () => ({ matches: false }),
-    });
-    vi.stubGlobal("document", {
-      documentElement: {
-        classList: { add: vi.fn(), remove: vi.fn(), toggle: vi.fn() },
-        setAttribute: vi.fn(),
-      },
-    });
-
-    const { readThemePreference, syncDesktopThemePreference } = await import("./useTheme");
-    const setTheme = vi.fn().mockResolvedValue(undefined);
-
-    expect(readThemePreference()).toBe("tokyo-night");
-    await syncDesktopThemePreference({ setTheme }, "catppuccin-latte");
-    await syncDesktopThemePreference({ setTheme }, "tokyo-night");
-
-    expect(setTheme).toHaveBeenNthCalledWith(1, "light");
-    expect(setTheme).toHaveBeenNthCalledWith(2, "dark");
   });
 });

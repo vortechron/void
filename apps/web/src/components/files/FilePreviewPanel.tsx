@@ -24,7 +24,11 @@ import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import type { CodeTheme } from "@t3tools/contracts/settings";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
-import { resolveDiffThemeName, resolveDiffThemeType } from "~/lib/diffRendering";
+import {
+  DIFF_SURFACE_THEME_UNSAFE_CSS,
+  resolveDiffThemeName,
+  resolveDiffThemeType,
+} from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { resolvePathLinkTarget } from "~/terminal-links";
@@ -85,6 +89,16 @@ const RENDER_MARKDOWN_STORAGE_KEY = "t3code.renderMarkdown";
 const FILE_SAVE_DEBOUNCE_MS = 500;
 const FILE_LINK_REVEAL_ATTRIBUTE = "data-file-link-reveal";
 const FILE_LINK_REVEAL_UNSAFE_CSS = `
+  ${DIFF_SURFACE_THEME_UNSAFE_CSS}
+
+  diffs-container {
+    --diffs-bg: var(--code-background, var(--background)) !important;
+    --diffs-light-bg: var(--code-background, var(--background)) !important;
+    --diffs-dark-bg: var(--code-background, var(--background)) !important;
+    background-color: var(--code-background, var(--background)) !important;
+    color: var(--code-foreground, var(--foreground)) !important;
+  }
+
   [${FILE_LINK_REVEAL_ATTRIBUTE}][data-line] {
     background-color: light-dark(
       color-mix(
@@ -964,7 +978,7 @@ export default function FilePreviewPanel({
         </div>
       ) : null}
       {relativePath && file.data?.truncated ? (
-        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/8 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+        <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-[11px] text-warning-foreground">
           Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
         </div>
       ) : null}
