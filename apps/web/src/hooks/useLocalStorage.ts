@@ -40,6 +40,8 @@ const read = (key: string) => {
   }
 };
 
+export const getRawLocalStorageItem = read;
+
 const decode = <T, E>(key: string, schema: Schema.Codec<T, E>, value: string) => {
   try {
     return Schema.decodeSync(Schema.fromJsonString(schema))(value);

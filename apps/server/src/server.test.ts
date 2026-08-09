@@ -32,7 +32,7 @@ import {
   ThreadId,
   WS_METHODS,
   WsRpcGroup,
-  EditorId,
+  type LaunchEditorInput,
 } from "@t3tools/contracts";
 import {
   computeDpopAccessTokenHash,
@@ -5079,7 +5079,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc shell.openInEditor", () =>
     Effect.gen(function* () {
-      let openedInput: { cwd: string; editor: EditorId } | null = null;
+      let openedInput: LaunchEditorInput | null = null;
       yield* buildAppUnderTest({
         layers: {
           externalLauncher: {
@@ -5097,11 +5097,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           client[WS_METHODS.shellOpenInEditor]({
             cwd: "/tmp/project",
             editor: "cursor",
+            activate: true,
           }),
         ),
       );
 
-      assert.deepEqual(openedInput, { cwd: "/tmp/project", editor: "cursor" });
+      assert.deepEqual(openedInput, {
+        cwd: "/tmp/project",
+        editor: "cursor",
+        activate: true,
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

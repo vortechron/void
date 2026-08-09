@@ -743,7 +743,10 @@ interface MarkdownFileLinkProps {
   copyMarkdown: string;
   theme: "light" | "dark";
   threadRef?: ScopedThreadRef | undefined;
-  onOpen: (targetPath: string) => Promise<AtomCommandResult<unknown, unknown>>;
+  onOpen: (
+    targetPath: string,
+    options?: { readonly activate?: boolean },
+  ) => Promise<AtomCommandResult<unknown, unknown>>;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   className?: string | undefined;
 }
@@ -1033,7 +1036,9 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   const handleOpenInEditor = useCallback(() => {
     void (async () => {
       try {
-        const result = await onOpen(targetPath);
+        const result = await onOpen(targetPath, {
+          activate: workspaceRelativePath === null,
+        });
         if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
           return;
         }
@@ -1063,7 +1068,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         );
       }
     })();
-  }, [onOpen, targetPath]);
+  }, [onOpen, targetPath, workspaceRelativePath]);
 
   const handleOpenInFilePreview = useCallback(() => {
     if (!threadRef || !workspaceRelativePath) {

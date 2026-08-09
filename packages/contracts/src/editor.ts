@@ -10,6 +10,7 @@ type EditorDefinition = {
   readonly commands: readonly [string, ...string[]] | null;
   readonly baseArgs?: readonly string[];
   readonly folderArgs?: readonly string[];
+  readonly macAppName?: string;
   readonly launchStyle: EditorLaunchStyle;
 };
 
@@ -22,6 +23,7 @@ export const EDITORS = [
     label: "VS Code",
     commands: ["code"],
     folderArgs: ["--new-window"],
+    macAppName: "Visual Studio Code",
     launchStyle: "goto",
   },
   {
@@ -54,6 +56,7 @@ export type EditorId = typeof EditorId.Type;
 export const LaunchEditorInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   editor: EditorId,
+  activate: Schema.optional(Schema.Boolean),
 });
 export type LaunchEditorInput = typeof LaunchEditorInput.Type;
 
