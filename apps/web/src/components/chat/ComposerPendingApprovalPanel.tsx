@@ -24,14 +24,21 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
         : "File change";
 
   return (
-    <div className="px-4 py-3.5 sm:px-5 sm:py-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="uppercase text-sm tracking-[0.2em]">PENDING APPROVAL</span>
-        <span className="text-sm font-medium">{approvalSummary}</span>
+    <div
+      className="px-4 py-3.5 sm:px-5 sm:py-4 motion-reduce:!animate-none"
+      style={{ animation: "fade-up 320ms cubic-bezier(0.23,1,0.32,1) both" }}
+    >
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="text-secondary-label text-[11px] font-medium tracking-widest uppercase">
+          Pending approval
+        </span>
         {pendingCount > 1 ? (
-          <span className="text-xs text-muted-foreground">1/{pendingCount}</span>
+          <span className="flex h-5 items-center rounded-md bg-muted/60 px-1.5 text-secondary-label text-[10px] font-medium tabular-nums">
+            1/{pendingCount}
+          </span>
         ) : null}
       </div>
+      <p className="mt-1.5 text-sm font-semibold text-foreground">{approvalSummary}</p>
       {approval.detail ? (
         <div className="mt-3 rounded-lg border border-border/65 bg-background/70 p-3">
           <p className="text-xs font-medium text-muted-foreground">{detailLabel}</p>

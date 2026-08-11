@@ -35,6 +35,8 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "../ui/sidebar";
+import { GlidingHighlight } from "../beautiful/GlidingHighlight";
+import { useGlidingHighlight } from "../beautiful/useGlidingHighlight";
 import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3ConnectSidebarSignIn";
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
@@ -84,6 +86,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const results = useMemo(() => searchSettings(query), [query]);
   const isSearching = query.trim().length > 0;
   const hasResults = results.length > 0;
+  // Rests on the current section; follows the pointer while the list is hovered.
+  const highlight = useGlidingHighlight(isSearching ? null : pathname);
 
   useEffect(() => {
     const result = results[activeResultIndex];
@@ -249,54 +253,63 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               No settings found
             </p>
           ) : null}
-          <SidebarMenu
-            className="ps-px"
-            id={isSearching && hasResults ? "settings-search-results" : undefined}
-            role={isSearching && hasResults ? "listbox" : undefined}
-            aria-label={isSearching && hasResults ? "Settings search results" : undefined}
-          >
-            {isSearching
-              ? results.map((item, index) => (
-                  <SidebarMenuItem key={item.id} role="presentation">
-                    <SidebarMenuButton
-                      id={`settings-search-result-${item.id}`}
-                      role="option"
-                      aria-selected={index === activeResultIndex}
-                      tabIndex={-1}
-                      size="sm"
-                      isActive={index === activeResultIndex}
-                      className="h-auto min-h-10 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                      onMouseMove={() => setActiveResultIndex(index)}
-                      onClick={() => handleSearchResultClick(item)}
-                    >
-                      <SettingsSectionIcon to={item.to} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-sidebar-foreground">
-                          {item.title}
-                        </span>
-                        <span className="block truncate text-[11px] text-sidebar-muted-foreground/75">
-                          {SETTINGS_SECTION_LABELS[item.to]}
-                        </span>
-                      </span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))
-              : SETTINGS_NAV_ITEMS.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = pathname === item.to;
-                  return (
-                    <SidebarMenuItem key={item.to}>
+          <div className="relative" {...highlight.containerProps}>
+            {isSearching ? null : (
+              <GlidingHighlight box={highlight.box} className="bg-sidebar-row-hover" />
+            )}
+            <SidebarMenu
+              className="ps-px"
+              id={isSearching && hasResults ? "settings-search-results" : undefined}
+              role={isSearching && hasResults ? "listbox" : undefined}
+              aria-label={isSearching && hasResults ? "Settings search results" : undefined}
+            >
+              {isSearching
+                ? results.map((item, index) => (
+                    <SidebarMenuItem key={item.id} role="presentation">
                       <SidebarMenuButton
-                        isActive={isActive}
-                        onClick={() => handleSectionClick(item.to)}
+                        id={`settings-search-result-${item.id}`}
+                        role="option"
+                        aria-selected={index === activeResultIndex}
+                        tabIndex={-1}
+                        size="sm"
+                        isActive={index === activeResultIndex}
+                        className="h-auto min-h-10 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                        onMouseMove={() => setActiveResultIndex(index)}
+                        onClick={() => handleSearchResultClick(item)}
                       >
-                        <Icon />
-                        <span className="truncate">{item.label}</span>
+                        <SettingsSectionIcon to={item.to} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-sidebar-foreground">
+                            {item.title}
+                          </span>
+                          <span className="block truncate text-[11px] text-sidebar-muted-foreground/75">
+                            {SETTINGS_SECTION_LABELS[item.to]}
+                          </span>
+                        </span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
-                  );
-                })}
-          </SidebarMenu>
+                  ))
+                : SETTINGS_NAV_ITEMS.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = pathname === item.to;
+                    return (
+                      <SidebarMenuItem key={item.to} {...highlight.itemProps(item.to)}>
+                        <SidebarMenuButton
+                          isActive={isActive}
+                          onClick={() => handleSectionClick(item.to)}
+                          // The travelling pill behind the list is the hover and
+                          // selection affordance, so the row draws no background
+                          // of its own — two highlights would fight.
+                          className="relative bg-transparent! hover:bg-transparent"
+                        >
+                          <Icon />
+                          <span className="truncate">{item.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+            </SidebarMenu>
+          </div>
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-[var(--sidebar-content-inset)]">

@@ -5,8 +5,8 @@ import {
   derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
-import { CheckIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { ChoiceIndicator } from "../beautiful/ChoiceIndicator";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -187,15 +187,17 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           );
           const content = (
             <>
+              <ChoiceIndicator
+                selected={isSelected}
+                multiSelect={activeQuestion.multiSelect ?? false}
+              />
               <div className="min-w-0 flex-1 flex flex-col gap-0.5">
                 <span className="text-sm font-medium">{option.label}</span>
                 {option.description && option.description !== option.label ? (
                   <span className="text-secondary-label text-xs">{option.description}</span>
                 ) : null}
               </div>
-              {isSelected ? (
-                <CheckIcon className="size-3.5 shrink-0 text-primary" />
-              ) : shortcutKey !== null ? (
+              {!isSelected && shortcutKey !== null ? (
                 <kbd
                   className={cn(
                     "flex size-5 shrink-0 items-center justify-center rounded border border-border/50 text-[11px] font-medium tabular-nums transition-colors duration-150",
@@ -215,7 +217,12 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
               onClick={() => {
                 handleOptionSelection(activeQuestion.id, option.label);
               }}
-              className={className}
+              className={cn(className, "motion-reduce:!animate-none")}
+              // Options ladder in rather than appearing at once, so moving to
+              // the next question reads as a new set arriving.
+              style={{
+                animation: `fade-up 320ms cubic-bezier(0.23,1,0.32,1) ${index * 45}ms both`,
+              }}
             >
               {content}
             </button>

@@ -4,12 +4,13 @@ import { describe, expect, it } from "vite-plus/test";
 import { SidebarWorkspaceStatusIcon } from "./SidebarWorkspaceStatusIcon";
 
 describe("SidebarWorkspaceStatusIcon", () => {
-  it("renders the Loading UI diamond for a working workspace", () => {
+  it("renders the pixel-grid loader for a working workspace", () => {
     const markup = renderToStaticMarkup(<SidebarWorkspaceStatusIcon status="working" />);
 
     expect(markup).toContain('aria-label="Working"');
-    expect(markup.match(/<rect/g)).toHaveLength(8);
-    expect(markup).toContain("spin-pixel");
+    expect(markup).toContain('role="status"');
+    // Nine cells drive the wavefront; the centre column is what reads as motion.
+    expect(markup.match(/pixel-on/g)).toHaveLength(9);
   });
 
   it.each([

@@ -23,6 +23,8 @@ import {
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 import { SidebarUsageMeters } from "./SidebarUsageMeters";
+import { GlidingHighlight } from "../beautiful/GlidingHighlight";
+import { useGlidingHighlight } from "../beautiful/useGlidingHighlight";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -140,25 +142,40 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     void navigate({ to: "/usage" });
   }, [isMobile, navigate, setOpenMobile]);
 
+  // No resting row here — neither destination is a section of the sidebar, so
+  // the pill only appears while the pointer is over the menu.
+  const highlight = useGlidingHighlight(null);
+
   return (
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
       <SidebarProviderUpdatePill />
       <SidebarUpdatePill />
       <SidebarUsageMeters />
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton onClick={handleUsageClick}>
-            <ChartNoAxesColumnIcon />
-            <span>Usage</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton onClick={handleSettingsClick}>
-            <SettingsIcon />
-            <span>Settings</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
+      {/* One highlight travels between the rows; the rows themselves stay flat
+          so the two do not stack into a double background. */}
+      <div className="relative" {...highlight.containerProps}>
+        <GlidingHighlight box={highlight.box} className="bg-sidebar-row-hover" />
+        <SidebarMenu>
+          <SidebarMenuItem {...highlight.itemProps("usage")}>
+            <SidebarMenuButton
+              onClick={handleUsageClick}
+              className="relative bg-transparent! hover:bg-transparent"
+            >
+              <ChartNoAxesColumnIcon />
+              <span>Usage</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem {...highlight.itemProps("settings")}>
+            <SidebarMenuButton
+              onClick={handleSettingsClick}
+              className="relative bg-transparent! hover:bg-transparent"
+            >
+              <SettingsIcon />
+              <span>Settings</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </div>
     </SidebarFooter>
   );
 });

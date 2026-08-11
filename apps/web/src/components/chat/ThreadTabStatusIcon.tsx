@@ -6,17 +6,20 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 
-import { Diamond } from "../loading-ui/diamond";
+import { PixelGridLoader } from "../beautiful/PixelGridLoader";
 import type { ThreadAttentionStatus } from "../sidebarWorkspaceStatus";
 
 export function ThreadTabStatusIcon({ status }: { readonly status: ThreadAttentionStatus }) {
   switch (status) {
     case "working":
       return (
-        <Diamond
+        <span
+          role="status"
           aria-label="Working"
-          className="size-3.5 shrink-0 text-sky-600 dark:text-sky-300"
-        />
+          className="flex size-4 shrink-0 items-center justify-center text-sky-600 dark:text-sky-300"
+        >
+          <PixelGridLoader />
+        </span>
       );
     case "approval":
       return (
