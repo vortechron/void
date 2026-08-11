@@ -91,6 +91,16 @@ const dayMonthYearFormatter = new Intl.DateTimeFormat(undefined, {
   year: "numeric",
 });
 
+const dayMonthFormatter = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+});
+
+function toValidDate(value: Date | string): Date | null {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 const timeFormatterCache = new Map<TimestampFormat, Intl.DateTimeFormat>();
 
 function getTimeFormatter(timestampFormat: TimestampFormat): Intl.DateTimeFormat {
@@ -107,9 +117,18 @@ function getTimeFormatter(timestampFormat: TimestampFormat): Intl.DateTimeFormat
 
 /** `6 Aug 2026 16:29` — dense enough for a table column, still unambiguous. */
 export function formatCommitDate(value: Date | string, timestampFormat: TimestampFormat): string {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = toValidDate(value);
+  if (!date) return "";
   return `${dayMonthYearFormatter.format(date)} ${getTimeFormatter(timestampFormat).format(date)}`;
+}
+
+/**
+ * `6 Aug` — what the Date column falls back to once the panel is too narrow to
+ * carry the year and time without squeezing the subject out of the row.
+ */
+export function formatCommitDateShort(value: Date | string): string {
+  const date = toValidDate(value);
+  return date ? dayMonthFormatter.format(date) : "";
 }
 
 /**

@@ -12,21 +12,7 @@ import {
   type GitDiffRefreshSnapshot,
 } from "@t3tools/client-runtime/state/review-diff-refresh";
 import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
-import {
-  ArrowRightIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  ChevronsDownUpIcon,
-  ChevronsUpDownIcon,
-  Columns2Icon,
-  ListTreeIcon,
-  PilcrowIcon,
-  RefreshCwIcon,
-  Rows3Icon,
-  SearchIcon,
-  TextWrapIcon,
-} from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOpenInPreferredEditor } from "../editorPreferences";
 import { type DraftId } from "../composerDraftStore";
@@ -56,19 +42,9 @@ import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { DiffBaseRefPicker } from "./diffs/DiffBaseRefPicker";
 import { DiffFileTree } from "./diffs/DiffFileTree";
-import { Button } from "./ui/button";
-import { ToggleGroup, Toggle } from "./ui/toggle-group";
-import { Switch } from "./ui/switch";
-import {
-  Combobox,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxPopup,
-  ComboboxTrigger,
-} from "./ui/combobox";
+import { DiffToolbarActions } from "./diffs/DiffToolbarActions";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,9 +60,9 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
-import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
-
-const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
+import { useMediaQuery } from "../hooks/useMediaQuery";
+import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
+import { buildBaseRefChoices } from "../lib/baseRefChoices";
 
 interface CollapsedDiffFilesState {
   readonly scopeKey: string | null;
@@ -340,7 +316,24 @@ export default function DiffPanel({
   }));
   const [codeViewRevision, setCodeViewRevision] = useState(0);
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
-  const fileTreeVisible = useDiffPanelStore((state) => state.fileTreeVisible);
+  // Below this width the right panel is a narrow sheet, so the toolbar and the
+  // file tree have no room to sit side by side with the code.
+  const isNarrow = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const persistedFileTreeVisible = useDiffPanelStore((state) => state.fileTreeVisible);
+  // When narrow the tree is a full-panel overlay, so it must not restore itself
+  // over the diff on every visit the way the docked wide column does.
+  const [narrowFileTreeOpen, setNarrowFileTreeOpen] = useState(false);
+  const fileTreeVisible = isNarrow ? narrowFileTreeOpen : persistedFileTreeVisible;
+  const setFileTreeVisible = useCallback(
+    (visible: boolean) => {
+      if (isNarrow) {
+        setNarrowFileTreeOpen(visible);
+        return;
+      }
+      useDiffPanelStore.getState().setFileTreeVisible(visible);
+    },
+    [isNarrow],
+  );
   const lastGitDiffRefreshSnapshotRef = useRef<GitDiffRefreshSnapshot | null>(null);
 
   const routeThreadRef = useParams({
@@ -618,16 +611,6 @@ export default function DiffPanel({
     localBranchRefs.data?.refs.filter((ref) => ref.name !== selectedGitSource?.headRef) ?? [],
     remoteBranchRefs.data?.refs ?? [],
   );
-  const matchingBaseRefChoices = filterBaseRefChoices(baseRefChoices, baseRefQuery);
-  const valueForBaseRefChoice = (choice: (typeof baseRefChoices)[number]) =>
-    selectedBaseRef && selectedBaseRef === choice.remote?.name
-      ? selectedBaseRef
-      : (choice.local?.name ?? choice.remote?.name ?? choice.id);
-  const baseRefItems = [AUTOMATIC_BASE_REF, ...baseRefChoices.map(valueForBaseRefChoice)];
-  const filteredBaseRefItems = [
-    ...(baseRefQuery.trim().length === 0 ? [AUTOMATIC_BASE_REF] : []),
-    ...matchingBaseRefChoices.map(valueForBaseRefChoice),
-  ];
   const gitDiff = selectedGitSource?.diff;
 
   const selectedPatch = selectedTurn ? activeCheckpointDiff.data?.diff : gitDiff;
@@ -796,12 +779,22 @@ export default function DiffPanel({
     useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
   };
 
+  // Kept as one value so the branch picker can move between the header row and
+  // its own mobile row without duplicating the narrowing.
+  const baseRefComparison =
+    selectedTurnId === null && selectedGitScope === "branch" && selectedGitSource?.baseRef
+      ? {
+          headRef: selectedGitSource.headRef ?? "HEAD",
+          baseRef: selectedGitSource.baseRef,
+        }
+      : null;
+
   const headerRow = (
     <>
       <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-accent px-2 text-xs font-medium text-accent-foreground outline-none transition-colors hover:bg-accent/80 focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-6 max-w-full shrink-0 items-center gap-1 rounded-md bg-accent px-2 text-xs font-medium text-accent-foreground outline-none transition-colors max-[980px]:h-8 max-[980px]:px-2.5 hover:bg-accent/80 focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={`Diff scope: ${selectedScopeLabel}`}
           >
             <span className="truncate">{selectedScopeLabel}</span>
@@ -867,118 +860,16 @@ export default function DiffPanel({
             </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
-        {selectedTurnId === null && selectedGitScope === "branch" && selectedGitSource?.baseRef && (
-          <div
-            className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden text-xs text-muted-foreground"
-            title={`${selectedGitSource.headRef ?? "HEAD"} → ${selectedGitSource.baseRef}`}
-            aria-label={`Comparing ${selectedGitSource.headRef ?? "HEAD"} against ${selectedGitSource.baseRef}`}
-          >
-            <span className="min-w-0 max-w-48 truncate">{selectedGitSource.headRef ?? "HEAD"}</span>
-            <ArrowRightIcon className="size-3.5 shrink-0 opacity-70" />
-            <Combobox
-              items={baseRefItems}
-              filteredItems={filteredBaseRefItems}
-              value={selectedBaseRef ?? AUTOMATIC_BASE_REF}
-              onOpenChange={(open) => {
-                if (!open) setBaseRefQuery("");
-              }}
-              onValueChange={(value) => {
-                if (!value) return;
-                selectBranchBaseRef(value === AUTOMATIC_BASE_REF ? null : value);
-              }}
-            >
-              <ComboboxTrigger
-                className="inline-flex min-w-0 max-w-48 items-center gap-1 overflow-hidden rounded-md px-1.5 py-1 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={`Change comparison target. Currently ${selectedGitSource.baseRef}`}
-              >
-                <span className="min-w-0 truncate">{selectedGitSource.baseRef}</span>
-                <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
-              </ComboboxTrigger>
-              <ComboboxPopup
-                align="start"
-                className="w-72 min-w-0 max-w-[calc(100vw-1rem)] overflow-hidden [&>[data-slot=combobox-popup]]:min-w-0 [&>[data-slot=combobox-popup]]:overflow-hidden"
-              >
-                <div className="min-w-0 shrink-0 px-3 pt-2.5">
-                  <div className="relative -translate-y-px border-b border-border/70 pb-1.5 transition-colors focus-within:border-ring">
-                    <SearchIcon
-                      aria-hidden="true"
-                      className="pointer-events-none absolute top-1.5 left-0 size-4 shrink-0 text-muted-foreground/55"
-                    />
-                    <ComboboxInput
-                      className="[&_input]:h-6.5 [&_input]:ps-5 [&_input]:font-sans [&_input]:leading-6.5"
-                      inputClassName="rounded-none bg-transparent text-sm"
-                      placeholder="Search refs..."
-                      showTrigger={false}
-                      size="sm"
-                      unstyled
-                      value={baseRefQuery}
-                      onChange={(event) => setBaseRefQuery(event.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="grid shrink-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 border-b border-border/70 ps-3 pe-6.5 pt-2 pb-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
-                  <span aria-hidden="true" />
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center">
-                    <span>Branch</span>
-                    <span className="text-right">Remote</span>
-                  </div>
-                </div>
-                <ComboboxEmpty>No matching refs.</ComboboxEmpty>
-                <ComboboxList className="max-h-64 min-w-0 overflow-x-hidden">
-                  <ComboboxItem
-                    className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
-                    contentClassName="w-full min-w-0 overflow-hidden"
-                    value={AUTOMATIC_BASE_REF}
-                  >
-                    <span className="block min-w-0 truncate">Automatic</span>
-                  </ComboboxItem>
-                  {baseRefChoices.map((choice) => {
-                    const item = valueForBaseRefChoice(choice);
-                    const hasBoth = choice.local !== null && choice.remote !== null;
-                    const useRemote = choice.remote?.name === item;
-                    return (
-                      <ComboboxItem
-                        key={choice.id}
-                        className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
-                        contentClassName="w-full min-w-0 overflow-hidden"
-                        value={item}
-                      >
-                        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center overflow-hidden">
-                          <span className="block min-w-0 truncate pe-2">{choice.label}</span>
-                          {hasBoth ? (
-                            <div
-                              className="flex justify-end"
-                              onClick={(event) => event.stopPropagation()}
-                              onPointerDown={(event) => event.stopPropagation()}
-                            >
-                              <Switch
-                                aria-label={`Use remote version of ${choice.label}`}
-                                checked={useRemote}
-                                className="[--thumb-size:--spacing(3)]"
-                                onCheckedChange={(checked) => {
-                                  const nextRef = checked
-                                    ? choice.remote?.name
-                                    : choice.local?.name;
-                                  if (nextRef) selectBranchBaseRef(nextRef);
-                                }}
-                              />
-                            </div>
-                          ) : choice.remote ? (
-                            <span
-                              className="flex justify-end text-muted-foreground"
-                              title="Remote only"
-                            >
-                              <CheckIcon aria-hidden="true" className="size-3" />
-                            </span>
-                          ) : null}
-                        </div>
-                      </ComboboxItem>
-                    );
-                  })}
-                </ComboboxList>
-              </ComboboxPopup>
-            </Combobox>
-          </div>
+        {baseRefComparison && !isNarrow && (
+          <DiffBaseRefPicker
+            headRef={baseRefComparison.headRef}
+            baseRef={baseRefComparison.baseRef}
+            choices={baseRefChoices}
+            selectedBaseRef={selectedBaseRef}
+            query={baseRefQuery}
+            onQueryChange={setBaseRefQuery}
+            onSelectBaseRef={selectBranchBaseRef}
+          />
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
@@ -990,134 +881,23 @@ export default function DiffPanel({
             layout="inline"
           />
         )}
-        {canRefreshGitDiff && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={branchDiffPreview.isPending ? "Refreshing diff" : "Refresh diff"}
-                  onClick={refreshBranchDiffPreview}
-                />
-              }
-            >
-              <RefreshCwIcon
-                className={cn("size-3.5", branchDiffPreview.isPending && "animate-spin")}
-              />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {branchDiffPreview.isPending ? "Refreshing diff…" : "Refresh diff"}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        {codeViewFiles.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  aria-label={fileTreeVisible ? "Hide file tree" : "Show file tree"}
-                  variant="outline"
-                  size="xs"
-                  pressed={fileTreeVisible}
-                  onPressedChange={(pressed) => {
-                    useDiffPanelStore.getState().setFileTreeVisible(Boolean(pressed));
-                  }}
-                />
-              }
-            >
-              <ListTreeIcon className="size-3" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {fileTreeVisible ? "Hide file tree" : "Show file tree"}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        {codeViewFiles.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={allDiffFilesCollapsed ? "Expand all files" : "Collapse all files"}
-                  onClick={toggleDiffFileCollapse}
-                />
-              }
-            >
-              {allDiffFilesCollapsed ? (
-                <ChevronsUpDownIcon className="size-3.5" />
-              ) : (
-                <ChevronsDownUpIcon className="size-3.5" />
-              )}
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {allDiffFilesCollapsed ? "Expand all files" : "Collapse all files"}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        <ToggleGroup
-          className="shrink-0 gap-1"
-          size="sm"
-          value={[diffRenderMode]}
-          onValueChange={(value) => {
-            const next = value[0];
-            if (next === "stacked" || next === "split") {
-              setDiffRenderMode(next);
-            }
-          }}
-        >
-          <Toggle aria-label="Stacked diff view" value="stacked" variant="ghost">
-            <Rows3Icon className="size-3.5" />
-          </Toggle>
-          <Toggle aria-label="Split diff view" value="split" variant="ghost">
-            <Columns2Icon className="size-3.5" />
-          </Toggle>
-        </ToggleGroup>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={wordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
-                variant="ghost"
-                size="sm"
-                pressed={wordWrap}
-                onPressedChange={(pressed) => {
-                  setWordWrap(Boolean(pressed));
-                }}
-              />
-            }
-          >
-            <TextWrapIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
-          </TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={
-                  diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"
-                }
-                variant="ghost"
-                size="sm"
-                pressed={diffIgnoreWhitespace}
-                onPressedChange={(pressed) => {
-                  setDiffIgnoreWhitespace(Boolean(pressed));
-                }}
-              />
-            }
-          >
-            <PilcrowIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
-          </TooltipPopup>
-        </Tooltip>
+        <DiffToolbarActions
+          compact={isNarrow}
+          hasFiles={codeViewFiles.length > 0}
+          canRefresh={canRefreshGitDiff}
+          isRefreshing={branchDiffPreview.isPending}
+          onRefresh={refreshBranchDiffPreview}
+          fileTreeVisible={fileTreeVisible}
+          onFileTreeVisibleChange={setFileTreeVisible}
+          allFilesCollapsed={allDiffFilesCollapsed}
+          onToggleAllFiles={toggleDiffFileCollapse}
+          diffRenderMode={diffRenderMode}
+          onDiffRenderModeChange={setDiffRenderMode}
+          wordWrap={wordWrap}
+          onWordWrapChange={setWordWrap}
+          ignoreWhitespace={diffIgnoreWhitespace}
+          onIgnoreWhitespaceChange={setDiffIgnoreWhitespace}
+        />
       </div>
     </>
   );
@@ -1139,6 +919,20 @@ export default function DiffPanel({
       ) : (
         <>
           <div className="diff-panel-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {baseRefComparison && isNarrow && (
+              <DiffBaseRefPicker
+                className="h-9 shrink-0 gap-2 border-b border-border/60 px-3"
+                headRefClassName="max-w-[40%]"
+                triggerClassName="min-h-8 max-w-[60%] px-2"
+                headRef={baseRefComparison.headRef}
+                baseRef={baseRefComparison.baseRef}
+                choices={baseRefChoices}
+                selectedBaseRef={selectedBaseRef}
+                query={baseRefQuery}
+                onQueryChange={setBaseRefQuery}
+                onSelectBaseRef={selectBranchBaseRef}
+              />
+            )}
             {isSelectedPatchTruncated && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
                 This diff was truncated because it exceeded the preview limit. The changes shown are
@@ -1171,16 +965,32 @@ export default function DiffPanel({
                 </div>
               )
             ) : renderablePatch.kind === "files" ? (
-              <div className="flex min-h-0 min-w-0 flex-1">
-                {fileTreeVisible && (
-                  <DiffFileTree
-                    className="w-[42%] min-w-[164px] max-w-64 shrink-0 border-r border-border/70"
-                    entries={diffFileTreeEntries}
-                    activeFileKey={revealedDiffFileKey}
-                    resolvedTheme={resolvedTheme}
-                    onSelectFile={(entry) => revealDiffFile(entry.fileKey)}
-                  />
-                )}
+              <div className="relative flex min-h-0 min-w-0 flex-1">
+                {fileTreeVisible &&
+                  (isNarrow ? (
+                    // A sheet cannot spare width for a docked column, so the tree
+                    // covers the diff until a file is picked.
+                    <DiffFileTree
+                      className="absolute inset-0 z-20 bg-background"
+                      touch
+                      entries={diffFileTreeEntries}
+                      activeFileKey={revealedDiffFileKey}
+                      resolvedTheme={resolvedTheme}
+                      onClose={() => setFileTreeVisible(false)}
+                      onSelectFile={(entry) => {
+                        revealDiffFile(entry.fileKey);
+                        setFileTreeVisible(false);
+                      }}
+                    />
+                  ) : (
+                    <DiffFileTree
+                      className="w-[42%] min-w-[164px] max-w-64 shrink-0 border-r border-border/70"
+                      entries={diffFileTreeEntries}
+                      activeFileKey={revealedDiffFileKey}
+                      resolvedTheme={resolvedTheme}
+                      onSelectFile={(entry) => revealDiffFile(entry.fileKey)}
+                    />
+                  ))}
                 <div
                   className="min-h-0 min-w-0 flex-1"
                   onClickCapture={(event) => {

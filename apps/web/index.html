@@ -9,6 +9,16 @@
     <meta name="theme-color" content="#0a0a0a" />
     <link rel="icon" href="/void-mark.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/void-apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Installed-app hints. iOS reads these instead of the manifest's display
+         member on older versions, so both have to agree on standalone. The
+         status bar stays in "default" so the layout viewport keeps starting
+         below the notch: safe-area padding here is opt-in per surface, not
+         global, and "black-translucent" would slide chrome under the clock. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="T3 Code" />
     <script>
       (() => {
         const LIGHT_BACKGROUND = "#ffffff";

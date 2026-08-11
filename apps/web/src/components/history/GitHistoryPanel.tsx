@@ -41,8 +41,26 @@ import {
   type HistoryPrompt,
   buildHistoryMenu,
 } from "./historyMenu";
-import { buildHistoryView, formatCommitDate, sortCommitRefs } from "./historyRows";
+import {
+  buildHistoryView,
+  formatCommitDate,
+  formatCommitDateShort,
+  sortCommitRefs,
+} from "./historyRows";
 import { useHistoryActions } from "./useHistoryActions";
+
+/**
+ * Column widths react to the panel's own width, not the viewport: the panel is
+ * as narrow on a phone as it is when a desktop user drags it in. Below each
+ * step the column is dropped rather than squeezed, so the subject keeps a
+ * readable share of the row instead of being crushed to nothing.
+ */
+const COLUMN = {
+  dateShort: "w-16 shrink-0 @md/history:hidden",
+  dateFull: "hidden w-36 shrink-0 @md/history:block",
+  author: "hidden w-24 shrink-0 @lg/history:block",
+  sha: "hidden w-16 shrink-0 @xl/history:block",
+} as const;
 
 const HISTORY_PAGE_SIZE = 100;
 const HISTORY_MAX_COMMITS = 500;
@@ -199,7 +217,7 @@ export function GitHistoryPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="@container/history flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-2 py-1.5">
         <Select
           value={refFilter ?? ALL_BRANCHES}
@@ -209,7 +227,10 @@ export function GitHistoryPanel({
             setRefFilter(value === ALL_BRANCHES ? null : value);
           }}
         >
-          <SelectTrigger className="h-6 w-44 text-xs" aria-label="Branch filter">
+          <SelectTrigger
+            className="h-6 min-w-0 flex-1 text-xs @sm/history:w-44 @sm/history:flex-none"
+            aria-label="Branch filter"
+          >
             <SelectValue>{refFilter ?? "Show All"}</SelectValue>
           </SelectTrigger>
           <SelectPopup align="start" alignItemWithTrigger={false}>
@@ -223,7 +244,7 @@ export function GitHistoryPanel({
             ))}
           </SelectPopup>
         </Select>
-        <label className="flex cursor-default items-center gap-1.5 text-xs text-muted-foreground">
+        <label className="flex shrink-0 cursor-default items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
           <Checkbox
             checked={includeRemotes}
             onCheckedChange={(checked) => {
@@ -231,9 +252,10 @@ export function GitHistoryPanel({
               setIncludeRemotes(Boolean(checked));
             }}
           />
-          Show remote branches
+          <span className="@sm/history:hidden">Remotes</span>
+          <span className="hidden @sm/history:inline">Show remote branches</span>
         </label>
-        <div className="flex-1" />
+        <div className="hidden flex-1 @sm/history:block" />
         {isRunning ? (
           <span className="text-xs text-muted-foreground" role="status">
             Running...
@@ -251,14 +273,14 @@ export function GitHistoryPanel({
         </Button>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+      <div className="flex shrink-0 items-center gap-2 overflow-hidden border-b border-border/60 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
         <span style={{ width: graphWidth }} className="shrink-0">
           Graph
         </span>
-        <span className="min-w-0 flex-1">Description</span>
-        <span className="w-36 shrink-0">Date</span>
-        <span className="w-24 shrink-0">Author</span>
-        <span className="w-16 shrink-0">Commit</span>
+        <span className="min-w-0 flex-1 truncate">Description</span>
+        <span className="w-16 shrink-0 @md/history:w-36">Date</span>
+        <span className={COLUMN.author}>Author</span>
+        <span className={COLUMN.sha}>Commit</span>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -276,7 +298,7 @@ export function GitHistoryPanel({
                   <div
                     key={row.sha}
                     data-pending-row
-                    className="flex shrink-0 items-center gap-2 px-2 text-xs"
+                    className="flex shrink-0 items-center gap-2 overflow-hidden px-2 text-xs"
                     style={{ height: GRAPH_ROW_HEIGHT }}
                   >
                     <GitGraphColumn
@@ -287,9 +309,9 @@ export function GitHistoryPanel({
                     <span className="min-w-0 flex-1 truncate font-medium">
                       Uncommitted Changes ({row.fileCount})
                     </span>
-                    <span className="w-36 shrink-0 text-muted-foreground">—</span>
-                    <span className="w-24 shrink-0 text-muted-foreground">*</span>
-                    <span className="w-16 shrink-0 font-mono text-muted-foreground">*</span>
+                    <span className="w-16 shrink-0 text-muted-foreground @md/history:w-36">—</span>
+                    <span className={cn(COLUMN.author, "text-muted-foreground")}>*</span>
+                    <span className={cn(COLUMN.sha, "font-mono text-muted-foreground")}>*</span>
                   </div>
                 );
               }
@@ -304,7 +326,7 @@ export function GitHistoryPanel({
                   data-commit-sha={commit.sha}
                   data-commit-subject={commit.subject}
                   className={cn(
-                    "flex shrink-0 cursor-default items-center gap-2 px-2 text-xs",
+                    "flex shrink-0 cursor-default items-center gap-2 overflow-hidden px-2 text-xs",
                     selected ? "bg-accent text-foreground" : "hover:bg-accent/50",
                   )}
                   style={{ height: GRAPH_ROW_HEIGHT }}
@@ -332,7 +354,7 @@ export function GitHistoryPanel({
                     laneCount={view.graph.laneCount}
                     variant={row.isHead ? "head" : "commit"}
                   />
-                  <span className="flex min-w-0 flex-1 items-center gap-1">
+                  <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
                     {sortCommitRefs(commit.refs).map((refValue) => (
                       <span
                         key={`${refValue.kind}:${refValue.name}`}
@@ -347,13 +369,16 @@ export function GitHistoryPanel({
                     ))}
                     <span className="truncate">{commit.subject}</span>
                   </span>
-                  <span className="w-36 shrink-0 tabular-nums text-muted-foreground">
+                  <span className={cn(COLUMN.dateShort, "tabular-nums text-muted-foreground")}>
+                    {formatCommitDateShort(DateTime.toDateUtc(commit.authoredAt))}
+                  </span>
+                  <span className={cn(COLUMN.dateFull, "tabular-nums text-muted-foreground")}>
                     {formatCommitDate(DateTime.toDateUtc(commit.authoredAt), timestampFormat)}
                   </span>
-                  <span className="w-24 shrink-0 truncate text-muted-foreground">
+                  <span className={cn(COLUMN.author, "truncate text-muted-foreground")}>
                     {commit.authorName}
                   </span>
-                  <span className="w-16 shrink-0 font-mono text-muted-foreground">
+                  <span className={cn(COLUMN.sha, "font-mono text-muted-foreground")}>
                     {commit.shortSha}
                   </span>
                 </div>
