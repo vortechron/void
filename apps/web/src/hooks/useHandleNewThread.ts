@@ -32,6 +32,7 @@ import { primaryServerSettingsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
+import { shouldReuseRacedDraftAfterDefaults } from "./useHandleNewThread.logic";
 
 interface NewThreadWorkspaceOptions {
   branch?: string | null;
@@ -311,7 +312,12 @@ export function useNewThreadHandler() {
         const racedDraft = getDraftSessionByLogicalProjectKey(logicalProjectKey);
         if (
           racedDraft &&
-          readThreadShell(scopeThreadRef(racedDraft.environmentId, racedDraft.threadId)) === null
+          shouldReuseRacedDraftAfterDefaults({
+            forceNew: options?.forceNew === true,
+            hasPromotedThread:
+              readThreadShell(scopeThreadRef(racedDraft.environmentId, racedDraft.threadId)) !==
+              null,
+          })
         ) {
           // Same remap the reuse paths above perform: point the draft at the
           // caller's project member and apply explicit workspace options if

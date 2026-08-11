@@ -3,7 +3,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ThreadEnvMode } from "@t3tools/contracts";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { selectProjectGroupingSettings } from "../../logicalProject";
 import { useClientSettings } from "../../hooks/useSettings";
@@ -19,6 +19,10 @@ import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import {
+  resolveGroupedProjectWorkspaceMode,
+  updateGroupedProjectWorkspaceMode,
+} from "./ProjectWorkspaceDefaultsSettings.logic";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 
 function useProjectGroups(): SidebarProjectSnapshot[] {
@@ -50,31 +54,49 @@ export function ProjectWorkspaceDefaultsSettings() {
   const groups = useProjectGroups();
   const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
   const [savingProjectKey, setSavingProjectKey] = useState<string | null>(null);
+  const savingRef = useRef(false);
 
   const updateGroupMode = useCallback(
     async (group: SidebarProjectSnapshot, mode: ThreadEnvMode | null) => {
+      if (savingRef.current) return;
+      savingRef.current = true;
       setSavingProjectKey(group.projectKey);
       try {
-        for (const member of group.memberProjects) {
-          const result = await updateProject({
-            environmentId: member.environmentId,
-            input: { projectId: member.id, defaultThreadEnvMode: mode },
-          });
-          if (result._tag !== "Failure") continue;
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: `Could not update ${group.displayName}`,
-                description:
-                  error instanceof Error ? error.message : "The project was not updated.",
-              }),
-            );
-          }
-          return;
+        const result = await updateGroupedProjectWorkspaceMode({
+          members: group.memberProjects,
+          nextMode: mode,
+          currentMode: (member) => member.defaultThreadEnvMode ?? null,
+          write: async (member, nextMode) => {
+            const writeResult = await updateProject({
+              environmentId: member.environmentId,
+              input: { projectId: member.id, defaultThreadEnvMode: nextMode },
+            });
+            return writeResult._tag === "Failure"
+              ? { _tag: "Failure", failure: writeResult }
+              : { _tag: "Success" };
+          },
+        });
+        if (
+          result._tag === "Failure" &&
+          (!isAtomCommandInterrupted(result.failure) || result.rollbackFailures.length > 0)
+        ) {
+          const error = squashAtomCommandFailure(result.failure);
+          const failedEnvironment = result.failedMember.environmentLabel;
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: `Could not update ${group.displayName}`,
+              description:
+                result.rollbackFailures.length > 0
+                  ? "Some grouped checkouts could not be restored. Retry this setting to align them."
+                  : `${
+                      error instanceof Error ? error.message : "The project was not updated."
+                    }${failedEnvironment ? ` (${failedEnvironment})` : ""} Earlier changes were rolled back.`,
+            }),
+          );
         }
       } finally {
+        savingRef.current = false;
         setSavingProjectKey(null);
       }
     },
@@ -86,8 +108,14 @@ export function ProjectWorkspaceDefaultsSettings() {
   return (
     <SettingsSection id="project-new-thread-workspace" title="Project new-thread workspace">
       {groups.map((group) => {
-        const storedMode = group.defaultThreadEnvMode ?? null;
-        const isSaving = savingProjectKey === group.projectKey;
+        const groupedMode = resolveGroupedProjectWorkspaceMode(group.memberProjects);
+        const isSaving = savingProjectKey !== null;
+        const modeLabel =
+          groupedMode === "inherit"
+            ? "Use default"
+            : groupedMode === "mixed"
+              ? "Mixed settings"
+              : resolveEnvModeLabel(groupedMode);
         return (
           <SettingsRow
             key={group.projectKey}
@@ -101,13 +129,17 @@ export function ProjectWorkspaceDefaultsSettings() {
                 <span className="truncate">{group.displayName}</span>
               </span>
             }
-            description={`Overrides t3.json and the global default for ${
-              group.groupedProjectCount === 1
-                ? "this project"
-                : `all ${group.groupedProjectCount} grouped checkouts`
-            }.`}
+            description={
+              groupedMode === "mixed"
+                ? "Grouped checkouts currently use different defaults. Pick one to align them."
+                : `Overrides t3.json and the global default for ${
+                    group.groupedProjectCount === 1
+                      ? "this project"
+                      : `all ${group.groupedProjectCount} grouped checkouts`
+                  }.`
+            }
             resetAction={
-              storedMode !== null ? (
+              groupedMode !== "inherit" ? (
                 <SettingResetButton
                   label={`${group.displayName} workspace`}
                   onClick={() => void updateGroupMode(group, null)}
@@ -116,7 +148,7 @@ export function ProjectWorkspaceDefaultsSettings() {
             }
             control={
               <Select
-                value={storedMode ?? "inherit"}
+                value={groupedMode}
                 onValueChange={(value) => {
                   if (value === "local" || value === "worktree") {
                     void updateGroupMode(group, value);
@@ -130,11 +162,14 @@ export function ProjectWorkspaceDefaultsSettings() {
                   aria-label={`${group.displayName} new-thread workspace`}
                   disabled={isSaving}
                 >
-                  <SelectValue>
-                    {storedMode === null ? "Use default" : resolveEnvModeLabel(storedMode)}
-                  </SelectValue>
+                  <SelectValue>{modeLabel}</SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {groupedMode === "mixed" ? (
+                    <SelectItem disabled hideIndicator value="mixed">
+                      Mixed settings
+                    </SelectItem>
+                  ) : null}
                   <SelectItem hideIndicator value="inherit">
                     Use t3.json or global
                   </SelectItem>
