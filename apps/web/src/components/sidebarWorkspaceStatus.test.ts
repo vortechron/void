@@ -64,7 +64,7 @@ describe("resolveSidebarWorkspaceStatus", () => {
     ).toBe("failed");
   });
 
-  it("keeps a completed chat highlighted until that chat is visited", () => {
+  it("keeps a completed chat highlighted after that chat is visited", () => {
     const completedAt = "2026-08-05T10:05:00.000Z";
 
     expect(
@@ -84,24 +84,24 @@ describe("resolveSidebarWorkspaceStatus", () => {
           lastVisitedAt: "2026-08-05T10:06:00.000Z",
         }),
       ),
-    ).toBe("ready");
+    ).toBe("completed");
   });
 
-  it("keeps the workspace completed while any completed chat remains unvisited", () => {
+  it("keeps the workspace completed after every completed chat is visited", () => {
     const completedAt = "2026-08-05T10:05:00.000Z";
-    const seen = thread({
+    const visited = thread({
       status: "ready",
       completedAt,
       lastVisitedAt: "2026-08-05T10:06:00.000Z",
     });
-    const unseen = thread({
+    const unvisited = thread({
       status: "ready",
       completedAt,
       lastVisitedAt: "2026-08-05T10:04:00.000Z",
     });
 
-    expect(resolveSidebarWorkspaceStatus([seen, seen, unseen])).toBe("completed");
-    expect(resolveSidebarWorkspaceStatus([seen, seen, seen])).toBe("ready");
+    expect(resolveSidebarWorkspaceStatus([visited, visited, unvisited])).toBe("completed");
+    expect(resolveSidebarWorkspaceStatus([visited, visited, visited])).toBe("completed");
   });
 
   it("shows an actionable completed plan before a regular completion", () => {

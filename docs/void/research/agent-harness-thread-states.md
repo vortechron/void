@@ -3,6 +3,8 @@
 Research date: 2026-08-05. Sources are official protocol documentation or
 official project source.
 
+UI decision updated: 2026-08-12.
+
 ## Decision
 
 Void should keep **provider lifecycle state** separate from **user attention
@@ -32,7 +34,7 @@ If one icon must represent the aggregate, use this presentation priority:
 3. Failed
 4. Starting or running
 5. Plan ready
-6. Completed but unseen
+6. Completed
 7. Idle or stopped (no attention icon)
 
 Keep counts/sets underneath even when only the highest-priority icon is shown.
@@ -57,22 +59,21 @@ Primary sources:
 
 ## State semantics for Void
 
-| UI indicator        | Derivation                                                                      | Clear rule                                                                                                                                          |
-| ------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Working             | Session is `starting` or `running`, unless a pending human request outranks it  | Provider leaves the active state                                                                                                                    |
-| Approval required   | At least one unresolved approval request                                        | The matching request resolves; opening the thread must not clear it                                                                                 |
-| User input required | At least one unresolved question/elicitation request                            | The matching request resolves; opening the thread must not clear it                                                                                 |
-| Failed              | Terminal failure or provider/session error                                      | Preserve the error in the timeline; the attention badge may clear on acknowledgement or on the next turn, but must not be mistaken for cancellation |
-| Plan ready          | A final, actionable proposed plan exists, not merely a plan-progress update     | Plan is implemented/dismissed, or explicitly acknowledged if Void chooses notification-style semantics                                              |
-| Completed unseen    | A successful terminal turn is newer than that thread's seen watermark           | Opening **that thread** records that terminal turn as seen                                                                                          |
-| Idle/stopped        | No live work, blocker, actionable plan, failure attention, or unseen completion | No indicator                                                                                                                                        |
+| UI indicator        | Derivation                                                                     | Clear rule                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Working             | Session is `starting` or `running`, unless a pending human request outranks it | Provider leaves the active state                                                                                                                    |
+| Approval required   | At least one unresolved approval request                                       | The matching request resolves; opening the thread must not clear it                                                                                 |
+| User input required | At least one unresolved question/elicitation request                           | The matching request resolves; opening the thread must not clear it                                                                                 |
+| Failed              | Terminal failure or provider/session error                                     | Preserve the error in the timeline; the attention badge may clear on acknowledgement or on the next turn, but must not be mistaken for cancellation |
+| Plan ready          | A final, actionable proposed plan exists, not merely a plan-progress update    | Plan is implemented/dismissed, or explicitly acknowledged if Void chooses notification-style semantics                                              |
+| Completed           | The latest turn completed successfully                                         | The next turn or a higher-priority live state replaces it                                                                                           |
+| Idle/stopped        | No live work, blocker, actionable plan, failure attention, or completed turn   | No indicator                                                                                                                                        |
 
-`completed unseen` is not a Codex, Claude, ACP, OpenCode, or Cursor protocol
-state. It is a Void client/read-model concern. Store the acknowledgement against
-the terminal turn identity (or a monotonic completion sequence), not as one
-workspace boolean. Therefore, opening one of three newly completed threads
-clears only that thread; the workspace remains completed-unseen until all three
-terminal turns have been acknowledged.
+`completed` is the current latest-turn state, so opening a thread must not clear
+its green Done icon. Whether that completion is unread is a separate Void
+client/read-model concern. Keep the acknowledgement against the terminal turn
+identity (or a monotonic completion sequence) so the UI may style unread and
+read completions differently without hiding their status.
 
 Likewise, `plan ready` is derived. Plan-progress events alone are insufficient:
 ACP and Codex both emit plans while work is still running. Void should only show
@@ -80,7 +81,7 @@ plan-ready when it has a final actionable plan artifact.
 
 Interrupted, cancelled, and stopped are neutral terminal outcomes, not failures
 and not successful completions. They may be shown inside the thread, but should
-not create the green completed-unseen indicator.
+not create the green completed indicator.
 
 ## Fit with Void's current contracts
 
@@ -102,6 +103,7 @@ provider adapters normalize into those event families:
 
 The missing concept is not another provider status. Void already persists a
 per-thread visit watermark as `threadLastVisitedAtById` in
-[`uiStateStore.ts`](../../../apps/web/src/uiStateStore.ts). The UI change needs
-to apply that existing watermark to tab indicators and workspace aggregation,
-so acknowledging one thread leaves every other unseen completion intact.
+[`uiStateStore.ts`](../../../apps/web/src/uiStateStore.ts). Use that watermark
+for unread styling only. Tab indicators and workspace aggregation derive Done
+from the latest successful turn, so acknowledging a thread does not hide its
+current status.

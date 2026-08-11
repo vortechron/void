@@ -1094,7 +1094,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("does not manufacture completed state without a client visit marker", () => {
+  it("shows completed without a client visit marker", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -1107,17 +1107,17 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toBeNull();
+    ).toMatchObject({ label: "Completed", pulse: false });
   });
 
-  it("shows completed when there is an unseen completion and no active blocker", () => {
+  it("keeps showing completed after a recent visit when there is no active blocker", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
           interactionMode: "default",
           latestTurn: makeLatestTurn(),
-          lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          lastVisitedAt: "2026-03-09T10:06:00.000Z",
           session: {
             ...baseThread.session,
             status: "ready",
