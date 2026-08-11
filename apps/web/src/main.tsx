@@ -20,6 +20,7 @@ import {
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
 import { installChunkLoadRecovery } from "./chunkLoadRecovery";
+import { getServiceWorkerContainer, registerServiceWorker } from "./pwa/registerServiceWorker";
 
 if (import.meta.env.PROD) {
   installChunkLoadRecovery({
@@ -27,6 +28,17 @@ if (import.meta.env.PROD) {
     getStorage: () => window.sessionStorage,
     buildId: import.meta.url,
     reload: () => window.location.reload(),
+  });
+}
+
+// Electron already is the installed app, and dev servers should keep serving
+// every navigation straight from Vite, so the worker is browser-production only.
+if (import.meta.env.PROD && !isElectron) {
+  void registerServiceWorker({
+    container: getServiceWorkerContainer(),
+    onError: (error) => {
+      console.error("Could not register the app service worker.", error);
+    },
   });
 }
 

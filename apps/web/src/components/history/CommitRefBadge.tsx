@@ -41,7 +41,7 @@ export function CommitRefBadge({
   return (
     <span
       className={cn(
-        "inline-flex h-4 max-w-52 shrink-0 items-center gap-1 rounded px-1 text-[10px] leading-none",
+        "inline-flex h-4 min-w-0 max-w-52 items-center gap-1 rounded px-1 text-[10px] leading-none",
         KIND_CLASS[refValue.kind],
         refValue.isCurrent && "ring-1 ring-primary/60",
       )}

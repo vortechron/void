@@ -8,6 +8,7 @@ import {
   buildHistoryView,
   checkoutRefName,
   formatCommitDate,
+  formatCommitDateShort,
   sortCommitRefs,
   splitRemoteRefName,
 } from "./historyRows";
@@ -153,5 +154,20 @@ describe("formatCommitDate", () => {
 
     expect(label).toMatch(/2026/);
     expect(label).toMatch(/\d{1,2}:\d{2}/);
+  });
+});
+
+describe("formatCommitDateShort", () => {
+  it("returns an empty label for an unparsable date", () => {
+    expect(formatCommitDateShort("not-a-date")).toBe("");
+  });
+
+  it("drops the year and the time so a narrow panel keeps room for the subject", () => {
+    // Use a local date so this assertion stays on 6 Aug in every timezone.
+    const label = formatCommitDateShort(new Date(2026, 7, 6, 12));
+
+    expect(label).toMatch(/6/);
+    expect(label).not.toMatch(/2026/);
+    expect(label).not.toMatch(/\d{1,2}:\d{2}/);
   });
 });

@@ -4,6 +4,7 @@ import {
   ChevronsUpDownIcon,
   FolderClosedIcon,
   FolderIcon,
+  XIcon,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -41,7 +42,11 @@ interface DiffFileTreeProps {
   activeFileKey: string | null;
   resolvedTheme: "light" | "dark";
   onSelectFile: (entry: DiffFileTreeEntry) => void;
+  /** Renders a dismiss button in the header. Used by the mobile overlay. */
+  onClose?: () => void;
   className?: string;
+  /** Larger rows for touch targets. */
+  touch?: boolean;
 }
 
 function IndentGuides(props: { depth: number }) {
@@ -65,7 +70,9 @@ export const DiffFileTree = memo(function DiffFileTree({
   activeFileKey,
   resolvedTheme,
   onSelectFile,
+  onClose,
   className,
+  touch = false,
 }: DiffFileTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const treeNodes = useMemo(() => buildDiffFileTree(entries), [entries]);
@@ -146,7 +153,10 @@ export const DiffFileTree = memo(function DiffFileTree({
             <button
               type="button"
               aria-expanded={isExpanded}
-              className="group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn(
+                "group flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                touch ? "py-2" : "py-1",
+              )}
               style={{ paddingLeft }}
               onClick={() => toggleDirectory(node.path)}
             >
@@ -163,7 +173,10 @@ export const DiffFileTree = memo(function DiffFileTree({
                 <FolderClosedIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
               )}
               <span
-                className="truncate font-mono text-[11px] text-muted-foreground/90 group-hover:text-foreground/90"
+                className={cn(
+                  "truncate font-mono text-muted-foreground/90 group-hover:text-foreground/90",
+                  touch ? "text-[13px]" : "text-[11px]",
+                )}
                 title={node.path}
               >
                 {node.name}
@@ -195,7 +208,8 @@ export const DiffFileTree = memo(function DiffFileTree({
           aria-current={isActive ? "true" : undefined}
           title={node.path}
           className={cn(
-            "group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "group flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            touch ? "py-2" : "py-1",
             isActive ? "bg-accent text-foreground" : "hover:bg-accent/60",
           )}
           style={{ paddingLeft }}
@@ -210,7 +224,8 @@ export const DiffFileTree = memo(function DiffFileTree({
           />
           <span
             className={cn(
-              "truncate text-[11px]",
+              "truncate",
+              touch ? "text-[13px]" : "text-[11px]",
               isActive
                 ? "text-foreground"
                 : "text-muted-foreground/85 group-hover:text-foreground/90",
@@ -244,8 +259,18 @@ export const DiffFileTree = memo(function DiffFileTree({
 
   return (
     <div className={cn("flex min-h-0 flex-col bg-background/40", className)}>
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/60 py-1 pl-2.5 pr-1.5">
-        <span className="truncate text-[11px] text-muted-foreground">
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-2 border-b border-border/60 pl-2.5 pr-1.5",
+          touch ? "py-1.5" : "py-1",
+        )}
+      >
+        <span
+          className={cn(
+            "truncate text-muted-foreground",
+            touch ? "text-xs font-medium" : "text-[11px]",
+          )}
+        >
           {entries.length} file{entries.length === 1 ? "" : "s"}
         </span>
         {directoryPaths.length > 0 && (
@@ -254,7 +279,7 @@ export const DiffFileTree = memo(function DiffFileTree({
               render={
                 <Button
                   type="button"
-                  size="icon-xs"
+                  size={touch ? "icon-sm" : "icon-xs"}
                   variant="ghost"
                   className="ml-auto"
                   aria-label={
@@ -265,15 +290,27 @@ export const DiffFileTree = memo(function DiffFileTree({
               }
             >
               {allDirectoriesCollapsed ? (
-                <ChevronsUpDownIcon className="size-3" />
+                <ChevronsUpDownIcon className={touch ? "size-4" : "size-3"} />
               ) : (
-                <ChevronsDownUpIcon className="size-3" />
+                <ChevronsDownUpIcon className={touch ? "size-4" : "size-3"} />
               )}
             </TooltipTrigger>
             <TooltipPopup side="top">
               {allDirectoriesCollapsed ? "Expand all folders" : "Collapse all folders"}
             </TooltipPopup>
           </Tooltip>
+        )}
+        {onClose && (
+          <Button
+            type="button"
+            size={touch ? "icon-sm" : "icon-xs"}
+            variant="ghost"
+            className={directoryPaths.length > 0 ? undefined : "ml-auto"}
+            aria-label="Close file tree"
+            onClick={onClose}
+          >
+            <XIcon className={touch ? "size-4" : "size-3"} />
+          </Button>
         )}
       </div>
       <div

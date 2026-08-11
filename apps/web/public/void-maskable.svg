@@ -1,0 +1,10 @@
+<!-- Maskable source for the PWA icons. Same mark as void-mark.svg, but the
+     rounded-square frame is dropped for a full-bleed background and the glyph
+     is scaled to 85% so it stays inside the maskable safe zone (the centre
+     circle covering 80% of the icon) after a launcher applies its own mask. -->
+<svg width="512" height="512" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" fill="#050505"/>
+  <g transform="translate(64 64) scale(0.85) translate(-64 -62.5)">
+    <path d="M32 34L54 91H74L96 34" fill="none" stroke="white" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
