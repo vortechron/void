@@ -46,6 +46,11 @@ import {
   resolveFileDiffPath,
 } from "../../lib/diffRendering";
 import ChatMarkdown from "../ChatMarkdown";
+import { Shimmer } from "../beautiful/atoms/Shimmer";
+import { Collapse } from "../beautiful/Collapse";
+import { PixelGridLoader } from "../beautiful/PixelGridLoader";
+import { StatusPop } from "../beautiful/StatusPop";
+import { StreamingCaret } from "../beautiful/StreamingCaret";
 import {
   BotIcon,
   CheckIcon,
@@ -1127,6 +1132,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           isStreaming={Boolean(row.message.streaming)}
           skills={ctx.skills}
         />
+        {row.message.streaming ? <StreamingCaret /> : null}
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
@@ -1294,18 +1300,14 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   return (
     <div className="py-0.5 pl-1.5">
       <div className="flex min-w-0 items-center gap-2 pt-1 text-secondary-label text-[11px] tabular-nums">
-        <span className="inline-flex items-center gap-[3px]">
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse" />
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse [animation-delay:200ms]" />
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse [animation-delay:400ms]" />
-        </span>
+        <PixelGridLoader className="shrink-0 text-muted-foreground" />
         <span className="shrink-0">
           {row.createdAt ? (
             <>
-              Working for <WorkingTimer createdAt={row.createdAt} />
+              <Shimmer>Working for</Shimmer> <WorkingTimer createdAt={row.createdAt} />
             </>
           ) : (
-            "Working..."
+            <Shimmer>Working...</Shimmer>
           )}
         </span>
         {workingStepLabel ? (
@@ -2341,7 +2343,9 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                       />
                     }
                   >
-                    <XIcon className="block size-3 shrink-0 text-destructive" aria-hidden />
+                    <StatusPop>
+                      <XIcon className="block size-3 shrink-0 text-destructive" aria-hidden />
+                    </StatusPop>
                   </TooltipTrigger>
                   <TooltipPopup>Failed</TooltipPopup>
                 </Tooltip>
@@ -2350,13 +2354,13 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                   <TooltipTrigger
                     render={<span className="flex size-4 items-center justify-center" />}
                   >
-                    <span className="inline-flex size-4 items-center justify-center">
+                    <StatusPop>
                       <CheckIcon
                         className="block size-3 shrink-0 stroke-current"
                         stroke="currentColor"
                         aria-hidden
                       />
-                    </span>
+                    </StatusPop>
                   </TooltipTrigger>
                   <TooltipPopup>Completed</TooltipPopup>
                 </Tooltip>
@@ -2374,16 +2378,18 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           </div>
         </div>
       </div>
-      {expanded && canExpand && expandedBody ? (
-        <div
-          className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"
-          onClick={stopRowToggle}
-          onPointerDown={stopRowToggle}
-        >
-          <pre className="max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-[11px] leading-relaxed select-text">
-            {expandedBody}
-          </pre>
-        </div>
+      {canExpand && expandedBody ? (
+        <Collapse open={expanded}>
+          <div
+            className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"
+            onClick={stopRowToggle}
+            onPointerDown={stopRowToggle}
+          >
+            <pre className="max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-[11px] leading-relaxed select-text">
+              {expandedBody}
+            </pre>
+          </div>
+        </Collapse>
       ) : null}
     </div>
   );

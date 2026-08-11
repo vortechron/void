@@ -127,6 +127,8 @@ import {
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { SidebarWorkspaceStatusIcon } from "./SidebarWorkspaceStatusIcon";
+import { GlidingHighlight } from "./beautiful/GlidingHighlight";
+import { useDelegatedGlidingHighlight } from "./beautiful/useGlidingHighlight";
 import { resolveSidebarWorkspaceDiffStat } from "./sidebarWorkspaceDiff";
 import { resolveSidebarWorkspaceStatus } from "./sidebarWorkspaceStatus";
 import {
@@ -3012,9 +3014,18 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     },
     [updateSettings],
   );
+
+  // Rows are found by selector rather than by ref, so project headers, branch
+  // rows and thread rows all share one pill without threading refs through the
+  // drag-and-drop wiring.
+  const treeHighlight = useDelegatedGlidingHighlight('[data-sidebar="menu-button"]');
+
   return (
     <SidebarContent
-      className="gap-0"
+      // The travelling pill replaces each row's own hover fill, so hover
+      // backgrounds are neutralised here. Selected and active rows keep theirs.
+      className="relative gap-0 [&_[data-sidebar=menu-button]:hover]:bg-transparent [&_[data-sidebar=menu-button]]:group-hover/project-header:bg-transparent"
+      {...treeHighlight.containerProps}
       fixedHeader={
         <SidebarGroup className="px-2 pt-2 pb-1">
           <SidebarMenu>
@@ -3040,6 +3051,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         </SidebarGroup>
       }
     >
+      <GlidingHighlight box={treeHighlight.box} className="bg-sidebar-row-hover" />
       {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
         <SidebarGroup className="px-2 pt-2 pb-0">
           <Alert

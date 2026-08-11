@@ -1,0 +1,77 @@
+/* ---------------------------------------------------------------------------
+ * Motion for the shared primitives in this folder.
+ *
+ * Each keyframe backs one component, so removing a component means removing
+ * its keyframe here too:
+ *
+ *   pixel-on    → PixelGridLoader        shimmer-text → atoms/Shimmer
+ *   pop-in      → StatusPop              caret-blink  → StreamingCaret
+ *   fade-in     → StreamingCaret         fade-up      → approval panels
+ *
+ * Collapse, GlidingHighlight and ChoiceIndicator animate with CSS transitions
+ * and need nothing here.
+ * ------------------------------------------------------------------------ */
+
+@keyframes pixel-on {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  18%,
+  42% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes shimmer-text {
+  0% {
+    background-position: 150%;
+  }
+  100% {
+    background-position: -50%;
+  }
+}
+
+@keyframes fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

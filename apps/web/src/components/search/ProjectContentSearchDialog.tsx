@@ -1,5 +1,6 @@
 import type { ProjectContentMatch } from "@t3tools/contracts";
-import { LoaderCircle } from "lucide-react";
+import { Shimmer } from "../beautiful/atoms/Shimmer";
+import { PixelGridLoader } from "../beautiful/PixelGridLoader";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useActiveProjectTarget, type ActiveProjectTarget } from "~/hooks/useActiveProjectTarget";
@@ -221,7 +222,7 @@ function OpenContentSearchDialog(props: {
         <div className="flex h-9 shrink-0 items-center border-b px-3 text-xs text-muted-foreground">
           {search.isPending ? (
             <span className="flex items-center gap-2">
-              <LoaderCircle className="size-3.5 animate-spin" /> Searching…
+              <PixelGridLoader /> <Shimmer>Searching…</Shimmer>
             </span>
           ) : search.error ? (
             <span className="text-destructive">{search.error}</span>

@@ -4,12 +4,13 @@ import { describe, expect, it } from "vite-plus/test";
 import { ThreadTabStatusIcon } from "./ThreadTabStatusIcon";
 
 describe("ThreadTabStatusIcon", () => {
-  it("renders the Loading UI diamond for working tabs", () => {
+  it("renders the pixel-grid loader for working tabs", () => {
     const markup = renderToStaticMarkup(<ThreadTabStatusIcon status="working" />);
 
     expect(markup).toContain('aria-label="Working"');
-    expect(markup.match(/<rect/g)).toHaveLength(8);
-    expect(markup).toContain("spin-pixel");
+    expect(markup).toContain('role="status"');
+    // Nine cells drive the wavefront; the centre column is what reads as motion.
+    expect(markup.match(/pixel-on/g)).toHaveLength(9);
   });
 
   it.each([

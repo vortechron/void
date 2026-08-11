@@ -9,7 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { Diamond } from "./loading-ui/diamond";
+import { PixelGridLoader } from "./beautiful/PixelGridLoader";
 import type { ThreadAttentionStatus } from "./sidebarWorkspaceStatus";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -66,12 +66,15 @@ export function SidebarWorkspaceStatusIcon({ status }: { readonly status: Thread
       <Tooltip>
         <TooltipTrigger
           render={
-            <Diamond
+            <span
+              role="status"
               aria-label="Working"
-              className="size-3.5 shrink-0 text-sky-600 dark:text-sky-300"
+              className="flex size-4 shrink-0 items-center justify-center text-sky-600 dark:text-sky-300"
             />
           }
-        />
+        >
+          <PixelGridLoader />
+        </TooltipTrigger>
         <TooltipPopup side="top">Working</TooltipPopup>
       </Tooltip>
     );
