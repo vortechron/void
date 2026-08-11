@@ -4,7 +4,7 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Struct from "effect/Struct";
 import { ProviderOptionSelections } from "./model.ts";
-import { RepositoryIdentity } from "./environment.ts";
+import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -239,6 +239,9 @@ export const OrchestrationProject = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
+  // Per-project override for where new threads start. Null/absent means
+  // "no override": clients fall back to t3.json, then the global setting.
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.Array(ProjectScript),
   promptActions: OptionalProjectPromptActions,
   createdAt: IsoDateTime,
@@ -434,6 +437,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.Array(ProjectScript),
   promptActions: OptionalProjectPromptActions,
   createdAt: IsoDateTime,
@@ -647,6 +651,8 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  // Absent = leave unchanged; null = clear the override.
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   promptActions: Schema.optional(Schema.Array(ProjectPromptAction)),
 });
@@ -895,6 +901,12 @@ const ThreadSessionStopCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
+  // Settle-cleanup stops are conditional: the decider drops the stop if the
+  // thread was re-engaged (unsettled, session starting/running, or a queued
+  // turn start) between the settle and this command. Guarding in the decider
+  // closes the race a post-settle snapshot read cannot: commands are decided
+  // serially against the authoritative read model.
+  onlyIfSettled: Schema.optional(Schema.Boolean),
 });
 
 const DispatchableClientOrchestrationCommand = Schema.Union([
@@ -1098,6 +1110,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   promptActions: Schema.optional(Schema.Array(ProjectPromptAction)),
   updatedAt: IsoDateTime,
