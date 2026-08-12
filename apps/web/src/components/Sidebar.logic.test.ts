@@ -1094,7 +1094,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("shows completed without a client visit marker", () => {
+  it("shows completed on an inactive thread without a client visit marker", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -1110,7 +1110,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Completed", pulse: false });
   });
 
-  it("keeps showing completed after a recent visit when there is no active blocker", () => {
+  it("keeps showing completed on an inactive thread after a recent visit", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -1126,6 +1126,24 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
+  });
+
+  it("hides completed on the active thread", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "default",
+          latestTurn: makeLatestTurn(),
+          isActive: true,
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            activeTurnId: null,
+          },
+        },
+      }),
+    ).toBeNull();
   });
 });
 

@@ -14,6 +14,7 @@ function thread(input: {
   interactionMode?: "default" | "plan";
   completedAt?: string | null;
   lastVisitedAt?: string;
+  isActive?: boolean;
 }): Parameters<typeof resolveThreadAttentionStatus>[0] {
   const latestTurn =
     input.completedAt === undefined
@@ -34,6 +35,7 @@ function thread(input: {
     interactionMode: input.interactionMode ?? "default",
     latestTurn,
     lastVisitedAt: input.lastVisitedAt,
+    isActive: input.isActive ?? false,
     session: input.status
       ? ({ status: input.status, activeTurnId: null } as SidebarThreadSummary["session"])
       : null,
@@ -64,7 +66,7 @@ describe("resolveSidebarWorkspaceStatus", () => {
     ).toBe("failed");
   });
 
-  it("keeps a completed chat highlighted after that chat is visited", () => {
+  it("shows completed on an inactive tab and hides it on the active tab", () => {
     const completedAt = "2026-08-05T10:05:00.000Z";
 
     expect(
@@ -72,7 +74,8 @@ describe("resolveSidebarWorkspaceStatus", () => {
         thread({
           status: "ready",
           completedAt,
-          lastVisitedAt: "2026-08-05T10:04:00.000Z",
+          lastVisitedAt: "2026-08-05T10:06:00.000Z",
+          isActive: false,
         }),
       ),
     ).toBe("completed");
@@ -82,26 +85,29 @@ describe("resolveSidebarWorkspaceStatus", () => {
           status: "ready",
           completedAt,
           lastVisitedAt: "2026-08-05T10:06:00.000Z",
+          isActive: true,
         }),
       ),
-    ).toBe("completed");
+    ).toBe("ready");
   });
 
-  it("keeps the workspace completed after every completed chat is visited", () => {
+  it("keeps the workspace completed while any inactive chat is completed", () => {
     const completedAt = "2026-08-05T10:05:00.000Z";
-    const visited = thread({
+    const active = thread({
       status: "ready",
       completedAt,
       lastVisitedAt: "2026-08-05T10:06:00.000Z",
+      isActive: true,
     });
-    const unvisited = thread({
+    const inactive = thread({
       status: "ready",
       completedAt,
-      lastVisitedAt: "2026-08-05T10:04:00.000Z",
+      lastVisitedAt: "2026-08-05T10:06:00.000Z",
+      isActive: false,
     });
 
-    expect(resolveSidebarWorkspaceStatus([visited, visited, unvisited])).toBe("completed");
-    expect(resolveSidebarWorkspaceStatus([visited, visited, visited])).toBe("completed");
+    expect(resolveSidebarWorkspaceStatus([active, active, inactive])).toBe("completed");
+    expect(resolveSidebarWorkspaceStatus([active, active, active])).toBe("ready");
   });
 
   it("shows an actionable completed plan before a regular completion", () => {

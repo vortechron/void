@@ -34,7 +34,7 @@ If one icon must represent the aggregate, use this presentation priority:
 3. Failed
 4. Starting or running
 5. Plan ready
-6. Completed
+6. Completed on an inactive thread
 7. Idle or stopped (no attention icon)
 
 Keep counts/sets underneath even when only the highest-priority icon is shown.
@@ -66,14 +66,14 @@ Primary sources:
 | User input required | At least one unresolved question/elicitation request                           | The matching request resolves; opening the thread must not clear it                                                                                 |
 | Failed              | Terminal failure or provider/session error                                     | Preserve the error in the timeline; the attention badge may clear on acknowledgement or on the next turn, but must not be mistaken for cancellation |
 | Plan ready          | A final, actionable proposed plan exists, not merely a plan-progress update    | Plan is implemented/dismissed, or explicitly acknowledged if Void chooses notification-style semantics                                              |
-| Completed           | The latest turn completed successfully                                         | The next turn or a higher-priority live state replaces it                                                                                           |
+| Completed           | The inactive thread's latest turn completed successfully                       | Hidden while that thread is active; replaced when its latest state changes                                                                          |
 | Idle/stopped        | No live work, blocker, actionable plan, failure attention, or completed turn   | No indicator                                                                                                                                        |
 
-`completed` is the current latest-turn state, so opening a thread must not clear
-its green Done icon. Whether that completion is unread is a separate Void
-client/read-model concern. Keep the acknowledgement against the terminal turn
-identity (or a monotonic completion sequence) so the UI may style unread and
-read completions differently without hiding their status.
+`completed` is the latest-turn outcome. Void hides its green Done icon only
+while that thread is active, so the current page does not repeat the state the
+user is already looking at. Switching away shows Done again while the latest
+turn remains successful. The visit watermark is separate and may still control
+stronger unread styling without permanently hiding the status.
 
 Likewise, `plan ready` is derived. Plan-progress events alone are insufficient:
 ACP and Codex both emit plans while work is still running. Void should only show
@@ -105,5 +105,4 @@ The missing concept is not another provider status. Void already persists a
 per-thread visit watermark as `threadLastVisitedAtById` in
 [`uiStateStore.ts`](../../../apps/web/src/uiStateStore.ts). Use that watermark
 for unread styling only. Tab indicators and workspace aggregation derive Done
-from the latest successful turn, so acknowledging a thread does not hide its
-current status.
+from the latest successful turn and suppress it only for the active thread.

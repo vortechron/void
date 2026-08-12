@@ -155,6 +155,7 @@ type ThreadStatusInput = Pick<
   | "backgroundLiveness"
 > & {
   lastVisitedAt?: string | undefined;
+  isActive?: boolean | undefined;
 };
 
 export interface ThreadJumpHintVisibilityController {
@@ -432,8 +433,8 @@ export function resolveThreadRowClassName(input: {
 // Five visual states, three colors: color is reserved for "act now"
 // (approval), "in motion" (working), and "broken" (failed). Ready is the
 // unlabeled resting state — the agent stopped and is waiting on the user.
-// A successful latest turn adds the stable Completed presentation separately;
-// its unread styling still uses the visit watermark.
+// An inactive thread with a successful latest turn adds Completed separately;
+// the visit watermark still controls stronger unread styling.
 export type SidebarThreadStatus =
   | "approval"
   | "input"
@@ -689,7 +690,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (hasCompletedTurn(thread)) {
+  if (!thread.isActive && hasCompletedTurn(thread)) {
     return {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",

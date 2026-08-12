@@ -485,7 +485,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Same semantics as the legacy sidebar (never-visited counts as read):
   // switching sidebars must not light up every historical thread as unread.
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
-  const isCompleted = hasCompletedTurn(thread);
+  const isCompleted = !props.isActive && hasCompletedTurn(thread);
   const status = resolveSidebarThreadStatus(thread);
   // A woken thread reappears at its original position (the sort is
   // deliberately static), so the pill has to carry the weight. Snoozing is
@@ -504,7 +504,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     prState !== "closed";
   // In-flight rows (working, or waiting on approval/input) fade as a whole:
   // there is nothing for the user to do yet, so prominence is reserved for
-  // rows that need a human — unread done, read-but-unsettled, failed, and
+  // rows that need a human — done (unread), read-but-unsettled, failed, and
   // freshly woken. The status label keeps its hue, so waiting rows stay
   // findable. In-flight rows recede the same as read-ready ones (inbox-zero:
   // working threads aren't your problem yet) — only the colored status label
