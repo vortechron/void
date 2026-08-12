@@ -1094,48 +1094,12 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("shows completed on an inactive thread without a client visit marker", () => {
+  it("does not manufacture completed state without a client visit marker", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
           latestTurn: makeLatestTurn(),
-          session: {
-            ...baseThread.session,
-            status: "ready",
-            activeTurnId: null,
-          },
-        },
-      }),
-    ).toMatchObject({ label: "Completed", pulse: false });
-  });
-
-  it("keeps showing completed on an inactive thread after a recent visit", () => {
-    expect(
-      resolveThreadStatusPill({
-        thread: {
-          ...baseThread,
-          interactionMode: "default",
-          latestTurn: makeLatestTurn(),
-          lastVisitedAt: "2026-03-09T10:06:00.000Z",
-          session: {
-            ...baseThread.session,
-            status: "ready",
-            activeTurnId: null,
-          },
-        },
-      }),
-    ).toMatchObject({ label: "Completed", pulse: false });
-  });
-
-  it("hides completed on the active thread", () => {
-    expect(
-      resolveThreadStatusPill({
-        thread: {
-          ...baseThread,
-          interactionMode: "default",
-          latestTurn: makeLatestTurn(),
-          isActive: true,
           session: {
             ...baseThread.session,
             status: "ready",
@@ -1144,6 +1108,24 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toBeNull();
+  });
+
+  it("shows completed when there is an unseen completion and no active blocker", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "default",
+          latestTurn: makeLatestTurn(),
+          lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            activeTurnId: null,
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Completed", pulse: false });
   });
 });
 

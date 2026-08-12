@@ -282,7 +282,6 @@ function resolveWorkspaceStatusByKey(
   workspaces: readonly ProjectWorkspace[],
   workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>,
   lastVisitedAtByThreadKey: ReadonlyMap<string, string | null>,
-  activeRouteThreadKey: string | null,
 ) {
   return new Map(
     workspaces.map((workspace) => [
@@ -291,13 +290,7 @@ function resolveWorkspaceStatusByKey(
         workspace.sessions.flatMap((session) => {
           const thread = workspaceThreadByKey.get(session.key);
           return thread
-            ? [
-                {
-                  ...thread,
-                  lastVisitedAt: lastVisitedAtByThreadKey.get(session.key) ?? undefined,
-                  isActive: session.key === activeRouteThreadKey,
-                },
-              ]
+            ? [{ ...thread, lastVisitedAt: lastVisitedAtByThreadKey.get(session.key) ?? undefined }]
             : [];
         }),
       ),
@@ -308,7 +301,6 @@ function resolveWorkspaceStatusByKey(
 function useWorkspaceStatusByKey(
   workspaces: readonly ProjectWorkspace[],
   workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>,
-  activeRouteThreadKey: string | null,
 ) {
   const threadKeys = useMemo(
     () => workspaces.flatMap((workspace) => workspace.sessions.map((session) => session.key)),
@@ -325,14 +317,8 @@ function useWorkspaceStatusByKey(
   );
 
   return useMemo(
-    () =>
-      resolveWorkspaceStatusByKey(
-        workspaces,
-        workspaceThreadByKey,
-        lastVisitedAtByThreadKey,
-        activeRouteThreadKey,
-      ),
-    [activeRouteThreadKey, lastVisitedAtByThreadKey, workspaces, workspaceThreadByKey],
+    () => resolveWorkspaceStatusByKey(workspaces, workspaceThreadByKey, lastVisitedAtByThreadKey),
+    [lastVisitedAtByThreadKey, workspaces, workspaceThreadByKey],
   );
 }
 
@@ -432,8 +418,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   } = props;
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const threadKey = scopedThreadKey(threadRef);
-  const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
+  const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
     threadId: thread.id,
@@ -512,7 +498,6 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     thread: {
       ...thread,
       lastVisitedAt,
-      isActive,
     },
   });
   const pr = resolveThreadPr({
@@ -1243,11 +1228,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     () => workspaces.filter((workspace) => !archivedWorkspaceKeys.includes(workspace.key)),
     [archivedWorkspaceKeys, workspaces],
   );
-  const workspaceStatusByKey = useWorkspaceStatusByKey(
-    visibleWorkspaces,
-    workspaceThreadByKey,
-    props.activeRouteThreadKey,
-  );
+  const workspaceStatusByKey = useWorkspaceStatusByKey(visibleWorkspaces, workspaceThreadByKey);
 
   return (
     <SidebarMenuSub className="mx-0.5 my-0 w-full translate-x-0 gap-0.5 overflow-hidden border-l-0 px-1 py-0 sm:mx-1 sm:px-1.5">
@@ -1269,21 +1250,10 @@ const SidebarWorkspaceList = memo(function SidebarWorkspaceList(props: {
   workspaces: readonly ProjectWorkspace[];
   workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>;
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
-  activeRouteThreadKey: string | null;
   showProjectIcon?: boolean;
 }) {
-  const {
-    workspaces,
-    workspaceThreadByKey,
-    handleNewThread,
-    activeRouteThreadKey,
-    showProjectIcon = false,
-  } = props;
-  const workspaceStatusByKey = useWorkspaceStatusByKey(
-    workspaces,
-    workspaceThreadByKey,
-    activeRouteThreadKey,
-  );
+  const { workspaces, workspaceThreadByKey, handleNewThread, showProjectIcon = false } = props;
+  const workspaceStatusByKey = useWorkspaceStatusByKey(workspaces, workspaceThreadByKey);
 
   return (
     <SidebarMenuSub className="mx-0.5 my-0 w-full translate-x-0 gap-0.5 overflow-hidden border-l-0 px-1 py-0 sm:mx-1 sm:px-1.5">
@@ -1502,9 +1472,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         thread: {
           ...thread,
           ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-          isActive:
-            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
-            activeRouteThreadKey,
         },
       });
     };
@@ -1522,7 +1489,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       projectStatus,
       visibleProjectThreads,
     };
-  }, [activeRouteThreadKey, projectThreads, threadLastVisitedAts, threadSortOrder]);
+  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
   const pinnedCollapsedThread = useMemo(() => {
     const activeThreadKey = activeRouteThreadKey ?? undefined;
     if (!activeThreadKey || projectExpanded) {
@@ -1557,9 +1524,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         thread: {
           ...thread,
           ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-          isActive:
-            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
-            activeRouteThreadKey,
         },
       });
     };
@@ -1592,7 +1556,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
     };
   }, [
-    activeRouteThreadKey,
     isThreadListExpanded,
     pinnedCollapsedThread,
     projectExpanded,
@@ -3125,7 +3088,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             workspaces={pinnedWorkspaces}
             workspaceThreadByKey={workspaceThreadByKey}
             handleNewThread={handleNewThread}
-            activeRouteThreadKey={routeThreadKey}
             showProjectIcon
           />
         </SidebarGroup>
@@ -3301,7 +3263,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 workspaces={archivedWorkspaces}
                 workspaceThreadByKey={workspaceThreadByKey}
                 handleNewThread={handleNewThread}
-                activeRouteThreadKey={routeThreadKey}
                 showProjectIcon
               />
             ) : null}

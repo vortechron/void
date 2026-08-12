@@ -155,7 +155,6 @@ type ThreadStatusInput = Pick<
   | "backgroundLiveness"
 > & {
   lastVisitedAt?: string | undefined;
-  isActive?: boolean | undefined;
 };
 
 export interface ThreadJumpHintVisibilityController {
@@ -250,15 +249,10 @@ export function useThreadJumpHintVisibility(): {
   };
 }
 
-export function hasCompletedTurn(thread: Pick<ThreadStatusInput, "latestTurn">): boolean {
-  if (thread.latestTurn?.state !== "completed" || !thread.latestTurn.completedAt) return false;
-  return !Number.isNaN(Date.parse(thread.latestTurn.completedAt));
-}
-
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  const completedAtValue = thread.latestTurn?.completedAt;
-  if (!hasCompletedTurn(thread) || !completedAtValue) return false;
-  const completedAt = Date.parse(completedAtValue);
+  if (thread.latestTurn?.state !== "completed" || !thread.latestTurn.completedAt) return false;
+  const completedAt = Date.parse(thread.latestTurn.completedAt);
+  if (Number.isNaN(completedAt)) return false;
   if (!thread.lastVisitedAt) return false;
 
   const lastVisitedAt = Date.parse(thread.lastVisitedAt);
@@ -432,9 +426,10 @@ export function resolveThreadRowClassName(input: {
 // ── Sidebar thread status model ─────────────────────────────────────
 // Five visual states, three colors: color is reserved for "act now"
 // (approval), "in motion" (working), and "broken" (failed). Ready is the
-// unlabeled resting state — the agent stopped and is waiting on the user.
-// An inactive thread with a successful latest turn adds Completed separately;
-// the visit watermark still controls stronger unread styling.
+// unlabeled resting state — the agent stopped and is waiting on the user,
+// whether it finished, asked a question, or proposed a plan.
+// Unread completion is tracked separately: it describes whether a ready
+// thread needs attention, not what the thread is currently doing.
 export type SidebarThreadStatus =
   | "approval"
   | "input"
@@ -690,7 +685,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (!thread.isActive && hasCompletedTurn(thread)) {
+  if (hasUnseenCompletion(thread)) {
     return {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
