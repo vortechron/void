@@ -392,9 +392,7 @@ const ThreadTabButton = memo(function ThreadTabButton(props: {
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[tabKey]);
   const markThreadVisited = useUiStateStore((state) => state.markThreadVisited);
   const title = shell?.title?.trim() || "New thread";
-  const status = shell
-    ? resolveThreadAttentionStatus({ ...shell, lastVisitedAt, isActive: props.active })
-    : "ready";
+  const status = shell ? resolveThreadAttentionStatus({ ...shell, lastVisitedAt }) : "ready";
   const handleActivate = useCallback(() => {
     if (shell) markThreadVisited(tabKey, shell.updatedAt);
     onActivate();
