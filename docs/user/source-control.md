@@ -43,6 +43,12 @@ T3 Code works with the platforms your team already uses:
   changes made directly in the original checkout.
 - Right-click a repository to hide it; use **Show hidden repositories** at the bottom of the list to
   bring it back.
+- Open the **Projects** menu to filter the sidebar with your own project groups. Use **Manage
+  groups** to add, rename, or delete a group, then right-click or long-press a repository to add it
+  to one or more groups.
+- Group names in the **Projects** menu show the same working, completed, approval, input, plan,
+  monitoring, and failure indicators as the rest of the sidebar. This lets you see activity in a
+  group even while another group is selected.
 - Open **Diff** in the right panel to review the working tree or branch changes for the active
   thread's checkout.
 
