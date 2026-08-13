@@ -77,7 +77,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { isElectron } from "../env";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isMacPlatform } from "../lib/utils";
+import { isMacPlatform, randomUUID } from "../lib/utils";
 import {
   readThreadShell,
   useAllEnvironmentShellsBootstrapped,
@@ -130,13 +130,25 @@ import { SidebarWorkspaceStatusIcon } from "./SidebarWorkspaceStatusIcon";
 import { GlidingHighlight } from "./beautiful/GlidingHighlight";
 import { useDelegatedGlidingHighlight } from "./beautiful/useGlidingHighlight";
 import { resolveSidebarWorkspaceDiffStat } from "./sidebarWorkspaceDiff";
-import { resolveSidebarWorkspaceStatus } from "./sidebarWorkspaceStatus";
+import {
+  resolveSidebarWorkspaceStatus,
+  type ThreadAttentionStatus,
+} from "./sidebarWorkspaceStatus";
 import {
   hiddenRepositoriesLabel,
   partitionSidebarProjects,
   pruneHiddenProjectKeys,
   toggleHiddenProjectKey,
 } from "./sidebarHiddenProjects";
+import { SidebarProjectGroupFilter } from "./SidebarProjectGroupFilter";
+import { useProjectGroupStatusById } from "./sidebarProjectGroupStatus";
+import {
+  createProjectGroup,
+  filterProjectsByGroup,
+  isValidProjectGroupName,
+  resolveActiveProjectGroup,
+  toggleProjectInGroup,
+} from "./sidebarProjectGroups";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { Kbd } from "./ui/kbd";
@@ -1322,6 +1334,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const hiddenProjectKeys = useClientSettings((settings) => settings.sidebarHiddenProjectKeys);
   const isProjectHidden = hiddenProjectKeys.includes(project.projectKey);
+  const projectGroups = useClientSettings((settings) => settings.sidebarProjectGroups);
   const deleteProject = useAtomCommand(projectEnvironment.delete, {
     reportFailure: false,
   });
@@ -1428,6 +1441,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const [projectGroupingSelection, setProjectGroupingSelection] = useState<
     SidebarProjectGroupingMode | "inherit"
   >("inherit");
+  const [isNewProjectGroupDialogOpen, setIsNewProjectGroupDialogOpen] = useState(false);
+  const [newProjectGroupName, setNewProjectGroupName] = useState("");
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const confirmArchiveButtonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -1881,10 +1896,44 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           });
         });
 
+        // A project can sit in several groups at once, so every group gets its
+        // own toggle rather than a single-choice radio list. The native menu
+        // has no checkbox items, so membership shows in the label.
+        actionHandlers.set("project-group:new", () => {
+          setNewProjectGroupName("");
+          setIsNewProjectGroupDialogOpen(true);
+        });
+        for (const group of projectGroups) {
+          actionHandlers.set(`project-group:${group.id}`, () => {
+            updateSettings({
+              sidebarProjectGroups: toggleProjectInGroup(
+                projectGroups,
+                group.id,
+                project.projectKey,
+              ),
+            });
+          });
+        }
+        const projectGroupItem: ContextMenuItem<string> = {
+          id: "project-group:submenu",
+          label: "Groups",
+          children: [
+            ...projectGroups.map((group): ContextMenuItem<string> => {
+              const isMember = group.projectKeys.includes(project.projectKey);
+              return {
+                id: `project-group:${group.id}`,
+                label: isMember ? `✓ ${group.name}` : group.name,
+              };
+            }),
+            { id: "project-group:new", label: "New group..." },
+          ],
+        };
+
         const clicked = await api.contextMenu.show(
           [
             buildTargetedItem("rename", "Rename"),
             buildTargetedItem("grouping", "Group into..."),
+            projectGroupItem,
             buildTargetedItem("copy-path", "Copy Path"),
             {
               id: "toggle-hidden",
@@ -1918,10 +1967,44 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       project.groupedProjectCount,
       project.memberProjects,
       project.projectKey,
+      projectGroups,
       suppressProjectClickForContextMenuRef,
       updateSettings,
     ],
   );
+
+  const closeNewProjectGroupDialog = useCallback(() => {
+    setIsNewProjectGroupDialogOpen(false);
+    setNewProjectGroupName("");
+  }, []);
+
+  // Creating a group from a project row seeds it with that project, which is
+  // the only reason the user opened this dialog.
+  const submitNewProjectGroup = useCallback(() => {
+    const trimmed = newProjectGroupName.trim();
+    if (trimmed.length === 0) {
+      toastManager.add({ type: "warning", title: "Group name cannot be empty" });
+      return;
+    }
+    if (!isValidProjectGroupName(projectGroups, trimmed)) {
+      toastManager.add({ type: "warning", title: `A group named "${trimmed}" already exists` });
+      return;
+    }
+    updateSettings({
+      sidebarProjectGroups: createProjectGroup(projectGroups, {
+        id: randomUUID(),
+        name: trimmed,
+        projectKeys: [project.projectKey],
+      }),
+    });
+    closeNewProjectGroupDialog();
+  }, [
+    closeNewProjectGroupDialog,
+    newProjectGroupName,
+    project.projectKey,
+    projectGroups,
+    updateSettings,
+  ]);
 
   const handleProjectButtonContextMenu = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -2673,6 +2756,47 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       </Dialog>
 
       <Dialog
+        open={isNewProjectGroupDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeNewProjectGroupDialog();
+          }
+        }}
+      >
+        <DialogPopup className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New group</DialogTitle>
+            <DialogDescription>
+              {`Create a group and add ${project.displayName} to it. A project can belong to several groups.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-4">
+            <div className="grid gap-1.5">
+              <span className="text-xs font-medium text-foreground">Group name</span>
+              <Input
+                autoFocus
+                aria-label="Group name"
+                value={newProjectGroupName}
+                onChange={(event) => setNewProjectGroupName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitNewProjectGroup();
+                  }
+                }}
+              />
+            </div>
+          </DialogPanel>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeNewProjectGroupDialog}>
+              Cancel
+            </Button>
+            <Button onClick={submitNewProjectGroup}>Create</Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog
         open={projectGroupingTarget !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -2959,6 +3083,7 @@ interface SidebarProjectsContentProps {
   suppressProjectClickForContextMenuRef: React.RefObject<boolean>;
   attachProjectListAutoAnimateRef: (node: HTMLElement | null) => void;
   projectsLength: number;
+  projectGroupStatusById: ReadonlyMap<string, ThreadAttentionStatus>;
 }
 
 const SidebarProjectsContent = memo(function SidebarProjectsContent(
@@ -3005,6 +3130,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     suppressProjectClickForContextMenuRef,
     attachProjectListAutoAnimateRef,
     projectsLength,
+    projectGroupStatusById,
   } = props;
   const [showArchivedWorkspaces, setShowArchivedWorkspaces] = useState(false);
 
@@ -3094,7 +3220,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
       ) : null}
       <SidebarGroup className="px-2 py-2">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
-          <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
+          <SidebarProjectGroupFilter statusByGroupId={projectGroupStatusById} />
           <div className="flex items-center gap-1">
             {sortedProjects.length > 0 ? (
               <Tooltip>
@@ -3223,6 +3349,17 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </div>
         )}
 
+        {/* An active group that matches nothing would otherwise render a blank
+            gap with no hint that a filter is on. */}
+        {projectsLength > 0 && sortedProjects.length === 0 && hiddenProjectCount === 0 ? (
+          <div
+            className="px-2 pt-4 text-center text-xs text-muted-foreground/60"
+            data-testid="sidebar-empty-project-group"
+          >
+            No projects in this group
+          </div>
+        ) : null}
+
         {hiddenProjectCount > 0 ? (
           <button
             type="button"
@@ -3296,6 +3433,8 @@ export default function Sidebar() {
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const sidebarThreadPreviewCount = useClientSettings((s) => s.sidebarThreadPreviewCount);
   const hiddenProjectKeys = useClientSettings((s) => s.sidebarHiddenProjectKeys);
+  const projectGroups = useClientSettings((s) => s.sidebarProjectGroups);
+  const activeProjectGroupId = useClientSettings((s) => s.sidebarActiveProjectGroupId);
   const [showHiddenProjects, setShowHiddenProjects] = useState(false);
   const toggleShowHiddenProjects = useCallback(() => {
     setShowHiddenProjects((current) => !current);
@@ -3580,11 +3719,39 @@ export default function Sidebar() {
     sidebarProjects,
     visibleThreads,
   ]);
+  // Badges must reflect every group, including the ones the filter is hiding,
+  // so this reads the unfiltered project list. Archived chats are dropped for
+  // the same reason the rows drop them: they are not something to act on.
+  const visibleThreadsByProjectKey = useMemo(() => {
+    const next = new Map<string, SidebarThreadSummary[]>();
+    for (const [projectKey, projectThreads] of threadsByProjectKey) {
+      next.set(
+        projectKey,
+        projectThreads.filter((thread) => thread.archivedAt === null),
+      );
+    }
+    return next;
+  }, [threadsByProjectKey]);
+  const projectGroupStatusById = useProjectGroupStatusById({
+    groups: projectGroups,
+    visibleThreadsByProjectKey,
+  });
+  // The group filter narrows the list before hiding is applied, so the
+  // "Show N hidden repositories" shelf only ever counts projects inside the
+  // group you are looking at.
+  const activeProjectGroup = useMemo(
+    () => resolveActiveProjectGroup(projectGroups, activeProjectGroupId),
+    [activeProjectGroupId, projectGroups],
+  );
+  const groupFilteredProjects = useMemo(
+    () => filterProjectsByGroup(sortedProjects, activeProjectGroup),
+    [activeProjectGroup, sortedProjects],
+  );
   // Hidden repositories drop out of every downstream consumer — thread jump
   // labels included — so a hidden project cannot own a shortcut you can't see.
   const { listed: listedProjects, hidden: hiddenProjects } = useMemo(
-    () => partitionSidebarProjects(sortedProjects, hiddenProjectKeys),
-    [hiddenProjectKeys, sortedProjects],
+    () => partitionSidebarProjects(groupFilteredProjects, hiddenProjectKeys),
+    [groupFilteredProjects, hiddenProjectKeys],
   );
   const shownProjects = useMemo(
     () => (showHiddenProjects ? [...listedProjects, ...hiddenProjects] : listedProjects),
@@ -3664,6 +3831,14 @@ export default function Sidebar() {
     if (pruned === hiddenProjectKeys) return;
     updateSettings({ sidebarHiddenProjectKeys: pruned });
   }, [allEnvironmentShellsBootstrapped, hiddenProjectKeys, sortedProjects, updateSettings]);
+  // A group deleted on another device leaves this one filtered by an id that
+  // no longer resolves; fall back to "All projects" rather than showing an
+  // empty sidebar.
+  useEffect(() => {
+    if (activeProjectGroupId === null) return;
+    if (projectGroups.some((group) => group.id === activeProjectGroupId)) return;
+    updateSettings({ sidebarActiveProjectGroupId: null });
+  }, [activeProjectGroupId, projectGroups, updateSettings]);
   // Collapsing the shelf while everything is visible again would leave a
   // dangling "Hide hidden repositories" button with nothing behind it.
   useEffect(() => {
@@ -4028,6 +4203,7 @@ export default function Sidebar() {
             suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
             attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
             projectsLength={projects.length}
+            projectGroupStatusById={projectGroupStatusById}
           />
           <SidebarChromeFooter />
         </>

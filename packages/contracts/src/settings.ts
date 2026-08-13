@@ -34,6 +34,20 @@ export const SidebarProjectGroupingMode = Schema.Literals([
 ]);
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
 export const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
+
+// A user-defined bucket of sidebar projects. Unrelated to
+// `SidebarProjectGroupingMode`, which decides whether one repository checked
+// out in several environments collapses into a single row; this is the
+// hand-curated "show me only my work projects" filter. `projectKeys` holds
+// logical project keys and a key may appear in several groups at once.
+export const SidebarProjectGroup = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  projectKeys: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type SidebarProjectGroup = typeof SidebarProjectGroup.Type;
 export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
 export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
 export const SidebarThreadPreviewCount = Schema.Int.check(
@@ -489,6 +503,16 @@ export const ClientSettingsSchema = Schema.Struct({
   // back through the "Show hidden repositories" shelf.
   sidebarHiddenProjectKeys: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  // Hand-curated project buckets, in the order they appear in the sidebar
+  // filter dropdown.
+  sidebarProjectGroups: Schema.Array(SidebarProjectGroup).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  // The group currently filtering the project list, or null for "All
+  // projects". Falls back to "All projects" when the id no longer resolves.
+  sidebarActiveProjectGroupId: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
@@ -1136,6 +1160,10 @@ export const ClientSettingsPatch = Schema.Struct({
   ),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarHiddenProjectKeys: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+  // Whole-blob replacement: the sidebar always holds the complete group list
+  // it is replacing.
+  sidebarProjectGroups: Schema.optionalKey(Schema.Array(SidebarProjectGroup)),
+  sidebarActiveProjectGroupId: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   theme: Schema.optionalKey(AppThemePreference),

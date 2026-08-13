@@ -157,6 +157,8 @@ describe("ClientSettings sidebar", () => {
     const settings = decodeClientSettings({});
     expect(settings.sidebarV2Enabled).toBe(false);
     expect(settings.sidebarAutoSettleAfterDays).toBe(3);
+    expect(settings.sidebarProjectGroups).toEqual([]);
+    expect(settings.sidebarActiveProjectGroupId).toBeNull();
   });
 
   it("preserves an explicit sidebar v2 beta opt-in", () => {
@@ -173,6 +175,35 @@ describe("ClientSettings sidebar", () => {
   it.each([-1, 0, 91])("rejects an auto-settle threshold outside 1..90: %s", (value) => {
     expect(() => decodeClientSettings({ sidebarAutoSettleAfterDays: value })).toThrow();
     expect(() => decodeClientSettingsPatch({ sidebarAutoSettleAfterDays: value })).toThrow();
+  });
+
+  it("accepts saved project groups and fills in an omitted member list", () => {
+    const patch = decodeClientSettingsPatch({
+      sidebarProjectGroups: [
+        { id: "group-work", name: " Work ", projectKeys: ["project-a"] },
+        { id: "group-empty", name: "Empty" },
+      ],
+      sidebarActiveProjectGroupId: "group-work",
+    });
+
+    expect(patch.sidebarProjectGroups).toEqual([
+      { id: "group-work", name: "Work", projectKeys: ["project-a"] },
+      { id: "group-empty", name: "Empty", projectKeys: [] },
+    ]);
+    expect(patch.sidebarActiveProjectGroupId).toBe("group-work");
+  });
+
+  it("rejects a project group with a blank id or name", () => {
+    expect(() =>
+      decodeClientSettingsPatch({
+        sidebarProjectGroups: [{ id: " ", name: "Work", projectKeys: [] }],
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeClientSettingsPatch({
+        sidebarProjectGroups: [{ id: "group-work", name: " ", projectKeys: [] }],
+      }),
+    ).toThrow();
   });
 });
 
