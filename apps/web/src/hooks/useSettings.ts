@@ -50,6 +50,7 @@ import {
 } from "~/themePalette";
 import * as Struct from "effect/Struct";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import {
   primaryServerConfigAtom,
   primaryServerSettingsAtom,
@@ -127,9 +128,15 @@ export function getClientSettings(): ClientSettings {
  *
  * These settings ride the server config stream rather than localStorage here,
  * so the primary server's config landing is the signal — not a disk read.
+ * That means the wait only makes sense while a primary environment exists to
+ * deliver one; with none paired, nothing would ever resolve it.
  */
 export function ensureClientSettingsHydrated(): Promise<void> {
-  if (appAtomRegistry.get(primaryServerConfigAtom) !== null) {
+  if (
+    clientSettingsTestOverride !== null ||
+    appAtomRegistry.get(primaryServerConfigAtom) !== null ||
+    appAtomRegistry.get(primaryEnvironmentIdAtom) === null
+  ) {
     return Promise.resolve();
   }
   return new Promise<void>((resolve) => {

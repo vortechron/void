@@ -172,15 +172,23 @@ export const DiffFileTree = memo(function DiffFileTree({
               ) : (
                 <FolderClosedIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
               )}
-              <span
-                className={cn(
-                  "truncate font-mono text-muted-foreground/90 group-hover:text-foreground/90",
-                  touch ? "text-[13px]" : "text-[11px]",
-                )}
-                title={node.path}
-              >
-                {node.name}
-              </span>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      className={cn(
+                        "truncate font-mono text-muted-foreground/90 group-hover:text-foreground/90",
+                        touch ? "text-[13px]" : "text-[11px]",
+                      )}
+                    >
+                      {node.name}
+                    </span>
+                  }
+                />
+                <TooltipPopup side="right" className="max-w-96 font-mono text-[11px]">
+                  {node.path}
+                </TooltipPopup>
+              </Tooltip>
               {!isExpanded && hasNonZeroStat(node.stat) && (
                 <span className="ml-auto shrink-0 pl-1 font-mono text-[10px]">
                   <DiffStatLabel
@@ -202,57 +210,64 @@ export const DiffFileTree = memo(function DiffFileTree({
     return (
       <div key={`file:${node.entry.fileKey}`} className="relative">
         <IndentGuides depth={depth} />
-        <button
-          type="button"
-          data-diff-tree-file={node.entry.fileKey}
-          aria-current={isActive ? "true" : undefined}
-          title={node.path}
-          className={cn(
-            "group flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            touch ? "py-2" : "py-1",
-            isActive ? "bg-accent text-foreground" : "hover:bg-accent/60",
-          )}
-          style={{ paddingLeft }}
-          onClick={() => onSelectFile(node.entry)}
-        >
-          <span aria-hidden="true" className="size-3.5 shrink-0" />
-          <PierreEntryIcon
-            pathValue={node.path}
-            kind="file"
-            theme={resolvedTheme}
-            className="size-3.5 shrink-0 text-muted-foreground/70"
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                data-diff-tree-file={node.entry.fileKey}
+                aria-current={isActive ? "true" : undefined}
+                className={cn(
+                  "group flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  touch ? "py-2" : "py-1",
+                  isActive ? "bg-accent text-foreground" : "hover:bg-accent/60",
+                )}
+                style={{ paddingLeft }}
+                onClick={() => onSelectFile(node.entry)}
+              >
+                <span aria-hidden="true" className="size-3.5 shrink-0" />
+                <PierreEntryIcon
+                  pathValue={node.path}
+                  kind="file"
+                  theme={resolvedTheme}
+                  className="size-3.5 shrink-0 text-muted-foreground/70"
+                />
+                <span
+                  className={cn(
+                    "truncate",
+                    touch ? "text-[13px]" : "text-[11px]",
+                    isActive
+                      ? "text-foreground"
+                      : "text-muted-foreground/85 group-hover:text-foreground/90",
+                  )}
+                >
+                  {node.name}
+                </span>
+                <span className="ml-auto flex shrink-0 items-center gap-1 pl-1">
+                  <span
+                    aria-label={change.label}
+                    className={cn(
+                      "font-mono text-[10px] font-medium",
+                      CHANGE_LETTER_CLASS_NAMES[node.entry.changeType],
+                    )}
+                  >
+                    {change.letter}
+                  </span>
+                  <span className="font-mono text-[10px]">
+                    <DiffStatLabel
+                      additions={node.entry.stat.additions}
+                      deletions={node.entry.stat.deletions}
+                      layout="inline"
+                    />
+                  </span>
+                </span>
+              </button>
+            }
           />
-          <span
-            className={cn(
-              "truncate",
-              touch ? "text-[13px]" : "text-[11px]",
-              isActive
-                ? "text-foreground"
-                : "text-muted-foreground/85 group-hover:text-foreground/90",
-            )}
-          >
-            {node.name}
-          </span>
-          <span className="ml-auto flex shrink-0 items-center gap-1 pl-1">
-            <span
-              aria-label={change.label}
-              className={cn(
-                "font-mono text-[10px] font-medium",
-                CHANGE_LETTER_CLASS_NAMES[node.entry.changeType],
-              )}
-              title={change.label}
-            >
-              {change.letter}
-            </span>
-            <span className="font-mono text-[10px]">
-              <DiffStatLabel
-                additions={node.entry.stat.additions}
-                deletions={node.entry.stat.deletions}
-                layout="inline"
-              />
-            </span>
-          </span>
-        </button>
+          <TooltipPopup side="right" className="max-w-96 font-mono text-[11px]">
+            {node.path}
+          </TooltipPopup>
+        </Tooltip>
       </div>
     );
   };

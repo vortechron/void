@@ -9,6 +9,7 @@ import { Archive, GitBranch, Tag } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 import { splitRemoteRefName } from "./historyRows";
 
@@ -39,18 +40,24 @@ export function CommitRefBadge({
   const Icon = KIND_ICON[refValue.kind];
 
   return (
-    <span
-      className={cn(
-        "inline-flex h-4 min-w-0 max-w-52 items-center gap-1 rounded px-1 text-[10px] leading-none",
-        KIND_CLASS[refValue.kind],
-        refValue.isCurrent && "ring-1 ring-primary/60",
-      )}
-      onContextMenu={onContextMenu ? (event) => onContextMenu(event, refValue) : undefined}
-      title={refValue.name}
-    >
-      <Icon aria-hidden className="size-2.5 shrink-0 opacity-70" />
-      {remote ? <span className="shrink-0 opacity-70">{remote}</span> : null}
-      <span className="truncate">{branch}</span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              "inline-flex h-4 min-w-0 max-w-52 items-center gap-1 rounded px-1 text-[10px] leading-none",
+              KIND_CLASS[refValue.kind],
+              refValue.isCurrent && "ring-1 ring-primary/60",
+            )}
+            onContextMenu={onContextMenu ? (event) => onContextMenu(event, refValue) : undefined}
+          >
+            <Icon aria-hidden className="size-2.5 shrink-0 opacity-70" />
+            {remote ? <span className="shrink-0 opacity-70">{remote}</span> : null}
+            <span className="truncate">{branch}</span>
+          </span>
+        }
+      />
+      <TooltipPopup side="top">{refValue.name}</TooltipPopup>
+    </Tooltip>
   );
 }

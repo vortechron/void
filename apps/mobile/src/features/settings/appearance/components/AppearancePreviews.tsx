@@ -1,4 +1,4 @@
-import { Platform, ScrollView, type StyleProp, type TextStyle, View, useColorScheme } from "react-native";
+import { Platform, ScrollView, View } from "react-native";
 
 import { AppText as Text } from "../../../../components/AppText";
 import {

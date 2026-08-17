@@ -57,7 +57,6 @@ export function DiffBaseRefPicker({
         "flex min-w-0 max-w-full items-center gap-2 overflow-hidden text-xs text-muted-foreground",
         className,
       )}
-      title={`${headRef} → ${baseRef}`}
       aria-label={`Comparing ${headRef} against ${baseRef}`}
     >
       <span className={cn("min-w-0 max-w-48 truncate", headRefClassName)}>{headRef}</span>
@@ -152,7 +151,10 @@ export function DiffBaseRefPicker({
                         />
                       </div>
                     ) : choice.remote ? (
-                      <span className="flex justify-end text-muted-foreground" title="Remote only">
+                      <span
+                        className="flex justify-end text-muted-foreground"
+                        aria-label="Remote only"
+                      >
                         <CheckIcon aria-hidden="true" className="size-3" />
                       </span>
                     ) : null}

@@ -409,7 +409,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       data-chat-composer-dictation-status={dictation ? dictation.status : undefined}
       // Only set when dictation is switched on but something in this session
       // blocks it, so the user is not left holding a button that does nothing.
-      title={
+      aria-description={
         !canHoldToDictate && dictation?.unavailableMessage
           ? dictation.unavailableMessage
           : undefined
@@ -417,7 +417,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       className={cn(
         // `select-none touch-none` keep a long press on a touch device a hold
         // rather than a text selection or the start of a scroll gesture.
-        "relative isolate flex h-9 w-9 touch-none select-none items-center justify-center rounded-full text-message-action-foreground shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
+        "relative isolate flex h-9 w-9 touch-none select-none items-center justify-center rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
         // Every dictation ring is drawn outside the button's own circle, so
         // the clip that keeps the backdrop artwork in bounds has to lift while
         // one is on screen.
@@ -425,8 +425,8 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         isDictating
           ? "bg-destructive/90 text-white shadow-destructive/24 hover:bg-destructive"
           : stageBackdropVariant
-            ? "bg-transparent enabled:shadow-black/24 enabled:hover:brightness-110"
-            : "bg-message-action enabled:shadow-message-action/24 hover:bg-message-action-hover",
+            ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
+            : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
         // The squeeze is the first thing that happens on a hold, before the
         // ring has moved at all, so a press never reads as unregistered.
         isArming && "scale-90 hover:scale-90",

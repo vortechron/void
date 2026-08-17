@@ -117,9 +117,14 @@ export function CommitDiffPanel({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5">
         <span className="shrink-0 font-mono text-xs text-muted-foreground">{shortSha}</span>
-        <span className="min-w-0 flex-1 truncate text-xs" title={subject}>
-          {subject}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={<span className="min-w-0 flex-1 truncate text-xs">{subject}</span>}
+          />
+          <TooltipPopup side="bottom" className="max-w-80">
+            {subject}
+          </TooltipPopup>
+        </Tooltip>
         {source?.truncated ? (
           <span className="shrink-0 text-[10px] text-muted-foreground">truncated</span>
         ) : null}

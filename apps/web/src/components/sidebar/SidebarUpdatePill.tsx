@@ -116,9 +116,7 @@ export function SidebarUpdatePill() {
     }
 
     if (action === "install") {
-      const confirmed = window.confirm(
-        getDesktopUpdateInstallConfirmationMessage(state),
-      );
+      const confirmed = window.confirm(getDesktopUpdateInstallConfirmationMessage(state));
       if (!confirmed) return;
       void bridge
         .installUpdate()

@@ -1,9 +1,4 @@
-import {
-  ArrowLeftIcon,
-  ChartNoAxesColumnIcon,
-  GitPullRequestIcon,
-  SettingsIcon,
-} from "lucide-react";
+import { ChartNoAxesColumnIcon, GitPullRequestIcon, SettingsIcon } from "lucide-react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
@@ -27,7 +22,6 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "../ui/sidebar";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 import { SidebarUsageMeters } from "./SidebarUsageMeters";
@@ -189,12 +183,27 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
           <SidebarMenuItem {...highlight.itemProps("usage")}>
             <SidebarMenuButton
               onClick={handleUsageClick}
+              isActive={currentFooterPage === "usage"}
               className="relative bg-transparent! hover:bg-transparent"
             >
               <ChartNoAxesColumnIcon />
               <span>Usage</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          {/* The page spans every connected server, so one of them offering
+              pull requests is enough for the row to lead somewhere. */}
+          {pullRequestsSupported ? (
+            <SidebarMenuItem {...highlight.itemProps("pull-requests")}>
+              <SidebarMenuButton
+                onClick={handlePullRequestsClick}
+                isActive={currentFooterPage === "pull-requests"}
+                className="relative bg-transparent! hover:bg-transparent"
+              >
+                <GitPullRequestIcon />
+                <span>Pull Requests</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : null}
           <SidebarMenuItem {...highlight.itemProps("settings")}>
             <SidebarMenuButton
               onClick={handleSettingsClick}
