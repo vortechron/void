@@ -79,19 +79,34 @@ export const make = Effect.gen(function* () {
       return;
     }
 
-    const activeProject = yield* projectionSnapshotQuery.getActiveProjectByWorkspaceRoot(cwd).pipe(
-      Effect.mapError(
-        (cause) =>
-          new VcsRepositoryDetectionError({
-            operation,
-            cwd,
-            detail: "Failed to resolve the active project while validating the review workspace.",
-            cause,
-          }),
-      ),
-    );
-    if (Option.isSome(activeProject)) {
-      return;
+    let projectRootCandidate = path.resolve(cwd);
+    while (true) {
+      const activeProject = yield* projectionSnapshotQuery
+        .getActiveProjectByWorkspaceRoot(projectRootCandidate)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new VcsRepositoryDetectionError({
+                operation,
+                cwd,
+                detail:
+                  "Failed to resolve the active project while validating the review workspace.",
+                cause,
+              }),
+          ),
+        );
+      if (Option.isSome(activeProject)) {
+        const activeProjectRoot = yield* canonicalizePath(activeProject.value.workspaceRoot);
+        if (isWithinRoot(candidate, activeProjectRoot)) {
+          return;
+        }
+      }
+
+      const parent = path.dirname(projectRootCandidate);
+      if (parent === projectRootCandidate) {
+        break;
+      }
+      projectRootCandidate = parent;
     }
 
     return yield* new VcsRepositoryDetectionError({
