@@ -35,6 +35,7 @@ import {
 import type { DiffFileTreeEntry } from "../lib/diffFileTree";
 import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollapse";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
+import { useResizableWidth } from "../hooks/useResizableWidth";
 import { useProject, useThread } from "../state/entities";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
@@ -63,6 +64,12 @@ import { vcsEnvironment } from "../state/vcs";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { buildBaseRefChoices } from "../lib/baseRefChoices";
+import {
+  DIFF_FILE_TREE_DEFAULT_WIDTH,
+  DIFF_FILE_TREE_MIN_WIDTH,
+  DIFF_FILE_TREE_WIDTH_STORAGE_KEY,
+  getDiffFileTreeMaxWidth,
+} from "../lib/diffFileTreeResize";
 
 interface CollapsedDiffFilesState {
   readonly scopeKey: string | null;
@@ -316,6 +323,16 @@ export default function DiffPanel({
   }));
   const [codeViewRevision, setCodeViewRevision] = useState(0);
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
+  const diffFilesViewportRef = useRef<HTMLDivElement>(null);
+  const [diffFilesViewportWidth, setDiffFilesViewportWidth] = useState<number | null>(null);
+  const diffFileTreeMaxWidth = getDiffFileTreeMaxWidth(diffFilesViewportWidth);
+  const { width: diffFileTreeWidth, handlers: diffFileTreeResizeHandlers } = useResizableWidth({
+    storageKey: DIFF_FILE_TREE_WIDTH_STORAGE_KEY,
+    defaultWidth: DIFF_FILE_TREE_DEFAULT_WIDTH,
+    minWidth: DIFF_FILE_TREE_MIN_WIDTH,
+    maxWidth: diffFileTreeMaxWidth,
+    edge: "right",
+  });
   // Below this width the right panel is a narrow sheet, so the toolbar and the
   // file tree have no room to sit side by side with the code.
   const isNarrow = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
@@ -676,6 +693,30 @@ export default function DiffPanel({
     revealedDiffFile.scopeKey === collapseScopeKey ? revealedDiffFile.fileKey : null;
 
   useEffect(() => {
+    if (isNarrow || renderablePatch?.kind !== "files") return;
+    const viewport = diffFilesViewportRef.current;
+    if (!viewport) return;
+
+    const updateWidth = (width: number) => {
+      if (!Number.isFinite(width) || width <= 0) return;
+      const nextWidth = Math.round(width);
+      setDiffFilesViewportWidth((currentWidth) =>
+        currentWidth === nextWidth ? currentWidth : nextWidth,
+      );
+    };
+
+    updateWidth(viewport.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) updateWidth(entry.contentRect.width);
+    });
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [isNarrow, renderablePatch]);
+
+  useEffect(() => {
     if (!selectedFilePath) return;
     const file = codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath);
     if (!file) return;
@@ -965,7 +1006,7 @@ export default function DiffPanel({
                 </div>
               )
             ) : renderablePatch.kind === "files" ? (
-              <div className="relative flex min-h-0 min-w-0 flex-1">
+              <div ref={diffFilesViewportRef} className="relative flex min-h-0 min-w-0 flex-1">
                 {fileTreeVisible &&
                   (isNarrow ? (
                     // A sheet cannot spare width for a docked column, so the tree
@@ -983,13 +1024,33 @@ export default function DiffPanel({
                       }}
                     />
                   ) : (
-                    <DiffFileTree
-                      className="w-[42%] min-w-[164px] max-w-64 shrink-0 border-r border-border/70"
-                      entries={diffFileTreeEntries}
-                      activeFileKey={revealedDiffFileKey}
-                      resolvedTheme={resolvedTheme}
-                      onSelectFile={(entry) => revealDiffFile(entry.fileKey)}
-                    />
+                    <div
+                      className="relative h-full shrink-0"
+                      style={{ width: `${diffFileTreeWidth}px` }}
+                    >
+                      <DiffFileTree
+                        className="h-full border-r border-border/70"
+                        entries={diffFileTreeEntries}
+                        activeFileKey={revealedDiffFileKey}
+                        resolvedTheme={resolvedTheme}
+                        onSelectFile={(entry) => revealDiffFile(entry.fileKey)}
+                      />
+                      <div
+                        role="separator"
+                        aria-label="Resize file tree"
+                        aria-orientation="vertical"
+                        aria-valuemin={DIFF_FILE_TREE_MIN_WIDTH}
+                        aria-valuemax={diffFileTreeMaxWidth}
+                        aria-valuenow={Math.round(diffFileTreeWidth)}
+                        className="group absolute inset-y-0 -right-1 z-20 w-2 touch-none cursor-col-resize select-none"
+                        {...diffFileTreeResizeHandlers}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-primary/60 group-active:bg-primary"
+                        />
+                      </div>
+                    </div>
                   ))}
                 <div
                   className="min-h-0 min-w-0 flex-1"
