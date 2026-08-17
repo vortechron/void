@@ -4086,7 +4086,7 @@ export default function Sidebar() {
 
     if (desktopUpdateButtonAction === "install") {
       const confirmed = window.confirm(
-        getDesktopUpdateInstallConfirmationMessage(desktopUpdateState, navigator.platform),
+        getDesktopUpdateInstallConfirmationMessage(desktopUpdateState),
       );
       if (!confirmed) return;
       void bridge

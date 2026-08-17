@@ -600,7 +600,7 @@ describe("applyServerSettingsPatch global actions", () => {
       },
     };
 
-    const next = applyServerSettingsPatch(current, { enableAssistantStreaming: true });
+    const next = applyServerSettingsPatch(current, { enableLegacyTokenStreaming: true });
 
     expect(next.clientSettings.sidebarHiddenProjectKeys).toEqual(["github.com/acme/hidden"]);
   });
@@ -612,7 +612,7 @@ describe("applyServerSettingsPatch global actions", () => {
       globalPromptActions: [promptAction("review")],
     };
 
-    const next = applyServerSettingsPatch(current, { enableAssistantStreaming: true });
+    const next = applyServerSettingsPatch(current, { enableLegacyTokenStreaming: true });
 
     expect(next.globalScripts).toEqual([script("build")]);
     expect(next.globalPromptActions).toEqual([promptAction("review")]);

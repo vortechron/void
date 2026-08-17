@@ -6,7 +6,7 @@ import type {
   FileDiffMetadata,
   SelectedLineRange,
 } from "@pierre/diffs";
-import { CodeView, type CodeViewHandle, type CodeViewProps } from "@pierre/diffs/react";
+import type { CodeViewHandle } from "@pierre/diffs/react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useCallback, useMemo, useState, type ReactNode, type Ref } from "react";
 
@@ -18,8 +18,9 @@ import {
   type ReviewCommentContext,
 } from "~/reviewCommentContext";
 
-import { LocalCommentAnnotation } from "../files/LocalCommentAnnotation";
 import { nextFileCommentId } from "../files/fileCommentAnnotations";
+import { DiffCommentAnnotation } from "./DiffCommentAnnotation";
+import { StyledDiffCodeView, type StyledDiffCodeViewOptions } from "./StyledDiffCodeView";
 
 interface DiffCommentAnnotationEntry {
   id: string;
@@ -81,9 +82,11 @@ interface AnnotatableCodeViewProps {
   sectionId: string;
   sectionTitle: string;
   composerDraftTarget: ScopedThreadRef | DraftId;
-  options: NonNullable<CodeViewProps<DiffCommentAnnotationGroup>["options"]>;
+  options: StyledDiffCodeViewOptions<DiffCommentAnnotationGroup>;
   viewerRef?: Ref<AnnotatableCodeViewHandle>;
   className?: string;
+  /** Extra rules appended to the viewer's shared stylesheet. See StyledDiffCodeView. */
+  unsafeCSSExtra?: string;
   renderHeaderPrefix: (
     fileDiff: FileDiffMetadata,
     fileKey: string,
@@ -104,6 +107,7 @@ export function AnnotatableCodeView({
   options,
   viewerRef,
   className,
+  unsafeCSSExtra,
   renderHeaderPrefix,
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
@@ -237,10 +241,11 @@ export function AnnotatableCodeView({
 
   const hasOpenComment = draft !== null;
   return (
-    <CodeView<DiffCommentAnnotationGroup>
+    <StyledDiffCodeView<DiffCommentAnnotationGroup>
       key={codeViewKey}
-      {...(viewerRef ? { ref: viewerRef } : {})}
+      {...(viewerRef ? { viewerRef } : {})}
       {...(className ? { className } : {})}
+      {...(unsafeCSSExtra ? { unsafeCSSExtra } : {})}
       items={items}
       selectedLines={selectedLines}
       onSelectedLinesChange={setSelectedLines}
@@ -262,7 +267,7 @@ export function AnnotatableCodeView({
             className={hasDraft ? "py-1" : "divide-y divide-border/30 border-y border-border/30"}
           >
             {annotation.metadata.entries.map((entry) => (
-              <LocalCommentAnnotation
+              <DiffCommentAnnotation
                 key={entry.id}
                 kind={entry.kind}
                 rangeLabel={entry.rangeLabel}

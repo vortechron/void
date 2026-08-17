@@ -115,6 +115,21 @@ function isNodeWithinMenuStack(target: EventTarget | null, menuStack: readonly H
   return false;
 }
 
+// Only one fallback menu exists at a time in the renderer; the active one is
+// tracked so a state change (for example a terminal selection clearing) can
+// dismiss it with the same result as an outside click or Escape.
+let activeContextMenuDismiss: (() => void) | null = null;
+
+/**
+ * Closes the currently open fallback context menu, resolving its show() with
+ * null (the same result as dismissing by outside click or Escape). No-op when
+ * no fallback menu is open.
+ */
+export function dismissContextMenu(): void {
+  activeContextMenuDismiss?.();
+  activeContextMenuDismiss = null;
+}
+
 /**
  * Imperative DOM-based context menu for non-Electron environments.
  * Supports nested submenus and resolves with the clicked leaf item id.
@@ -142,11 +157,16 @@ export function showContextMenuFallback<T extends string>(
       typeof window.matchMedia === "function" &&
       window.matchMedia("(pointer: coarse)").matches;
 
+    const dismiss = () => cleanup(null);
+
     const cleanup = (result: T | null) => {
       if (isDisposed) {
         return;
       }
       isDisposed = true;
+      if (activeContextMenuDismiss === dismiss) {
+        activeContextMenuDismiss = null;
+      }
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("contextmenu", onContextMenu, true);
@@ -378,6 +398,13 @@ export function showContextMenuFallback<T extends string>(
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("contextmenu", onContextMenu, true);
     openMenu(items, position?.x ?? 0, position?.y ?? 0, 0);
+    // Only one fallback menu can be open at a time: a new show must dismiss
+    // any prior one, or its DOM and listeners leak and close() can only ever
+    // reach the newest menu.
+    if (activeContextMenuDismiss) {
+      activeContextMenuDismiss();
+    }
+    activeContextMenuDismiss = dismiss;
 
     requestAnimationFrame(() => {
       canDismissFromPointer = true;

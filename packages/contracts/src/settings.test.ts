@@ -159,6 +159,7 @@ describe("ClientSettings sidebar", () => {
     expect(settings.sidebarAutoSettleAfterDays).toBe(3);
     expect(settings.sidebarProjectGroups).toEqual([]);
     expect(settings.sidebarActiveProjectGroupId).toBeNull();
+    expect(settings.sidebarAutoSettleOnMerge).toBe(true);
   });
 
   it("preserves an explicit sidebar v2 beta opt-in", () => {
@@ -170,6 +171,15 @@ describe("ClientSettings sidebar", () => {
     expect(
       decodeClientSettings({ sidebarAutoSettleAfterDays: null }).sidebarAutoSettleAfterDays,
     ).toBeNull();
+  });
+
+  it("allows auto-settle on merge to be disabled", () => {
+    expect(decodeClientSettings({ sidebarAutoSettleOnMerge: false }).sidebarAutoSettleOnMerge).toBe(
+      false,
+    );
+    expect(
+      decodeClientSettingsPatch({ sidebarAutoSettleOnMerge: false }).sidebarAutoSettleOnMerge,
+    ).toBe(false);
   });
 
   it.each([-1, 0, 91])("rejects an auto-settle threshold outside 1..90: %s", (value) => {
@@ -553,7 +563,7 @@ describe("ServerSettings global actions", () => {
   });
 
   it("omits the keys from a patch that does not mention them", () => {
-    const patch = decodeServerSettingsPatch({ enableAssistantStreaming: true });
+    const patch = decodeServerSettingsPatch({ enableLegacyTokenStreaming: true });
 
     expect(patch.globalScripts).toBeUndefined();
     expect(patch.globalPromptActions).toBeUndefined();

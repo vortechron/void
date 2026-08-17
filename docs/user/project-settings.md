@@ -1,17 +1,16 @@
-# Choose where new project threads start
+# Customize a project icon
 
-Each project can choose whether new threads use its current checkout or create a new worktree.
+T3 Code selects a project icon automatically. It checks `t3.json`, common favicon and app icon
+paths, and icon links in project HTML files.
 
-1. Open **Settings → General**.
-2. Find **Project new-thread workspace**.
-3. Choose **Current checkout**, **New worktree**, or **Use default** for the project.
+To choose a different icon:
 
-Grouped checkouts share this setting. If they currently use different values, the setting shows
-**Mixed settings** until you choose one value for the group.
+1. Open **Settings** and select **Projects**.
+2. Select the project.
+3. Under **Appearance**, select **Choose a project file**.
+4. Search for an image file and select it.
 
-When **Use default** is selected, T3 Code checks these defaults in order:
+T3 Code supports SVG, PNG, ICO, JPEG, GIF, AVIF, and WebP files. The selected path applies to
+each checkout in the project group and appears on your connected clients.
 
-1. `defaultThreadEnvMode` in the project's `t3.json` file.
-2. The global **New threads** setting.
-
-An explicit choice in the thread composer always wins for that thread.
+To use automatic detection again, select **Automatic**.

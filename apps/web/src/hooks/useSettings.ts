@@ -46,6 +46,7 @@ import {
   getThemePreviewSidebarArtwork,
   resolveThemeHalf,
   subscribeToThemePreview,
+  themeAllowsSidebarArtwork,
 } from "~/themePalette";
 import * as Struct from "effect/Struct";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -118,6 +119,38 @@ export function getClientSettings(): ClientSettings {
 }
 
 /**
+ * Resolves once client settings have actually arrived.
+ *
+ * The pre-hydration snapshot is just the schema defaults, so imperative paths
+ * that open a preview must await this or they bake the built-in viewport, zoom
+ * and appearance into a tab that never picks up the user's saved values.
+ *
+ * These settings ride the server config stream rather than localStorage here,
+ * so the primary server's config landing is the signal — not a disk read.
+ */
+export function ensureClientSettingsHydrated(): Promise<void> {
+  if (appAtomRegistry.get(primaryServerConfigAtom) !== null) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    let unsubscribe: (() => void) | null = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      // The listener can fire before `subscribe` returns, so unsubscribing is
+      // deferred to whichever of the two runs second.
+      unsubscribe?.();
+      resolve();
+    };
+    unsubscribe = appAtomRegistry.subscribe(primaryServerConfigAtom, (config) => {
+      if (config !== null) finish();
+    });
+    if (settled) unsubscribe();
+  });
+}
+
+/**
  * Whether the server's settings have actually arrived. Consumers use this to
  * hold off on rendering a persisted choice, so a stored value never loses a
  * race with the schema default and swaps under the user a frame later.
@@ -170,8 +203,8 @@ export function resolveEnvironmentIdentificationMode(input: {
 }): EnvironmentIdentificationMode {
   // Avoid briefly rendering the default artwork before a persisted pill/none choice loads.
   if (!input.settingsHydrated) return "none";
-  // Stage artwork has fixed colors that can clash with palette themes. Keep an
-  // explicit "none", but use the theme-aware pill in place of artwork.
+  // Artwork palettes are maintained for built-ins only. Keep an explicit
+  // "none", but use the theme-aware pill for user-controlled palettes.
   return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && input.mode === "artwork"
     ? "pill"
     : input.mode;
@@ -192,8 +225,7 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
     mode,
     settingsHydrated,
     paletteThemeActive: previewSidebarArtwork !== null || activeThemeDefinition !== null,
-    paletteThemeAllowsArtwork:
-      previewSidebarArtwork ?? activeThemeDefinition?.sidebarArtwork === true,
+    paletteThemeAllowsArtwork: previewSidebarArtwork ?? themeAllowsSidebarArtwork(activeTheme),
   });
 }
 

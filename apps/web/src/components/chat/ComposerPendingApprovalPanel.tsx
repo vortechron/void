@@ -25,7 +25,7 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
 
   return (
     <div
-      className="px-4 py-3.5 sm:px-5 sm:py-4 motion-reduce:!animate-none"
+      className="min-w-0 px-4 py-3.5 sm:px-5 sm:py-4 motion-reduce:!animate-none"
       style={{ animation: "fade-up 320ms cubic-bezier(0.23,1,0.32,1) both" }}
     >
       <div className="flex flex-wrap items-baseline gap-2">
@@ -40,11 +40,11 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
       </div>
       <p className="mt-1.5 text-sm font-semibold text-foreground">{approvalSummary}</p>
       {approval.detail ? (
-        <div className="mt-3 rounded-lg border border-border/65 bg-background/70 p-3">
+        <div className="mt-3 min-w-0 max-w-full rounded-lg border border-border/65 bg-background/70 p-3">
           <p className="text-xs font-medium text-muted-foreground">{detailLabel}</p>
           <pre
             aria-label={detailLabel}
-            className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground"
+            className="mt-2 min-w-0 max-w-full max-h-40 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs leading-relaxed text-foreground"
             data-approval-detail="complete"
           >
             {approval.detail}

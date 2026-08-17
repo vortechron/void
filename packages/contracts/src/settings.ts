@@ -11,6 +11,14 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection, ProjectPromptAction, ProjectScript } from "./orchestration.ts";
+import {
+  DEFAULT_PREVIEW_APPEARANCE,
+  DEFAULT_PREVIEW_ZOOM_FACTOR,
+  FILL_PREVIEW_VIEWPORT,
+  PreviewAppearancePreference,
+  PreviewViewportSetting,
+  PreviewZoomFactor,
+} from "./preview.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
@@ -409,9 +417,36 @@ export const AppThemePreference = Schema.Literals(APP_THEME_VALUES);
 export type AppThemePreference = typeof AppThemePreference.Type;
 export const DEFAULT_APP_THEME: AppThemePreference = "system";
 
+/**
+ * Defaults for the in-app preview browser, applied whenever a tab is opened
+ * without an explicit viewport/zoom/appearance — by the user opening a browser
+ * tab, or by an agent calling `preview_open` with no size. Client-local
+ * because the Chromium guest they configure is desktop-local.
+ */
+export const DEFAULT_BROWSER_VIEWPORT: PreviewViewportSetting = FILL_PREVIEW_VIEWPORT;
+export const DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW = true;
+
 export const ClientSettingsSchema = Schema.Struct({
   agentNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  browserDefaultViewport: PreviewViewportSetting.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_VIEWPORT)),
+  ),
+  browserDefaultZoomFactor: PreviewZoomFactor.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PREVIEW_ZOOM_FACTOR)),
+  ),
+  browserDefaultAppearance: PreviewAppearancePreference.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PREVIEW_APPEARANCE)),
+  ),
+  /**
+   * Whether an agent opening a preview pops the floating mini player into
+   * view. Only applies when the agent didn't ask either way — an explicit
+   * `open`/`show` on `preview_open` still wins, since that is the agent
+   * deliberately showing or hiding its work.
+   */
+  browserAutoShowFloatingPreview: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW)),
+  ),
   // `catchDecoding` because these two used to be one setting whose value set
   // included the other's: a settings file written before the split still says
   // `chatBackgroundEffect: "ripple"`. Failing there would take the whole
@@ -430,6 +465,9 @@ export const ClientSettingsSchema = Schema.Struct({
   completionSound: CompletionSound.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_COMPLETION_SOUND)),
   ),
+  // Desktop-only: require holding the quit shortcut (Cmd/Ctrl+Q) before the
+  // app quits; a quick tap only shows a hint. Browser clients ignore it.
+  confirmQuit: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   dismissedProviderUpdateNotificationKeys: Schema.Array(TrimmedNonEmptyString).pipe(
@@ -488,6 +526,7 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
   ),
+  sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -880,6 +919,18 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /**
+   * Whether agents may drive the in-app preview browser. Turning this off
+   * withholds the MCP credential, so the `t3-code` server (and with it every
+   * `preview_*` tool) is never attached to a provider session, and the prompt
+   * text describing those tools is dropped along with them. The user's own
+   * browser panel is unaffected — this gates agent access only.
+   *
+   * Server-authoritative rather than client-local: tool injection and prompt
+   * construction both happen on the server, and the answer must not differ
+   * between a desktop window and a phone attached to the same server.
+   */
+  enableAgentBrowserAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   backgroundActivity: BackgroundActivitySettings,
   // Legacy flat fields retained for old settings files and old clients. New
   // consumers should resolve `backgroundActivity` instead.
@@ -1059,6 +1110,7 @@ export const ServerSettingsPatch = Schema.Struct({
   // Server settings
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
+  enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   backgroundActivity: Schema.optionalKey(
     Schema.Struct({
       schemaVersion: Schema.optionalKey(Schema.Literal(1)),
@@ -1117,7 +1169,12 @@ export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 export const ClientSettingsPatch = Schema.Struct({
   agentNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
+  browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
+  browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),
+  browserDefaultAppearance: Schema.optionalKey(PreviewAppearancePreference),
+  browserAutoShowFloatingPreview: Schema.optionalKey(Schema.Boolean),
   completionSound: Schema.optionalKey(CompletionSound),
+  confirmQuit: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
@@ -1154,6 +1211,7 @@ export const ClientSettingsPatch = Schema.Struct({
   planModeEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
+  sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

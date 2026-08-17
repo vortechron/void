@@ -166,22 +166,17 @@ export function CommitDiffPanel({
               </Tooltip>
             );
           }}
+          // Item metrics and layout now live in StyledDiffCodeView, which sets
+          // the same values plus the scroll-height correction.
+          unsafeCSSExtra={DIFF_PANEL_UNSAFE_CSS}
           options={{
             diffStyle: "unified",
             lineDiffType: "none",
             overflow: settings.wordWrap ? "wrap" : "scroll",
             theme: resolveDiffThemeName(resolvedTheme, settings.codeTheme),
             themeType: resolveDiffThemeType(resolvedTheme, settings.codeTheme),
-            unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
             stickyHeaders: true,
             ...(loadDiffFiles ? { loadDiffFiles } : {}),
-            itemMetrics: {
-              diffHeaderHeight: 32,
-              hunkSeparatorHeight: 24,
-              paddingTop: 0,
-              paddingBottom: 0,
-            },
-            layout: { paddingTop: 0, paddingBottom: 0, gap: 0 },
           }}
         />
       ) : (
