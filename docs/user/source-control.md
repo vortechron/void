@@ -50,7 +50,8 @@ T3 Code works with the platforms your team already uses:
   monitoring, and failure indicators as the rest of the sidebar. This lets you see activity in a
   group even while another group is selected.
 - Open **Diff** in the right panel to review the working tree or branch changes for the active
-  thread's checkout.
+  thread's checkout. On wider screens, drag the edge of the file tree to resize it. T3 Code
+  remembers the width for the next time you open Diff.
 
 ### Read the Repository's History
 

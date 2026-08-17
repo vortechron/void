@@ -54,7 +54,10 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     if (typeof window === "undefined") return defaultWidth;
     try {
       const stored = getLocalStorageItem(storageKey, WidthSchema);
-      return clamp(stored ?? defaultWidth);
+      // Keep the saved width intact while the caller measures its real maximum.
+      // `clampedWidth` keeps the first render safe and restores the saved width
+      // if the available space grows later.
+      return stored ?? defaultWidth;
     } catch (error) {
       console.error("Could not read persisted panel width.", error);
       return defaultWidth;
