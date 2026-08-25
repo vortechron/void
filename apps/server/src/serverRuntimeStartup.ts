@@ -309,6 +309,7 @@ export const reconcileProviderSessions = Effect.gen(function* () {
   const { threads } = yield* query.getCommandReadModel();
   const orphanedThreads = threads.filter(
     (thread) =>
+      thread.deletedAt === null &&
       thread.session !== null &&
       (thread.session.status === "starting" ||
         thread.session.status === "running" ||

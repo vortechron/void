@@ -27,10 +27,11 @@ const makeThread = (
   status: "starting" | "running" | "ready" | "stopped" | "error",
   activeTurnId: TurnId | null = null,
   archivedAt: string | null = null,
+  deletedAt: string | null = null,
 ) => ({
   id: ThreadId.make(id),
   archivedAt,
-  deletedAt: null,
+  deletedAt,
   session: {
     threadId: ThreadId.make(id),
     status,
@@ -158,6 +159,39 @@ it.effect("reconciles multiple active and archived orphans but skips live sessio
           assert.deepStrictEqual(binding.runtimePayload, { activeTurnId: null });
           assert.deepStrictEqual(binding.resumeCursor, { cursor: binding.threadId });
         }
+      }),
+    ),
+  );
+});
+
+it.effect("skips deleted threads during startup reconciliation", () => {
+  const deleted = makeThread(
+    "thread-deleted",
+    "running",
+    TurnId.make("turn-deleted"),
+    null,
+    updatedAt,
+  );
+  const bindingReads: ThreadId[] = [];
+  const dispatched: OrchestrationCommand[] = [];
+
+  return runReconciliation({
+    threads: [deleted],
+    directory: {
+      getBinding: (candidate) =>
+        Effect.sync(() => bindingReads.push(candidate)).pipe(Effect.as(Option.none())),
+      upsert: () => Effect.die("unused"),
+      getProvider: () => Effect.die("unused"),
+      listThreadIds: () => Effect.die("unused"),
+      listBindings: () => Effect.die("unused"),
+    },
+    dispatch: (command) =>
+      Effect.sync(() => dispatched.push(command)).pipe(Effect.as({ sequence: dispatched.length })),
+  }).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        assert.deepStrictEqual(bindingReads, []);
+        assert.deepStrictEqual(dispatched, []);
       }),
     ),
   );
