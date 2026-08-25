@@ -274,6 +274,63 @@ describe("buildThreadFeed", () => {
     );
   });
 
+  it("collapses tool lifecycle rows by the top-level runtime item id", () => {
+    const turnId = TurnId.make("turn-runtime-item");
+    const thread = makeThread({
+      id: ThreadId.make("thread-runtime-item"),
+      projectId: ProjectId.make("project-1"),
+      title: "Stable runtime item",
+      latestTurn: {
+        turnId,
+        state: "completed",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        completedAt: "2026-04-01T00:00:03.000Z",
+        assistantMessageId: null,
+      },
+      activities: [
+        makeActivity({
+          id: EventId.make("runtime-item-update"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Read File",
+          createdAt: "2026-04-01T00:00:01.000Z",
+          turnId,
+          payload: {
+            toolCallId: "runtime-item-1",
+            title: "Read File",
+            itemType: "dynamic_tool_call",
+            detail: 'Read: {"file_path":"/tmp/app.ts"}',
+          },
+        }),
+        makeActivity({
+          id: EventId.make("runtime-item-complete"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Read File completed",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: {
+            toolCallId: "runtime-item-1",
+            title: "Read File",
+            itemType: "dynamic_tool_call",
+            detail: "Read 40 lines from /tmp/app.ts",
+          },
+        }),
+      ],
+    });
+
+    const feed = buildThreadFeed(thread);
+    const group = feed[0];
+
+    expect(group).toMatchObject({ type: "activity-group" });
+    if (!group || group.type !== "activity-group") {
+      return;
+    }
+    expect(group.activities).toHaveLength(1);
+    expect(group.activities[0]?.id).toBe("runtime-item-complete");
+  });
+
   it("keeps MCP inputs available to expanded mobile work rows", () => {
     const turnId = TurnId.make("turn-mcp");
     const thread = makeThread({

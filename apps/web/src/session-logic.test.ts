@@ -1294,6 +1294,40 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("collapses tool lifecycle rows by the top-level runtime item id", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "runtime-item-update",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.updated",
+        summary: "Read File",
+        payload: {
+          toolCallId: "runtime-item-1",
+          itemType: "dynamic_tool_call",
+          title: "Read File",
+          detail: 'Read: {"file_path":"/tmp/app.ts"}',
+        },
+      }),
+      makeActivity({
+        id: "runtime-item-complete",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Read File completed",
+        payload: {
+          toolCallId: "runtime-item-1",
+          itemType: "dynamic_tool_call",
+          title: "Read File",
+          detail: "Read 40 lines from /tmp/app.ts",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.id).toBe("runtime-item-complete");
+  });
+
   it("does not use command stdout as the detail when Cursor omits the command input", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
