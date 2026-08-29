@@ -1020,6 +1020,7 @@ export default function ProjectScriptsControl({
                             modelOptions={modelSelection.options}
                             prompt={prompt}
                             onPromptChange={setPrompt}
+                            planModeEnabled={settings?.planModeEnabled ?? false}
                             onModelOptionsChange={(options) =>
                               setModelSelection(
                                 createModelSelection(

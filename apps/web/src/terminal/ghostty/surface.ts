@@ -26,14 +26,22 @@ const TERMINAL_GLYPH_FALLBACKS =
   '"Symbols Nerd Font Mono", "Symbols Nerd Font", "JetBrainsMono Nerd Font", ' +
   '"JetBrainsMono NF", "FiraCode Nerd Font", "Hack Nerd Font", "MesloLGS NF", ' +
   '"CaskaydiaCove Nerd Font", "PowerlineSymbols", monospace';
-// SF Mono where the platform has it (macOS), otherwise the bundled JetBrains
-// Mono webfont, so the default rendering is identical everywhere else.
+// The platform's own monospace faces; concrete names only, because an
+// unknown keyword (like ui-monospace) makes canvas font shorthand parsing
+// reject the whole string.
 export const DEFAULT_TERMINAL_FONT_FAMILY =
-  '"SF Mono", "SFMono-Regular", "JetBrains Mono", ' + TERMINAL_GLYPH_FALLBACKS;
+  '"SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", ' + TERMINAL_GLYPH_FALLBACKS;
 const CONTENT_PADDING = 4;
 const MIN_SCROLLBAR_THUMB_HEIGHT = 18;
 /** Half a blink cycle: the visible and hidden phases are equally long. */
 const CURSOR_BLINK_INTERVAL_MS = 500;
+const TERMINAL_FONT_LOAD_TEXT = "iMW0@# .";
+const TERMINAL_FONT_LOAD_VARIANTS = [
+  "normal 400",
+  "normal 700",
+  "italic 400",
+  "italic 700",
+] as const;
 
 /** Requested terminal font; omitted fields fall back to the defaults. */
 export interface GhosttyTerminalFont {
@@ -62,11 +70,99 @@ function ensureTerminalSymbolsFont(): Promise<void> {
   return symbolsFontLoad;
 }
 
+function quoteTerminalFontFamilies(list: string): string {
+  return list
+    .split(",")
+    .map((name) => {
+      const bare = name.trim();
+      if (bare.length === 0) return "";
+      if (/^(['"]).*\1$/.test(bare)) return bare;
+      if (/^[a-zA-Z][a-zA-Z0-9-]*$/.test(bare)) return bare;
+      return `"${bare.replaceAll('"', "")}"`;
+    })
+    .filter((name) => name.length > 0)
+    .join(", ");
+}
+
+function uncheckedTerminalFontFamily(family?: string): string {
+  const custom = family === undefined ? "" : quoteTerminalFontFamilies(family);
+  return custom.length === 0
+    ? DEFAULT_TERMINAL_FONT_FAMILY
+    : `${custom}, ${TERMINAL_GLYPH_FALLBACKS}`;
+}
+
+const TERMINAL_MONOSPACE_PROBE_GLYPHS = ["i", "M", "W", "0", "@", "#", ".", " "] as const;
+const TERMINAL_MONOSPACE_ADVANCE_TOLERANCE = 0.01;
+let terminalFontProbeContext: CanvasRenderingContext2D | null | undefined;
+
+function isTerminalMonospaceFamily(family: string): boolean {
+  try {
+    if (terminalFontProbeContext === undefined) {
+      terminalFontProbeContext = document.createElement("canvas").getContext("2d");
+    }
+    if (terminalFontProbeContext === null) return true;
+    for (const variant of TERMINAL_FONT_LOAD_VARIANTS) {
+      terminalFontProbeContext.font = `${variant} 32px ${family}, monospace`;
+      const advances = TERMINAL_MONOSPACE_PROBE_GLYPHS.map(
+        (glyph) => terminalFontProbeContext?.measureText(glyph).width ?? 0,
+      );
+      const reference = advances[0];
+      if (
+        reference === undefined ||
+        reference <= 0 ||
+        advances.some((advance) => !Number.isFinite(advance) || advance <= 0)
+      ) {
+        continue;
+      }
+      if (
+        advances.some(
+          (advance) => Math.abs(advance - reference) >= TERMINAL_MONOSPACE_ADVANCE_TOLERANCE,
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 export function terminalFontFamily(family?: string): string {
-  const custom = family?.trim();
-  if (!custom) return DEFAULT_TERMINAL_FONT_FAMILY;
+  // Quote non-ident names ("3270 Nerd Font", "M+ 1m"): an unquoted one makes
+  // the whole canvas font string invalid and the assignment silently no-ops.
+  const custom = family === undefined ? "" : quoteTerminalFontFamilies(family);
+  if (custom.length === 0) return DEFAULT_TERMINAL_FONT_FAMILY;
+  // The grid places the cursor and selection on one cell advance, so a
+  // proportional face would draw its text narrower than its own cells. Refuse
+  // it here rather than render a ragged grid with a stranded cursor.
+  if (!isTerminalMonospaceFamily(custom)) return DEFAULT_TERMINAL_FONT_FAMILY;
   // A custom face keeps the glyph fallbacks so prompt symbols stay covered.
-  return `${custom}, ${TERMINAL_GLYPH_FALLBACKS}`;
+  return uncheckedTerminalFontFamily(custom);
+}
+
+/** Load every style the renderer can request, then validate the actual face. */
+export async function loadTerminalFontFamily(
+  family: string | undefined,
+  size: number,
+  environment?: {
+    readonly load: (font: string, text: string) => Promise<unknown>;
+    readonly resolve: (family: string | undefined) => string;
+  },
+): Promise<string> {
+  const candidate = uncheckedTerminalFontFamily(family);
+  const load =
+    environment?.load ?? ((font: string, text: string) => document.fonts.load(font, text));
+  try {
+    await Promise.all(
+      TERMINAL_FONT_LOAD_VARIANTS.map((variant) =>
+        load(`${variant} ${size}px ${candidate}`, TERMINAL_FONT_LOAD_TEXT),
+      ),
+    );
+  } catch {
+    // The fixed-width fallback stack remains available if a face cannot load.
+  }
+  return (environment?.resolve ?? terminalFontFamily)(family);
 }
 
 export function terminalFontSize(size?: number): number {
@@ -276,6 +372,47 @@ export function isTerminalCopyShortcut(
   return isMacPlatform(platform) ? event.metaKey : event.ctrlKey;
 }
 
+/**
+ * Canvas terminals have no DOM selection. Native copy and Electron's Edit
+ * menu `role: "copy"` both read the focused textarea, so an empty IME field
+ * writes blankness to the clipboard. Park the Ghostty selection there first.
+ */
+export function primeTerminalCopyInput(
+  input: Pick<HTMLTextAreaElement, "value" | "select">,
+  selection: string,
+): void {
+  input.value = selection;
+  if (selection.length === 0) return;
+  input.select();
+}
+
+export function clearPrimedTerminalCopyInput(
+  input: Pick<HTMLTextAreaElement, "value">,
+  primedSelection: string,
+): void {
+  // Only blank the copy we parked. The same textarea holds the IME candidate;
+  // wiping whatever is there would cancel CJK composition.
+  if (primedSelection.length === 0 || input.value !== primedSelection) return;
+  input.value = "";
+}
+
+/**
+ * Only a copy event that actually received the selection may cancel the
+ * clipboard.writeText fallback. Claiming without clipboardData (Electron's
+ * menu Copy) used to preventDefault an empty write and skip the fallback,
+ * which is how Cmd+C copied blankness.
+ */
+export function applyTerminalCopyEvent(
+  selection: string,
+  clipboardData: { setData: (type: string, data: string) => void } | null | undefined,
+): { preventDefault: boolean; claimWriteFallback: boolean } {
+  if (selection.length === 0 || !clipboardData) {
+    return { preventDefault: false, claimWriteFallback: false };
+  }
+  clipboardData.setData("text/plain", selection);
+  return { preventDefault: true, claimWriteFallback: true };
+}
+
 export function isTerminalPasteShortcut(
   event: Pick<KeyboardEvent, "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   platform = navigator.platform,
@@ -296,6 +433,14 @@ export function isTerminalCompositionCommitInput(event: Pick<InputEvent, "inputT
   );
 }
 
+/** IME keydowns must not touch the hidden textarea; it holds the candidate. */
+export function isTerminalCompositionKey(
+  event: Pick<KeyboardEvent, "isComposing" | "key" | "keyCode">,
+  composing: boolean,
+): boolean {
+  return event.isComposing || composing || event.key === "Process" || event.keyCode === 229;
+}
+
 export function isTerminalAltGraphText(
   event: Pick<KeyboardEvent, "getModifierState" | "key">,
 ): boolean {
@@ -307,6 +452,31 @@ export function shouldReportTerminalMouse(
   event: Pick<MouseEvent, "ctrlKey" | "metaKey" | "shiftKey">,
 ): boolean {
   return tracking && !event.shiftKey && !event.ctrlKey && !event.metaKey;
+}
+
+type TerminalMouseAction = "press" | "release" | "motion";
+
+export function resolveTerminalMouseData(
+  action: TerminalMouseAction,
+  data: string,
+  previousMotionData: string,
+): { readonly send: boolean; readonly nextMotionData: string } {
+  const nextMotionData = action === "motion" ? data : "";
+  return {
+    send: data.length > 0 && (action !== "motion" || data !== previousMotionData),
+    nextMotionData,
+  };
+}
+
+export function resolveTerminalMouseTrackingState(
+  previousTracking: boolean,
+  tracking: boolean,
+  motionData: string,
+): { readonly tracking: boolean; readonly motionData: string } {
+  return {
+    tracking,
+    motionData: previousTracking === tracking ? motionData : "",
+  };
 }
 
 export function terminalWheelDeltaRows(
@@ -347,13 +517,6 @@ export function isTerminalLinkPointerGesture(
   return isMacPlatform(platform)
     ? event.metaKey && !event.ctrlKey
     : event.ctrlKey && !event.metaKey;
-}
-
-export function shouldShowTerminalLinkHover(
-  mouseTracking: boolean,
-  linkModifierActive: boolean,
-): boolean {
-  return !mouseTracking || linkModifierActive;
 }
 
 export function ghosttyMouseButton(button: number): number | null {
@@ -430,8 +593,10 @@ export class GhosttyTerminalSurface {
   private readonly options: GhosttyTerminalSurfaceOptions;
   private metrics: GhosttyCellMetrics;
   private fontFamily: string;
+  private requestedFontFamily: string | undefined;
   private fontSize: number;
   private fontEpoch = 0;
+  private pendingFontEpoch: number | null = null;
   private readonly resizeObserver: ResizeObserver;
   private readonly scrollbarThumb: HTMLDivElement;
   private snapshot: GhosttySnapshot | null = null;
@@ -480,7 +645,10 @@ export class GhosttyTerminalSurface {
   private pasteShortcutToken = 0;
   private copyShortcutToken = 0;
   private clearSelectionAfterCopy = false;
+  private primedCopySelection = "";
   private wheelRemainder = 0;
+  private lastMouseMotionData = "";
+  private mouseAnyEventTracking = false;
   private dprMedia: MediaQueryList | null = null;
   // Read live on every blink decision, and watched so that dropping the
   // preference restarts a blink cycle that has no timer left to notice it.
@@ -497,6 +665,7 @@ export class GhosttyTerminalSurface {
     context: CanvasRenderingContext2D,
     core: GhosttyTerminalCore,
     metrics: GhosttyCellMetrics,
+    fontFamily: string,
     options: GhosttyTerminalSurfaceOptions,
   ) {
     this.mount = mount;
@@ -506,10 +675,12 @@ export class GhosttyTerminalSurface {
     this.scrollbarThumb = scrollbarThumb;
     this.context = context;
     this.core = core;
+    this.mouseAnyEventTracking = core.isMouseAnyEventTracking();
     this.metrics = metrics;
     this.options = options;
     this.theme = options.theme;
-    this.fontFamily = terminalFontFamily(options.font?.family);
+    this.fontFamily = fontFamily;
+    this.requestedFontFamily = options.font?.family;
     this.fontSize = terminalFontSize(options.font?.size);
     this.resizeObserver = new ResizeObserver(() => this.fit());
     this.installEvents();
@@ -552,16 +723,20 @@ export class GhosttyTerminalSurface {
 
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("Canvas 2D is unavailable");
-    const fontFamily = terminalFontFamily(options.font?.family);
+    // An opaque canvas backing store initializes to solid black, and the font
+    // and WASM loads below leave it on screen for the whole setup window; paint
+    // the theme background first so the mount never flashes a black box.
+    context.fillStyle = `rgb(${options.theme.background.r}, ${options.theme.background.g}, ${options.theme.background.b})`;
+    context.fillRect(0, 0, canvas.width, canvas.height);
     const fontSize = terminalFontSize(options.font?.size);
     try {
       // Cell metrics must come from the faces that will render; measuring before
       // the bundled webfonts load would size the grid from a fallback font.
       await ensureTerminalSymbolsFont();
-      await document.fonts.load(`${fontSize}px ${fontFamily}`);
     } catch {
       // Metrics fall back to whichever faces are already available.
     }
+    const fontFamily = await loadTerminalFontFamily(options.font?.family, fontSize);
     const metrics = measureGhosttyCell(context, fontSize, fontFamily);
     const grid = terminalGridSize(mount.clientWidth, mount.clientHeight, metrics, CONTENT_PADDING);
     const core = await GhosttyTerminalCore.create(
@@ -581,6 +756,7 @@ export class GhosttyTerminalSurface {
       context,
       core,
       metrics,
+      fontFamily,
       options,
     );
     surface.fit();
@@ -591,6 +767,7 @@ export class GhosttyTerminalSurface {
   write(data: string): void {
     if (this.disposed) return;
     this.core.write(data);
+    this.synchronizeMouseTrackingState();
     // Restart the blink cycle from the visible phase so the cursor never sits
     // invisible through a stream of output or a burst of typing echo.
     this.cursorOn = true;
@@ -600,7 +777,9 @@ export class GhosttyTerminalSurface {
 
   resetAndWrite(data: string): void {
     if (this.disposed) return;
+    this.lastMouseMotionData = "";
     this.core.resetAndWrite(data);
+    this.synchronizeMouseTrackingState();
     // A replayed session starts from the visible phase like any other write:
     // reattaching mid-blink must not open on an invisible cursor.
     this.cursorOn = true;
@@ -619,18 +798,16 @@ export class GhosttyTerminalSurface {
 
   async setFont(font: GhosttyTerminalFont): Promise<void> {
     if (this.disposed) return;
-    const fontFamily = terminalFontFamily(font.family);
     const fontSize = terminalFontSize(font.size);
     // The fields only change together with their metrics after the load, and
     // the epoch lets the newest overlapping call win regardless of load order.
     const epoch = ++this.fontEpoch;
-    try {
-      await document.fonts.load(`${fontSize}px ${fontFamily}`);
-    } catch {
-      // Metrics fall back to whichever faces are already available.
-    }
+    this.pendingFontEpoch = epoch;
+    const fontFamily = await loadTerminalFontFamily(font.family, fontSize);
     if (this.disposed || epoch !== this.fontEpoch) return;
+    this.pendingFontEpoch = null;
     this.fontFamily = fontFamily;
+    this.requestedFontFamily = font.family;
     this.fontSize = fontSize;
     this.applyFontMetrics();
   }
@@ -657,6 +834,17 @@ export class GhosttyTerminalSurface {
 
   private readonly onFontsLoaded = () => {
     if (this.disposed) return;
+    // The explicit load validates every style and applies the newest request.
+    // Its own loading events must not revalidate the previously applied face.
+    if (this.pendingFontEpoch !== null) return;
+    // A face may become available after an earlier fallback measurement. Run
+    // the fixed-width guard again before using its newly loaded metrics.
+    const fontFamily = terminalFontFamily(this.requestedFontFamily);
+    if (fontFamily !== this.fontFamily) {
+      this.fontFamily = fontFamily;
+      this.applyFontMetrics();
+      return;
+    }
     // A face that finished loading after the initial measurement changes glyph
     // advances; re-measure and refit so the grid matches what actually renders.
     const metrics = measureGhosttyCell(this.context, this.fontSize, this.fontFamily);
@@ -788,6 +976,7 @@ export class GhosttyTerminalSurface {
   }
 
   clearSelection(): void {
+    this.clearPrimedCopy();
     this.core.clearSelection();
     this.selectionEnd = null;
     this.selectionAnchorScreen = null;
@@ -863,6 +1052,8 @@ export class GhosttyTerminalSurface {
       // clipboard write against it the same way paste races its read. The
       // Shift variant has no native event (Chrome binds Ctrl+Shift+C to
       // inspect), so synthesize one with execCommand("copy").
+      const selection = this.getSelection();
+      this.primeCopy(selection);
       if (event.shiftKey) {
         event.preventDefault();
         document.execCommand("copy");
@@ -877,12 +1068,10 @@ export class GhosttyTerminalSurface {
         if (typeof clipboard?.writeText === "function") {
           // Defer the write past the default action: the native copy event
           // (dispatched synchronously with the default action) claims the
-          // token first when it fires, and the write covers browsers whose
-          // shortcut produces no copy event. Skipping a write the native
-          // event already handled stops a stale resolution from clobbering a
-          // clipboard the user filled after this copy.
+          // token first when it actually writes, and the write covers browsers
+          // whose shortcut produces no copy event. The primed textarea is what
+          // Electron's edit-menu Copy reads if it runs after this handler.
           const token = ++this.copyShortcutToken;
-          const selection = this.getSelection();
           void Promise.resolve().then(() => {
             if (this.disposed || this.copyShortcutToken !== token) return;
             void clipboard.writeText(selection).then(
@@ -935,10 +1124,12 @@ export class GhosttyTerminalSurface {
       return;
     }
     // keyCode 229 is Safari's only signal that this keydown opens an IME
-    // composition; encoding it would double the committed text.
-    if (event.isComposing || this.composing || event.key === "Process" || event.keyCode === 229) {
+    // composition; encoding it would double the committed text. Do not blank
+    // the textarea first: onInput leaves the in-progress candidate there.
+    if (isTerminalCompositionKey(event, this.composing)) {
       return;
     }
+    this.clearPrimedCopy();
     const data = this.core.encodeKey(event);
     if (data.length === 0) return;
     this.suppressedKeyCodes.delete(event.code);
@@ -950,7 +1141,7 @@ export class GhosttyTerminalSurface {
   private readonly onKeyUp = (event: KeyboardEvent) => {
     this.updateLinkModifier(event);
     if (this.suppressedKeyCodes.delete(event.code)) return;
-    if (event.isComposing || this.composing || event.key === "Process" || event.keyCode === 229) {
+    if (isTerminalCompositionKey(event, this.composing)) {
       return;
     }
     // Ghostty's encoder only emits release codes when the terminal enabled the
@@ -994,15 +1185,32 @@ export class GhosttyTerminalSurface {
     this.dprMedia.addEventListener("change", this.onDevicePixelRatioChange);
   }
 
+  private primeCopy(selection: string): void {
+    this.primedCopySelection = selection;
+    primeTerminalCopyInput(this.input, selection);
+  }
+
+  private clearPrimedCopy(): void {
+    clearPrimedTerminalCopyInput(this.input, this.primedCopySelection);
+    this.primedCopySelection = "";
+  }
+
   private readonly onCopyEvent = (event: ClipboardEvent) => {
-    if (!this.hasSelection()) return;
-    event.preventDefault();
-    event.clipboardData?.setData("text/plain", this.getSelection());
-    // The native event beat any deferred write; drop the in-flight fallback.
-    this.copyShortcutToken += 1;
-    if (this.clearSelectionAfterCopy) {
-      this.clearSelectionAfterCopy = false;
-      this.clearSelection();
+    const selection = this.hasSelection() ? this.getSelection() : this.input.value;
+    // Menu-role Copy never hits the keydown primer. The native action reads
+    // this.input, so park the current selection first — including when
+    // clipboardData is missing and we must not preventDefault.
+    this.primeCopy(selection);
+    const result = applyTerminalCopyEvent(selection, event.clipboardData);
+    if (result.preventDefault) event.preventDefault();
+    if (result.claimWriteFallback) {
+      // The native event actually wrote the selection; drop the in-flight
+      // writeText so a late resolution cannot clobber a later user copy.
+      this.copyShortcutToken += 1;
+      if (this.clearSelectionAfterCopy) {
+        this.clearSelectionAfterCopy = false;
+        this.clearSelection();
+      }
     }
   };
 
@@ -1020,6 +1228,7 @@ export class GhosttyTerminalSurface {
   };
 
   private readonly onCompositionStart = () => {
+    this.clearPrimedCopy();
     this.clearCompositionInputSuppression();
     this.composing = true;
   };
@@ -1123,9 +1332,10 @@ export class GhosttyTerminalSurface {
     if (this.linkActivationPointerId === event.pointerId) return;
     // Hover motion is only reportable in any-event tracking (DEC 1003); normal and
     // button-event tracking never report motion without a captured pressed button.
+    const anyEventTracking = this.synchronizeMouseTrackingState();
     if (
       this.mouseReportingPointerId === event.pointerId ||
-      shouldReportTerminalMouse(this.core.isMouseAnyEventTracking(), event)
+      shouldReportTerminalMouse(anyEventTracking, event)
     ) {
       event.preventDefault();
       this.hoverPointer = { x: event.clientX, y: event.clientY };
@@ -1137,6 +1347,7 @@ export class GhosttyTerminalSurface {
       this.sendMouse("motion", this.buttonFromButtons(event.buttons), event);
       return;
     }
+    this.lastMouseMotionData = "";
     if (!this.selectionAnchorScreen || !this.canvas.hasPointerCapture(event.pointerId)) {
       this.updateHoverCursor(event);
       return;
@@ -1215,6 +1426,7 @@ export class GhosttyTerminalSurface {
   }
 
   private readonly onPointerLeave = () => {
+    this.lastMouseMotionData = "";
     this.clearHoveredLink();
   };
 
@@ -1226,10 +1438,7 @@ export class GhosttyTerminalSurface {
 
   private refreshHoveredLink(): void {
     const pointer = this.hoverPointer;
-    const link =
-      pointer && shouldShowTerminalLinkHover(this.core.isMouseTracking(), this.linkModifierActive)
-        ? this.linkAt(pointer.x, pointer.y)
-        : null;
+    const link = pointer && this.linkModifierActive ? this.linkAt(pointer.x, pointer.y) : null;
     this.setHoveredLink(link);
   }
 
@@ -1673,11 +1882,7 @@ export class GhosttyTerminalSurface {
     return terminalLinkAtPositionWithRange(this.snapshot.rowData, cell.y, cell.x);
   }
 
-  private sendMouse(
-    action: "press" | "release" | "motion",
-    button: number | null,
-    event: MouseEvent,
-  ): void {
+  private sendMouse(action: TerminalMouseAction, button: number | null, event: MouseEvent): void {
     const bounds = this.canvas.getBoundingClientRect();
     const data = this.core.encodeMouse({
       action,
@@ -1699,7 +1904,23 @@ export class GhosttyTerminalSurface {
       paddingBottom: Math.max(0, bounds.height - this.originY - this.rows * this.metrics.height),
       anyButtonPressed: event.buttons !== 0,
     });
-    if (data.length > 0) this.options.onData(data);
+    const resolution = resolveTerminalMouseData(action, data, this.lastMouseMotionData);
+    this.lastMouseMotionData = resolution.nextMotionData;
+    if (resolution.send) this.options.onData(data);
+  }
+
+  private synchronizeMouseTrackingState(): boolean {
+    // Output writes can toggle DEC 1003 without moving the pointer. Keep the
+    // previous mode so the next same-cell motion starts a fresh tracking session.
+    const tracking = this.core.isMouseAnyEventTracking();
+    const state = resolveTerminalMouseTrackingState(
+      this.mouseAnyEventTracking,
+      tracking,
+      this.lastMouseMotionData,
+    );
+    this.mouseAnyEventTracking = state.tracking;
+    this.lastMouseMotionData = state.motionData;
+    return tracking;
   }
 
   private buttonFromButtons(buttons: number): number | null {
