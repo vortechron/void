@@ -170,7 +170,8 @@ export function useClientSettingsHydrated(): boolean {
 }
 
 function useClientSettingsValue(): ClientSettings {
-  const fromServer = useAtomValue(primaryServerSettingsAtom).clientSettings;
+  const fromServer =
+    useAtomValue(primaryServerSettingsAtom)?.clientSettings ?? DEFAULT_CLIENT_SETTINGS;
   return clientSettingsTestOverride ?? fromServer;
 }
 

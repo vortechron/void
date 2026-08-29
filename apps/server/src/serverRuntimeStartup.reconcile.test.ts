@@ -56,6 +56,7 @@ const makeProviderService = (liveThreadIds: ReadonlyArray<ThreadId> = []) =>
     getCapabilities: () => Effect.die("unused"),
     getInstanceInfo: () => Effect.die("unused"),
     rollbackConversation: () => Effect.die("unused"),
+    uploadFeedback: () => Effect.die("unused"),
     streamEvents: Stream.empty,
   }) satisfies ProviderService.ProviderService["Service"];
 
@@ -196,7 +197,6 @@ it.effect("skips deleted threads during startup reconciliation", () => {
     ),
   );
 });
-
 it.effect(
   "settles projections when directory bindings are absent, corrupt, or fail to upsert",
   () => {

@@ -2,6 +2,7 @@ import {
   IconAdjustmentsHorizontal,
   IconAlertCircle,
   IconAlertTriangle,
+  IconApps,
   IconArchive,
   IconArrowBackUp,
   IconArrowDownCircle,
@@ -13,6 +14,7 @@ import {
   IconArrowsMaximize,
   IconBellRinging,
   IconBolt,
+  IconBox,
   IconCamera,
   IconChartBar,
   IconCheck,
@@ -77,6 +79,7 @@ import {
 } from "@tabler/icons-react-native";
 import { Platform } from "react-native";
 import { SymbolView as ExpoSymbolView, type SFSymbol, type SymbolViewProps } from "expo-symbols";
+import { withUniwind } from "uniwind";
 
 const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   "arrow.branch": IconGitBranch,
@@ -102,6 +105,7 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   checkmark: IconCheck,
   "checkmark.circle": IconCircleCheck,
   clock: IconClock,
+  cube: IconBox,
   "chevron.down": IconChevronDown,
   "chevron.left": IconChevronLeft,
   "chevron.left.forwardslash.chevron.right": IconCode,
@@ -137,6 +141,7 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   "sidebar.right": IconLayoutSidebarRight,
   "slider.horizontal.3": IconAdjustmentsHorizontal,
   "square.and.pencil": IconEdit,
+  "square.grid.2x2": IconApps,
   "square.split.2x1": IconLayoutColumns,
   "sun.max": IconSun,
   "stop.fill": IconPlayerStopFilled,
@@ -182,7 +187,7 @@ const ANDROID_ICON_BY_MATERIAL_NAME: Record<string, Icon> = {
 export type { SFSymbol } from "expo-symbols";
 export type AppSymbolName = SymbolViewProps["name"];
 
-export function SymbolView(props: SymbolViewProps) {
+function AppSymbolView(props: SymbolViewProps) {
   if (Platform.OS !== "android") {
     return <ExpoSymbolView {...props} />;
   }
@@ -208,3 +213,11 @@ export function SymbolView(props: SymbolViewProps) {
     />
   );
 }
+
+/**
+ * expo-symbols and the Android Tabler fallback both expose tint as a native
+ * prop rather than a React Native style. Keep that third-party boundary here
+ * so callers can use Uniwind's `tintColorClassName` instead of subscribing to
+ * theme variables in every parent component.
+ */
+export const SymbolView = withUniwind(AppSymbolView);
