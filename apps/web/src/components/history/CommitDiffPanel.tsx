@@ -17,6 +17,7 @@ import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { DIFF_PANEL_UNSAFE_CSS } from "~/lib/diffPanelCss";
 import {
+  buildFileDiffContentVersion,
   getDiffCollapseIconClassName,
   getRenderablePatch,
   resolveDiffThemeName,
@@ -28,6 +29,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { reviewEnvironment } from "~/state/review";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { AnnotatableCodeView } from "~/components/diffs/AnnotatableCodeView";
+import { DiffFilePathCopyButton } from "~/components/DiffFilePathCopyButton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 export function CommitDiffPanel({
@@ -107,7 +109,13 @@ export function CommitDiffPanel({
       renderablePatch?.kind === "files"
         ? renderablePatch.files.map((fileDiff) => {
             const filePath = resolveFileDiffPath(fileDiff);
-            return { fileDiff, filePath, fileKey: filePath, collapsed: false };
+            return {
+              fileDiff,
+              filePath,
+              fileKey: filePath,
+              fileVersion: buildFileDiffContentVersion(fileDiff),
+              collapsed: false,
+            };
           })
         : [],
     [renderablePatch],
@@ -146,6 +154,9 @@ export function CommitDiffPanel({
           sectionId={`commit:${sha}`}
           sectionTitle={subject}
           composerDraftTarget={composerDraftTarget}
+          renderHeaderFilenameSuffix={(fileDiff) => (
+            <DiffFilePathCopyButton filePath={resolveFileDiffPath(fileDiff)} />
+          )}
           renderHeaderPrefix={(fileDiff, _fileKey, collapsed) => {
             const filePath = resolveFileDiffPath(fileDiff);
             return (

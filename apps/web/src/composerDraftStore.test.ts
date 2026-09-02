@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import {
   defaultInstanceIdForDriver,
   EnvironmentId,
+  MessageId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -17,6 +18,10 @@ import {
   type ProviderOptionSelection,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
+import {
+  collectAssistantCitations,
+  serializeAssistantCitation,
+} from "@t3tools/shared/assistantCitations";
 
 // The composer draft's `modelSelectionByProvider` and
 // `stickyModelSelectionByProvider` maps are keyed by `ProviderInstanceId`
@@ -185,6 +190,44 @@ function draftFor(threadId: ThreadId, environmentId: EnvironmentId = LEGACY_TEST
 function draftByKey(key: string) {
   return useComposerDraftStore.getState().draftsByThreadKey[key] ?? undefined;
 }
+
+describe("composerDraftStore assistant citations", () => {
+  beforeEach(resetComposerDraftStore);
+  afterEach(resetComposerDraftStore);
+
+  it("keeps quotes, comments, and remote source IDs through persistence and removes them on clear", () => {
+    const threadId = ThreadId.make("citation-draft");
+    const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+    const citation = {
+      version: 1 as const,
+      environmentId: EnvironmentId.make("remote-source"),
+      threadId: ThreadId.make("source-thread"),
+      messageId: MessageId.make("source-message"),
+      text: "Preserve the selected text after reload.",
+      comment: "Why is this important?\nPlease show an example.",
+      start: 12,
+      end: 52,
+      prefix: "Before. ",
+      suffix: " After.",
+    };
+    const prompt = `Explain ${serializeAssistantCitation(citation)} further.`;
+    useComposerDraftStore.getState().setPrompt(threadRef, prompt);
+    const options = useComposerDraftStore.persist.getOptions();
+    const saved = JSON.parse(
+      JSON.stringify(options.partialize!(useComposerDraftStore.getState())),
+    ) as unknown;
+    resetComposerDraftStore();
+    const hydrated = options.merge!(saved, useComposerDraftStore.getState());
+    useComposerDraftStore.setState(hydrated);
+    const restored = draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt ?? "";
+    expect(restored).toBe(prompt);
+    expect(collectAssistantCitations(restored).map((entry) => entry.citation)).toEqual([citation]);
+    useComposerDraftStore.getState().clearComposerContent(threadRef);
+    expect(
+      collectAssistantCitations(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt ?? ""),
+    ).toEqual([]);
+  });
+});
 
 describe("composerDraftStore addImages", () => {
   const threadId = ThreadId.make("thread-dedupe");
@@ -517,6 +560,34 @@ describe("composerDraftStore file attachments", () => {
     expect(files?.some(composerFileNeedsReattach)).toBe(false);
   });
 
+  it("replaces a legacy video marker after its MIME type is normalized", () => {
+    const store = useComposerDraftStore.getState();
+    const marker: ComposerFileAttachment = {
+      type: "file",
+      id: "file-marker",
+      name: "clip.mkv",
+      mimeType: "application/octet-stream",
+      sizeBytes: 6,
+      file: null,
+    };
+    store.addFiles(threadRef, [marker]);
+
+    const file = new File(["report"], marker.name, { type: "video/x-matroska" });
+    const repicked: ComposerFileAttachment = {
+      type: "file",
+      id: "file-repicked",
+      name: file.name,
+      mimeType: file.type,
+      sizeBytes: file.size,
+      file,
+    };
+    store.addFiles(threadRef, [repicked, { ...repicked, id: "file-repicked-duplicate" }]);
+
+    const files = store.getComposerDraft(threadRef)?.files;
+    expect(files?.map((entry) => entry.id)).toEqual(["file-repicked"]);
+    expect(files?.some(composerFileNeedsReattach)).toBe(false);
+  });
+
   it("replaces a needs-reattach marker with a stash-restored uploaded file", () => {
     const store = useComposerDraftStore.getState();
     const marker: ComposerFileAttachment = { ...makeFile("file-marker"), file: null };
@@ -550,6 +621,36 @@ describe("composerDraftStore file attachments", () => {
 
     expect(store.getComposerDraft(threadRef)?.files.map((file) => file.id)).toEqual([
       "file-original",
+    ]);
+  });
+
+  it("keeps same-name videos with different MIME types", () => {
+    const store = useComposerDraftStore.getState();
+    const mp4 = new File(["report"], "clip", { type: "video/mp4" });
+    const webm = new File(["report"], "clip", { type: "video/webm" });
+
+    store.addFiles(threadRef, [
+      {
+        type: "file",
+        id: "video-mp4",
+        name: mp4.name,
+        mimeType: mp4.type,
+        sizeBytes: mp4.size,
+        file: mp4,
+      },
+      {
+        type: "file",
+        id: "video-webm",
+        name: webm.name,
+        mimeType: webm.type,
+        sizeBytes: webm.size,
+        file: webm,
+      },
+    ]);
+
+    expect(store.getComposerDraft(threadRef)?.files.map((file) => file.id)).toEqual([
+      "video-mp4",
+      "video-webm",
     ]);
   });
 
@@ -1217,6 +1318,18 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
   });
 
+  it("removes a draft's previous project mapping when retargeted in place", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setPrompt(draftId, "keep this prompt");
+
+    store.setProjectDraftThreadId(otherProjectRef, draftId, { threadId });
+
+    expect(store.getDraftThreadByProjectRef(projectRef)).toBeNull();
+    expect(store.getDraftThreadByProjectRef(otherProjectRef)?.draftId).toBe(draftId);
+    expect(store.getComposerDraft(draftId)?.prompt).toBe("keep this prompt");
+  });
+
   it("rotates a failed bootstrap thread id without losing its draft", () => {
     const store = useComposerDraftStore.getState();
     const retryThreadId = ThreadId.make("thread-retry");
@@ -1528,17 +1641,18 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("keep me");
   });
 
-  it("finalizes a promoted draft after the canonical thread route is active", () => {
+  it("moves composer edits made during promotion to the canonical thread", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, { threadId });
-    store.setPrompt(draftId, "promote me");
     markPromotedDraftThread(threadId);
+    store.setPrompt(draftId, "typed during setup");
 
     finalizePromotedDraftThreadByRef(scopeThreadRef(TEST_ENVIRONMENT_ID, threadId));
 
     expect(useComposerDraftStore.getState().getDraftThreadByProjectRef(projectRef)).toBeNull();
     expect(useComposerDraftStore.getState().getDraftThread(draftId)).toBeNull();
     expect(draftByKey(draftId)).toBeUndefined();
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("typed during setup");
   });
 
   it("finalizes a matching materialized draft even when promotion was not pre-marked", () => {
@@ -1551,6 +1665,7 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThreadByProjectRef(projectRef)).toBeNull();
     expect(useComposerDraftStore.getState().getDraftThread(draftId)).toBeNull();
     expect(draftByKey(draftId)).toBeUndefined();
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("promote me");
   });
 
   it("updates branch context on an existing draft thread", () => {
@@ -1666,6 +1781,30 @@ describe("composerDraftStore project draft thread mapping", () => {
       envMode: "worktree",
       startFromOrigin: true,
     });
+  });
+
+  it("clears stale upload metadata when retargeting a draft to another environment", () => {
+    const store = useComposerDraftStore.getState();
+    const hydratedFile: ComposerFileAttachment = {
+      ...makeFile("file-cross-environment"),
+      file: null,
+      uploadedAttachmentId: "local-environment-upload",
+      uploadEnvironmentId: TEST_ENVIRONMENT_ID,
+    };
+
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.addFiles(draftId, [hydratedFile]);
+
+    store.setProjectDraftThreadId(remoteProjectRef, draftId, { threadId });
+
+    const file = store.getComposerDraft(draftId)?.files[0];
+    expect(file).toMatchObject({
+      id: hydratedFile.id,
+      file: null,
+    });
+    expect(file?.uploadedAttachmentId).toBeUndefined();
+    expect(file?.uploadEnvironmentId).toBeUndefined();
+    expect(file && composerFileNeedsReattach(file)).toBe(true);
   });
 
   it("clears branch and worktree but keeps env mode when changing a draft thread project ref", () => {
