@@ -42,6 +42,11 @@ import {
   readBrowserThemePreference,
 } from "~/clientPersistenceStorage";
 import {
+  findSharedSettingsMismatches,
+  pickSharedServerSettings,
+  splitSharedServerPatch,
+} from "@t3tools/client-runtime/state/shared-settings";
+import {
   getThemeDefinition,
   getThemePreviewSidebarArtwork,
   resolveThemeHalf,
@@ -56,7 +61,13 @@ import {
   primaryServerSettingsAtom,
   serverEnvironment,
 } from "~/state/server";
-import { usePrimaryEnvironment } from "~/state/environments";
+import { toastManager } from "~/components/ui/toast";
+import { isHostedStaticApp } from "~/hostedPairing";
+import {
+  type EnvironmentPresentation,
+  useEnvironments,
+  usePrimaryEnvironment,
+} from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
 
@@ -179,7 +190,9 @@ export function mergeEnvironmentSettings(
   serverSettings: ServerSettings,
   clientSettings: ClientSettings,
 ): UnifiedSettings {
-  return { ...serverSettings, ...clientSettings };
+  // Decode drops retired client keys, but older untyped persistence adapters
+  // can still return them. Server-owned values must always win.
+  return { ...clientSettings, ...serverSettings };
 }
 
 function useMergedSettings<T>(
@@ -291,42 +304,150 @@ export function usePrimarySettings<T = UnifiedSettings>(
   return useMergedSettings(useAtomValue(primaryServerSettingsAtom), selector);
 }
 
+export const PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE =
+  "This setting is saved on a server, and the hosted app is not anchored to one. Change it from the desktop app or from the server's own address.";
+
+/**
+ * Whether primary-scoped server settings have a server to live on. The
+ * hosted app connects to every environment as a remote, so it has no primary:
+ * `usePrimarySettings` reads schema defaults there and writes have nowhere
+ * to go. Desktop and server-served web always have one.
+ */
+export function usePrimarySettingsAvailable(): boolean {
+  const primaryEnvironment = usePrimaryEnvironment();
+  return primaryEnvironment !== null || !isHostedStaticApp();
+}
+
+/**
+ * Whether an environment can hold every shared key right now. Gated on the
+ * auto-settlement capability because it is the newest of the shared keys: a
+ * server that has it has all of them. Older servers drop unknown keys on
+ * write, so a mismatch against them could never clear, and their decoded
+ * defaults must not be treated as real values.
+ */
+function supportsSharedSettings(environment: EnvironmentPresentation): boolean {
+  return (
+    environment.connection.phase === "connected" &&
+    environment.serverConfig?.environment.capabilities.threadAutoSettlement === true
+  );
+}
+
+/** Environments that can receive a shared settings write right now. */
+function useConnectedEnvironmentIds(): ReadonlyArray<EnvironmentId> {
+  const { environments } = useEnvironments();
+  return useMemo(
+    () =>
+      environments.filter(supportsSharedSettings).map((environment) => environment.environmentId),
+    [environments],
+  );
+}
+
 /**
  * Returns an updater for one environment's settings.
  *
  * UI-preference keys are folded into the nested `clientSettings` blob and ride
- * the same patch as the flat server keys, so a change touching both lands as
- * one write rather than two racing ones. The blob is replaced whole — see the
- * note on `ServerSettingsPatch.clientSettings`.
+ * the same write as target-local server keys. Shared server keys are written
+ * to every connected environment so they do not drift between machines.
  */
 function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   const persistServerSettings = useAtomCommand(
     serverEnvironment.updateSettings,
     "server settings update",
   );
+  const connectedEnvironmentIds = useConnectedEnvironmentIds();
   const updateSettings = useCallback(
     (patch: UnifiedSettingsPatch) => {
-      if (!environmentId) {
-        return;
-      }
       const { serverPatch, clientPatch } = splitPatch(patch);
-      const merged: ServerSettingsPatch =
+      const { sharedPatch, localPatch } = splitSharedServerPatch(serverPatch);
+      const targetPatch: ServerSettingsPatch =
         Object.keys(clientPatch).length > 0
           ? {
-              ...serverPatch,
+              ...localPatch,
               clientSettings: { ...readClientSettingsSnapshot(), ...clientPatch },
             }
-          : serverPatch;
+          : localPatch;
+      const warnUnsaved = () =>
+        toastManager.add({
+          type: "warning",
+          title: "Setting not saved",
+          description: PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
+        });
 
-      if (Object.keys(merged).length === 0) {
-        return;
+      if (Object.keys(targetPatch).length > 0) {
+        if (environmentId) {
+          void persistServerSettings({ environmentId, input: { patch: targetPatch } });
+        } else {
+          warnUnsaved();
+        }
       }
-      void persistServerSettings({ environmentId, input: { patch: merged } });
+
+      if (Object.keys(sharedPatch).length > 0) {
+        const targets = new Set(connectedEnvironmentIds);
+        if (environmentId) targets.add(environmentId);
+        if (targets.size === 0) warnUnsaved();
+        for (const targetId of targets) {
+          void persistServerSettings({ environmentId: targetId, input: { patch: sharedPatch } });
+        }
+      }
     },
-    [environmentId, persistServerSettings],
+    [connectedEnvironmentIds, environmentId, persistServerSettings],
   );
 
   return updateSettings;
+}
+
+/**
+ * Connected environments whose shared settings differ from the primary's,
+ * plus an action that writes the primary's values to all of them. Drift
+ * happens when an environment was offline during an edit or was changed by
+ * an older client.
+ */
+export function useSharedSettingsSync() {
+  const primaryEnvironment = usePrimaryEnvironment();
+  const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
+  // Read the loaded config, not `primaryServerSettingsAtom`: that atom falls
+  // back to defaults while the primary is disconnected, and "apply to all"
+  // must never push defaults over real values. Same for a primary too old to
+  // hold the shared keys: its decoded defaults are not a source of truth.
+  const primarySettings =
+    primaryEnvironment !== null && supportsSharedSettings(primaryEnvironment)
+      ? (primaryEnvironment.serverConfig?.settings ?? null)
+      : null;
+  const { environments } = useEnvironments();
+  const persistServerSettings = useAtomCommand(
+    serverEnvironment.updateSettings,
+    "server settings update",
+  );
+
+  const mismatches = useMemo(
+    () =>
+      findSharedSettingsMismatches({
+        primaryEnvironmentId,
+        primarySettings,
+        environments: environments.map((environment) => ({
+          environmentId: environment.environmentId,
+          label: environment.label,
+          connected: supportsSharedSettings(environment),
+          settings: environment.serverConfig?.settings ?? null,
+        })),
+      }),
+    [environments, primaryEnvironmentId, primarySettings],
+  );
+
+  const applyToAll = useCallback(() => {
+    if (primarySettings === null) {
+      return;
+    }
+    const patch = pickSharedServerSettings(primarySettings);
+    for (const mismatch of mismatches) {
+      void persistServerSettings({
+        environmentId: mismatch.environmentId,
+        input: { patch },
+      });
+    }
+  }, [mismatches, persistServerSettings, primarySettings]);
+
+  return { mismatches, applyToAll };
 }
 
 export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
@@ -397,7 +518,6 @@ function isDefaultClientSettings(settings: ClientSettings): boolean {
     (key) => JSON.stringify(settings[key]) === JSON.stringify(DEFAULT_CLIENT_SETTINGS[key]),
   );
 }
-
 export function __resetClientSettingsPersistenceForTests(): void {
   clientSettingsTestOverride = null;
 }

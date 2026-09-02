@@ -5,6 +5,7 @@ import { useEffect, useMemo, type ReactNode } from "react";
 import { useTheme } from "../hooks/useTheme";
 import { useClientSettings } from "../hooks/useSettings";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
+import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
 
 export class DiffWorkerError extends Schema.TaggedErrorClass<DiffWorkerError>()("DiffWorkerError", {
   operation: Schema.Literals(["create-worker", "get-render-options", "set-render-options"]),
@@ -75,6 +76,7 @@ export function DiffWorkerPoolProvider({ children }: { children?: ReactNode }) {
       }}
       highlighterOptions={{
         theme: diffThemeName,
+        preferredHighlighter: PREFERRED_HIGHLIGHTER,
         tokenizeMaxLineLength: 1_000,
         useTokenTransformer: true,
       }}

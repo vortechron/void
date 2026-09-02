@@ -36,7 +36,7 @@ import {
   type VcsListStashesInput,
   type VcsListStashesResult,
 } from "@t3tools/contracts";
-import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
+import { makeGitVcsDriverCore, splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 
@@ -210,6 +210,10 @@ export interface GitRemoteExistsInput {
   remoteName: string;
 }
 
+export interface GitRemoteBranchExistsInput extends GitRemoteExistsInput {
+  refName: string;
+}
+
 export interface GitResolveRemoteTrackingCommitInput {
   cwd: string;
   refName: string;
@@ -304,6 +308,9 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<string | null, GitCommandError>;
     readonly fetchRemote: (input: GitFetchRemoteInput) => Effect.Effect<void, GitCommandError>;
     readonly remoteExists: (input: GitRemoteExistsInput) => Effect.Effect<boolean, GitCommandError>;
+    readonly remoteBranchExists: (
+      input: GitRemoteBranchExistsInput,
+    ) => Effect.Effect<boolean, GitCommandError>;
     readonly resolveRemoteTrackingCommit: (
       input: GitResolveRemoteTrackingCommitInput,
     ) => Effect.Effect<GitResolveRemoteTrackingCommitResult, GitCommandError>;
@@ -361,17 +368,6 @@ const nowFreshness = Effect.fn("GitVcsDriver.nowFreshness")(function* () {
     expiresAt: Option.none(),
   };
 });
-
-function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
-  const parts = input.split("\0");
-  if (parts.length === 0) return [];
-
-  if (truncated && parts[parts.length - 1]?.length) {
-    parts.pop();
-  }
-
-  return parts.filter((value) => value.length > 0);
-}
 
 function chunkPathsForGitCheckIgnore(relativePaths: ReadonlyArray<string>): string[][] {
   const chunks: string[][] = [];
@@ -556,7 +552,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           ? Effect.gen(function* () {
               const freshness = yield* nowFreshness();
               return {
-                paths: splitNullSeparatedPaths(result.stdout, result.stdoutTruncated),
+                paths: splitNullSeparatedGitStdoutPaths(result),
                 truncated: result.stdoutTruncated,
                 freshness,
               };
@@ -654,7 +650,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         });
       }
 
-      for (const ignoredPath of splitNullSeparatedPaths(result.stdout, result.stdoutTruncated)) {
+      for (const ignoredPath of splitNullSeparatedGitStdoutPaths(result)) {
         ignoredPaths.add(ignoredPath);
       }
     }

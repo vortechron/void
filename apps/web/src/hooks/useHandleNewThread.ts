@@ -28,8 +28,9 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
-import { readThreadShell, useProjects, useThread } from "../state/entities";
+import { readProjects, readThreadShell, useProjects, useThread } from "../state/entities";
 import {
+  hasExplicitComposerModelSelection,
   resolveNewDraftStartFromOrigin,
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
@@ -61,7 +62,6 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
 }
 
 export function useNewThreadHandler() {
-  const projects = useProjects();
   // New-thread defaults are a user preference, and the settings UI only ever
   // edits the primary environment's settings.json. Reading the target
   // environment's own settings here would silently reset remote projects to
@@ -104,6 +104,7 @@ export function useNewThreadHandler() {
       // prepared checkout, a task to write — addresses that one rather than looking the project
       // up again and finding whichever draft it happens to hold.
     ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
+      const projects = readProjects();
       const {
         getComposerDraft,
         getDraftSessionByLogicalProjectKey,
@@ -153,9 +154,8 @@ export function useNewThreadHandler() {
         carrySourceDraft?.interactionMode ??
         null;
       // Content only moves when the caller opted in and the user is looking
-      // at a draft. The content check happens at move time, not here: the
-      // paths below await, and text typed during those awaits must still
-      // come along.
+      // at a draft. Check at move time because the paths below await and text
+      // typed during those awaits must still come along.
       const carryContentSourceDraftId =
         options?.carryComposerContent === true && currentRouteTarget?.kind === "draft"
           ? currentRouteTarget.draftId
@@ -164,15 +164,10 @@ export function useNewThreadHandler() {
         if (
           carryContentSourceDraftId &&
           carryContentSourceDraftId !== destinationDraftId &&
-          // Never clobber a destination the user already invested in — the
-          // move overwrites the destination prompt, so a concurrent repo
-          // change that carried content first must win.
           !composerDraftHasUserContent(getComposerDraft(destinationDraftId)) &&
           composerDraftHasUserContent(getComposerDraft(carryContentSourceDraftId))
         ) {
           moveComposerPromptAndImages(carryContentSourceDraftId, destinationDraftId);
-          // The move caps at the destination's free slots and skips
-          // duplicates, so images and files can both stay behind.
           const remainingDraft = getComposerDraft(carryContentSourceDraftId);
           const remainingCount =
             (remainingDraft?.files.length ?? 0) + (remainingDraft?.images.length ?? 0);
@@ -324,11 +319,7 @@ export function useNewThreadHandler() {
           // is looking at, because explicit picks are the only thing the
           // flag protects.
           const storedDraft = getComposerDraft(emptyStoredDraftThread.draftId);
-          const storedActiveSelection = storedDraft?.activeProvider
-            ? storedDraft.modelSelectionByProvider[storedDraft.activeProvider]
-            : undefined;
-          const storedDraftHasExplicitModelPick =
-            Boolean(storedActiveSelection) && storedDraft?.modelSelectionExplicit === true;
+          const storedDraftHasExplicitModelPick = hasExplicitComposerModelSelection(storedDraft);
           if (!storedDraftHasExplicitModelPick) {
             applyStickyState(emptyStoredDraftThread.draftId);
             const modelSelectionOverride = resolveModelSelectionOverride(
@@ -489,7 +480,6 @@ export function useNewThreadHandler() {
             replaceOptions: true,
           });
         }
-
         await router.navigate({
           to: "/draft/$draftId",
           params: { draftId },
@@ -498,7 +488,7 @@ export function useNewThreadHandler() {
         return { draftId, threadId };
       })();
     },
-    [getCurrentRouteTarget, primaryServerSettings, projectGroupingSettings, projects, router],
+    [getCurrentRouteTarget, primaryServerSettings, projectGroupingSettings, router],
   );
 }
 

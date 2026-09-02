@@ -11,6 +11,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection, ProjectPromptAction, ProjectScript } from "./orchestration.ts";
+import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
   DEFAULT_PREVIEW_APPEARANCE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
@@ -100,6 +101,17 @@ export const AppearanceContrast = Schema.Int.check(
 );
 export type AppearanceContrast = typeof AppearanceContrast.Type;
 export const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 100;
+export const MIN_PANEL_ANIMATION_DURATION_MS = 0;
+export const MAX_PANEL_ANIMATION_DURATION_MS = 400;
+export const PanelAnimationDurationMs = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_PANEL_ANIMATION_DURATION_MS,
+    maximum: MAX_PANEL_ANIMATION_DURATION_MS,
+  }),
+);
+export type PanelAnimationDurationMs = typeof PanelAnimationDurationMs.Type;
+export const DEFAULT_PANEL_ANIMATION_DURATION_MS: PanelAnimationDurationMs = 0;
+
 export const MAX_FONT_FAMILY_NAME_LENGTH = 256;
 export const FontFamilyName = TrimmedNonEmptyString.check(
   Schema.isMaxLength(MAX_FONT_FAMILY_NAME_LENGTH),
@@ -196,6 +208,22 @@ export const UsageMeterMode = Schema.Literals(["expanded", "minimized", "off"]);
 export type UsageMeterMode = typeof UsageMeterMode.Type;
 export const DEFAULT_USAGE_METER_MODE: UsageMeterMode = "expanded";
 
+export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
+export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
+export const DEFAULT_QUIT_CONFIRMATION_MODE: QuitConfirmationMode = "hold";
+
+const LegacyConfirmQuit = Schema.Boolean.pipe(
+  Schema.decodeTo(
+    QuitConfirmationMode,
+    SchemaTransformation.transform({
+      decode: (confirmQuit): QuitConfirmationMode => (confirmQuit ? "hold" : "direct"),
+      encode: (mode) => mode === "hold",
+    }),
+  ),
+);
+
+const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);
+
 /**
  * Allowed periodic re-sync intervals, in seconds. `0` turns the timer off and
  * leaves the meter on the server's live push alone. A closed set rather than a
@@ -209,7 +237,7 @@ export const UsageMeterRefreshIntervalSeconds = Schema.Literals(
 export type UsageMeterRefreshIntervalSeconds = typeof UsageMeterRefreshIntervalSeconds.Type;
 export const DEFAULT_USAGE_METER_REFRESH_INTERVAL_SECONDS: UsageMeterRefreshIntervalSeconds = 300;
 
-export const UsageMeterSettings = Schema.Struct({
+const UsageMeterSettingsValue = Schema.Struct({
   mode: UsageMeterMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_USAGE_METER_MODE))),
   percentageBasis: UsageMeterPercentageBasis.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_USAGE_METER_PERCENTAGE_BASIS)),
@@ -220,7 +248,10 @@ export const UsageMeterSettings = Schema.Struct({
   refreshIntervalSeconds: UsageMeterRefreshIntervalSeconds.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_USAGE_METER_REFRESH_INTERVAL_SECONDS)),
   ),
-}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+});
+export const UsageMeterSettings = UsageMeterSettingsValue.pipe(
+  Schema.withDecodingDefault(Effect.succeed({})),
+);
 export type UsageMeterSettings = typeof UsageMeterSettings.Type;
 
 // ── Voice dictation ──────────────────────────────────────────────────
@@ -274,7 +305,7 @@ export const VoiceDictationSnippet = Schema.Struct({
 });
 export type VoiceDictationSnippet = typeof VoiceDictationSnippet.Type;
 
-export const VoiceDictationSettings = Schema.Struct({
+const VoiceDictationSettingsValue = Schema.Struct({
   /** Off by default: the feature needs a key the user has to supply. */
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
@@ -316,7 +347,10 @@ export const VoiceDictationSettings = Schema.Struct({
    * nothing telling them it did.
    */
   soundCues: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+});
+export const VoiceDictationSettings = VoiceDictationSettingsValue.pipe(
+  Schema.withDecodingDefault(Effect.succeed({})),
+);
 export type VoiceDictationSettings = typeof VoiceDictationSettings.Type;
 
 // ── Workspace chat surfaces (shared across devices) ──────────────────
@@ -389,7 +423,7 @@ const storedWorkspaceThreadTabs = WorkspaceThreadTabsSettings.pipe(
 /** Per-workspace sidebar labelling. Renames, pins and archives are opinions
     about the work, not about the machine, so they travel — ordered by the
     same counter, so an unpin cannot be undone by a device that missed it. */
-export const WorkspaceSidebarSettings = Schema.Struct({
+const WorkspaceSidebarSettingsValue = Schema.Struct({
   version: workspaceSyncVersionField,
   namesByWorkspaceKey: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -400,7 +434,10 @@ export const WorkspaceSidebarSettings = Schema.Struct({
   archivedWorkspaceKeys: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
-}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+});
+export const WorkspaceSidebarSettings = WorkspaceSidebarSettingsValue.pipe(
+  Schema.withDecodingDefault(Effect.succeed({})),
+);
 export type WorkspaceSidebarSettings = typeof WorkspaceSidebarSettings.Type;
 
 // Unsent composer text deliberately does NOT travel. A prompt only has one
@@ -447,17 +484,27 @@ export type DefaultThemePreference = typeof DefaultThemePreference.Type;
 /**
  * Defaults for the in-app preview browser, applied whenever a tab is opened
  * without an explicit viewport/zoom/appearance — by the user opening a browser
- * tab, or by an agent calling `preview_open` with no size. Client-local
- * because the Chromium guest they configure is desktop-local.
+ * tab, or by an agent calling `preview_open` with no size. Recording quality is
+ * client-local for the same reason: the Chromium guest being captured belongs
+ * to the desktop app.
  */
 export const DEFAULT_BROWSER_VIEWPORT: PreviewViewportSetting = FILL_PREVIEW_VIEWPORT;
 export const DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW = true;
+export const BROWSER_RECORDING_FRAME_RATES = [30, 60] as const;
+export const BrowserRecordingFrameRate = Schema.Literals(BROWSER_RECORDING_FRAME_RATES);
+export type BrowserRecordingFrameRate = typeof BrowserRecordingFrameRate.Type;
+export const DEFAULT_BROWSER_RECORDING_FRAME_RATE: BrowserRecordingFrameRate = 30;
 
 export const ClientSettingsSchema = Schema.Struct({
   agentNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   appearanceContrast: AppearanceContrast.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_APPEARANCE_CONTRAST)),
+  ),
+  // Panel motion defaults to zero because width and height transitions cause
+  // layout work on every frame, which is noticeable on lower-power clients.
+  panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PANEL_ANIMATION_DURATION_MS)),
   ),
   browserDefaultViewport: PreviewViewportSetting.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_VIEWPORT)),
@@ -468,6 +515,9 @@ export const ClientSettingsSchema = Schema.Struct({
   browserDefaultAppearance: PreviewAppearancePreference.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PREVIEW_APPEARANCE)),
   ),
+  browserRecordingFrameRate: BrowserRecordingFrameRate.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_RECORDING_FRAME_RATE)),
+  ),
   /**
    * Whether an agent opening a preview pops the floating mini player into
    * view. Only applies when the agent didn't ask either way — an explicit
@@ -476,6 +526,16 @@ export const ClientSettingsSchema = Schema.Struct({
    */
   browserAutoShowFloatingPreview: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW)),
+  ),
+  /**
+   * User-created browser profiles. The built-in Default and Incognito profiles
+   * are synthesized by `resolveBrowserProfiles`, not stored here.
+   */
+  browserProfiles: Schema.Array(BrowserProfile).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  browserDefaultProfileId: BrowserProfileId.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_PROFILE_ID)),
   ),
   // `catchDecoding` because these two used to be one setting whose value set
   // included the other's: a settings file written before the split still says
@@ -495,12 +555,17 @@ export const ClientSettingsSchema = Schema.Struct({
   completionSound: CompletionSound.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_COMPLETION_SOUND)),
   ),
-  // Desktop-only: require holding the quit shortcut (Cmd/Ctrl+Q) before the
-  // app quits; a quick tap only shows a hint. Browser clients ignore it.
-  confirmQuit: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // Desktop-only. Boolean values from older settings files decode to their
+  // equivalent mode and encode back as the canonical string value.
+  confirmQuit: QuitConfirmationModeSetting.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_QUIT_CONFIRMATION_MODE)),
+  ),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   confirmThreadUnpin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  continueThreadsAfterServerUpdate: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
   dismissedProviderUpdateNotificationKeys: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
@@ -554,11 +619,10 @@ export const ClientSettingsSchema = Schema.Struct({
   // Void keeps its customized project/workspace sidebar as the default. The
   // upstream flat sidebar remains available as an explicit Beta opt-in.
   sidebarV2Enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Legacy context window meter. The composer hides it by default; users who
+  // still want the old usage indicator can restore it from Settings.
+  contextWindowMeterEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   showSkillsInSlashMenu: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
-  ),
-  sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -612,10 +676,6 @@ export type ClientSettings = typeof ClientSettingsSchema.Type;
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
 
 // ── Server Settings (server-authoritative) ────────────────────
-
-// Moved to environment.ts so orchestration contracts can use it without an
-// import cycle; re-exported here for compatibility with deep imports.
-export { ThreadEnvMode } from "./environment.ts";
 
 const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
@@ -987,6 +1047,10 @@ export const ServerSettings = Schema.Struct({
    * between a desktop window and a phone attached to the same server.
    */
   enableAgentBrowserAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
+  ),
+  sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   backgroundActivity: BackgroundActivitySettings,
   // Legacy flat fields retained for old settings files and old clients. New
   // consumers should resolve `backgroundActivity` instead.
@@ -1228,6 +1292,8 @@ export const ServerSettingsPatch = Schema.Struct({
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
+  sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
+  sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   backgroundActivity: Schema.optionalKey(
     Schema.Struct({
       schemaVersion: Schema.optionalKey(Schema.Literal(1)),
@@ -1287,15 +1353,20 @@ export const ClientSettingsPatch = Schema.Struct({
   agentNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
+  panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),
   browserDefaultAppearance: Schema.optionalKey(PreviewAppearancePreference),
+  browserRecordingFrameRate: Schema.optionalKey(BrowserRecordingFrameRate),
   browserAutoShowFloatingPreview: Schema.optionalKey(Schema.Boolean),
   completionSound: Schema.optionalKey(CompletionSound),
-  confirmQuit: Schema.optionalKey(Schema.Boolean),
+  browserProfiles: Schema.optionalKey(Schema.Array(BrowserProfile)),
+  browserDefaultProfileId: Schema.optionalKey(BrowserProfileId),
+  confirmQuit: Schema.optionalKey(QuitConfirmationMode),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
   confirmThreadUnpin: Schema.optionalKey(Schema.Boolean),
+  continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
@@ -1329,9 +1400,8 @@ export const ClientSettingsPatch = Schema.Struct({
   ),
   planModeEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),
+  contextWindowMeterEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
-  sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
-  sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
@@ -1348,13 +1418,13 @@ export const ClientSettingsPatch = Schema.Struct({
   timestampFormat: Schema.optionalKey(TimestampFormat),
   // Whole-blob replacement — every field carries a decoding default, so a
   // partial object here silently resets the fields it omits. Send all of it.
-  usageMeter: Schema.optionalKey(UsageMeterSettings),
+  usageMeter: Schema.optionalKey(UsageMeterSettingsValue),
   // Whole-blob replacement, same as `usageMeter`.
-  voiceDictation: Schema.optionalKey(VoiceDictationSettings),
+  voiceDictation: Schema.optionalKey(VoiceDictationSettingsValue),
   wordWrap: Schema.optionalKey(Schema.Boolean),
   // Whole-blob replacements too: the syncing client sends the complete open
   // set / label set it wants the other devices to converge on.
-  workspaceSidebar: Schema.optionalKey(WorkspaceSidebarSettings),
+  workspaceSidebar: Schema.optionalKey(WorkspaceSidebarSettingsValue),
   workspaceThreadTabs: Schema.optionalKey(WorkspaceThreadTabsSettings),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;
