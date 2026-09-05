@@ -1,0 +1,239 @@
+/* Fork-owned material styling. Colors remain semantic so imported palettes and
+   the appearance contrast control continue to work. No animated backdrops. */
+html:root {
+  --radius: 0.75rem;
+  --control-radius: 0.625rem;
+  --glass-opacity: 90%;
+  --glass-saturation: 1;
+  --void-edge: color-mix(in srgb, var(--foreground) 12%, transparent);
+  --void-highlight: rgb(255 255 255 / 55%);
+  --void-frame: color-mix(in srgb, var(--foreground) 5%, transparent);
+  --void-shadow: 0 16px 40px -20px rgb(0 0 0 / 24%);
+}
+
+html.dark {
+  --glass-opacity: 88%;
+  --void-edge: color-mix(in srgb, var(--foreground) 16%, transparent);
+  --void-highlight: rgb(255 255 255 / 14%);
+  --void-frame: color-mix(in srgb, var(--foreground) 6%, transparent);
+  --void-shadow: 0 18px 48px -20px rgb(0 0 0 / 65%);
+}
+
+/* Only the default palette changes hue. Named and imported themes retain
+   their colors, with the same rounded shapes and surface treatment. */
+html:not([data-theme-id]) {
+  --background: #f7f6f4;
+  --foreground: #302d32;
+  --card: #ffffff;
+  --card-foreground: var(--foreground);
+  --popover: #fcfbfa;
+  --popover-foreground: var(--foreground);
+  --primary: #695585;
+  --primary-foreground: #ffffff;
+  --secondary: #eeecef;
+  --secondary-foreground: var(--foreground);
+  --muted: #eeecef;
+  --muted-foreground: #6a646e;
+  --accent: #e8e2ee;
+  --accent-foreground: #4e3c64;
+  --border: #dedade;
+  --input: #c6c0c9;
+  --surface-raised: #ffffff;
+  --message-surface: #eeebf1;
+  --message-action: #302d32;
+  --message-action-foreground: #faf8fc;
+  --message-action-hover: #48424e;
+  --sidebar: #eeecea;
+  --sidebar-control-surface: #faf9f8;
+  --sidebar-row-hover: #e5e1e5;
+  --sidebar-row-active: #dfd8e8;
+  --sidebar-row-selected: #dfd8e8;
+}
+
+html.dark:not([data-theme-id]) {
+  --background: #141313;
+  --foreground: #f5f2f5;
+  --card: #292727;
+  --popover: #302d2e;
+  --primary: #c7b9df;
+  --primary-foreground: #28212f;
+  --secondary: #343032;
+  --muted: #262324;
+  --muted-foreground: #bdb6be;
+  --accent: #3b3443;
+  --accent-foreground: #e3d9f0;
+  --border: #454044;
+  --input: #625a64;
+  --surface-raised: #393536;
+  --message-surface: #302b33;
+  --message-action: #29262d;
+  --message-action-hover: #443b50;
+  --sidebar: #1d1b1c;
+  --sidebar-control-surface: #302c30;
+  --sidebar-row-hover: #312c33;
+  --sidebar-row-active: #3b3344;
+  --sidebar-row-selected: #3b3344;
+  --terminal-cursor: #c7b9df;
+  --terminal-selection-background: rgb(199 185 223 / 22%);
+}
+
+html:not([data-theme-id]) [data-app-sidebar] {
+  --background: inherit;
+  --foreground: inherit;
+  --card: inherit;
+  --card-foreground: inherit;
+  --accent: inherit;
+  --accent-foreground: inherit;
+  --muted: inherit;
+  --muted-foreground: inherit;
+  --border: inherit;
+  --input: inherit;
+  --sidebar: inherit;
+  --sidebar-foreground: var(--foreground);
+  --sidebar-muted-foreground: var(--muted-foreground);
+  --sidebar-control-surface: inherit;
+  --sidebar-row-hover: inherit;
+  --sidebar-row-active: inherit;
+  --sidebar-row-selected: inherit;
+  --sidebar-border: var(--border);
+  --sidebar-stage-fade: var(--sidebar);
+}
+
+[data-slot="sidebar-inner"] {
+  background-image: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--sidebar-foreground) 3%, transparent),
+    transparent 48%
+  );
+}
+
+[data-slot="sidebar-header"],
+[data-slot="sidebar-footer"] {
+  border-color: color-mix(in srgb, var(--sidebar-foreground) 7%, transparent);
+}
+
+[data-slot="sidebar-menu-button"],
+[data-slot="sidebar-menu-sub-button"] {
+  border-radius: var(--control-radius);
+}
+
+[data-thread-tabbar] {
+  height: 2.75rem;
+  padding-block: 0.375rem;
+  border-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+  background: var(--app-chrome-background);
+}
+
+[data-thread-tabbar] [role="tablist"] {
+  align-items: center;
+  gap: 0.25rem;
+}
+
+[data-thread-tabbar] [data-active-tab] {
+  height: 2rem;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+}
+
+[data-thread-tabbar] [data-active-tab="true"] {
+  border-color: var(--void-edge);
+  background: color-mix(in srgb, var(--foreground) 7%, var(--background));
+  box-shadow: inset 0 1px var(--void-highlight);
+}
+
+[data-thread-tabbar] [role="tab"]:focus-visible {
+  border-radius: 0.25rem;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Keep the existing joined context strip and attachment geometry. The wide
+   outer shadow supplies the reference's second rim without another blur. */
+html [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: var(--surface-raised);
+  --chat-composer-outline: var(--void-edge);
+  --chat-composer-highlight: var(--void-highlight);
+}
+
+html.dark [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: color-mix(in srgb, var(--surface-raised) 90%, var(--foreground));
+}
+
+[data-slot="composer-shell"] [data-slot="composer-host"] {
+  box-shadow:
+    0 0 0 7px var(--void-frame),
+    var(--void-shadow);
+}
+
+[data-slot="composer-shell"] [data-chat-composer-main-surface="true"] {
+  background-image: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--foreground) 6%, transparent),
+    transparent 65%
+  );
+}
+
+[data-slot="composer-host"]::after,
+[data-chat-composer-main-surface="true"]::after {
+  box-shadow:
+    inset 0 1px 1px var(--void-highlight),
+    inset 0 -1px 1px color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+[data-slot="composer-shell"]:focus-within {
+  --chat-composer-outline: color-mix(in srgb, var(--ring) 55%, var(--void-edge));
+}
+
+[data-slot="composer-submit"] {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.875rem;
+}
+
+[data-slot="composer-submit"] > [aria-hidden="true"],
+[data-slot="composer-submit"] .dictation-arm-ring,
+[data-slot="composer-submit"] .dictation-listen-ring,
+[data-slot="composer-submit"] .dictation-stop-ring {
+  border-radius: inherit;
+}
+
+html .dropdown-glass,
+html .dialog-glass {
+  border-color: var(--void-edge);
+  border-radius: 1rem;
+  box-shadow:
+    inset 0 1px var(--void-highlight),
+    var(--void-shadow);
+}
+
+html .dialog-glass {
+  border-radius: 1.5rem;
+}
+
+@media (pointer: coarse) {
+  [data-slot="composer-submit"] {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+}
+
+@media (max-width: 40rem) {
+  [data-slot="composer-shell"] [data-slot="composer-host"] {
+    box-shadow:
+      0 0 0 4px var(--void-frame),
+      var(--void-shadow);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html:root {
+    --glass-opacity: 100%;
+    --glass-blur: 0px;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html:root {
+    --glass-opacity: 100%;
+  }
+}

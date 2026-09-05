@@ -406,6 +406,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const sendButton = (
     <button
       type="submit"
+      data-slot="composer-submit"
       data-chat-composer-dictation-status={dictation ? dictation.status : undefined}
       // Only set when dictation is switched on but something in this session
       // blocks it, so the user is not left holding a button that does nothing.
