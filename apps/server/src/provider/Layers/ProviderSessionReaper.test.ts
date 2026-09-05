@@ -11,6 +11,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
@@ -125,6 +126,16 @@ describe("ProviderSessionReaper", () => {
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
+  // Stable array so `createHarness` can clear it without breaking references.
+  const logMessages: Array<ReadonlyArray<unknown>> = [];
+  const captureLogs = Logger.layer(
+    [
+      Logger.make<unknown, void>(({ message }) => {
+        logMessages.push(message as ReadonlyArray<unknown>);
+      }),
+    ],
+    { mergeWithExisting: false },
+  );
 
   afterEach(async () => {
     if (scope) {
@@ -142,7 +153,7 @@ describe("ProviderSessionReaper", () => {
   async function startReaper() {
     const reaper = await runtime!.runPromise(Effect.service(ProviderSessionReaper));
     scope = await Effect.runPromise(Scope.make("sequential"));
-    await Effect.runPromise(reaper.start().pipe(Scope.provide(scope)));
+    await Effect.runPromise(reaper.start().pipe(Scope.provide(scope), Effect.provide(captureLogs)));
   }
 
   async function createHarness(input: {
@@ -151,6 +162,7 @@ describe("ProviderSessionReaper", () => {
       readonly threadId: ThreadId;
     }) => ReturnType<ProviderServiceShape["stopSession"]>;
   }) {
+    logMessages.length = 0;
     const stoppedThreadIds = new Set<ThreadId>();
     const stopSession = vi.fn<ProviderServiceShape["stopSession"]>(
       (request) =>
@@ -469,6 +481,61 @@ describe("ProviderSessionReaper", () => {
     expect(harness.stopSession).not.toHaveBeenCalled();
     const remaining = await runtime!.runPromise(repository.getByThreadId({ threadId }));
     expect(Option.isSome(remaining)).toBe(true);
+  });
+
+  it("reports the outcome of a sweep that reclaims nothing", async () => {
+    const threadId = ThreadId.make("thread-reaper-silent-sweep");
+    const now = "2026-01-01T00:00:00.000Z";
+    const harness = await createHarness({
+      readModel: makeReadModel([
+        {
+          id: threadId,
+          session: {
+            threadId,
+            status: "stopped",
+            providerName: "claudeAgent",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+        },
+      ]),
+    });
+    const repository = await runtime!.runPromise(
+      Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
+    );
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: "2026-04-14T00:00:00.000Z",
+        resumeCursor: { opaque: "resume-silent" },
+        runtimePayload: null,
+      }),
+    );
+
+    await startReaper();
+    await Effect.runPromise(drainFibers);
+
+    expect(harness.stopSession).not.toHaveBeenCalled();
+
+    // A sweep that reclaims nothing must still be distinguishable from a
+    // sweep that never ran, and must say which guard held each binding back.
+    const sweepComplete = logMessages.find(
+      (message) => message[0] === "provider.session.reaper.sweep-complete",
+    );
+    expect(sweepComplete).toBeDefined();
+    expect(sweepComplete![1]).toMatchObject({
+      totalBindings: 1,
+      reapedCount: 0,
+      skippedStopped: 1,
+    });
   });
 
   it("continues reaping other sessions when one stop attempt fails", async () => {

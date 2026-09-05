@@ -38,9 +38,20 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       const bindings = yield* directory.listBindings();
       const now = yield* Clock.currentTimeMillis;
       let reapedCount = 0;
+      let stopFailedCount = 0;
+      let skippedStopped = 0;
+      let skippedInvalidLastSeen = 0;
+      let skippedBelowThreshold = 0;
+      let skippedActiveTurn = 0;
+      let skippedBackgroundWork = 0;
 
       for (const binding of bindings) {
+        // A stopped binding has no adapter-held session, so `stopSession`
+        // could not reach a process even if we tried. Counted, not silent:
+        // a large number here next to live provider processes is the
+        // signature of sessions orphaned by an unclean server exit.
         if (binding.status === "stopped") {
+          skippedStopped += 1;
           continue;
         }
 
@@ -51,11 +62,13 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
             provider: binding.provider,
             lastSeenAt: binding.lastSeenAt,
           });
+          skippedInvalidLastSeen += 1;
           continue;
         }
 
         const idleDurationMs = now - lastSeenMs;
         if (idleDurationMs < inactivityThresholdMs) {
+          skippedBelowThreshold += 1;
           continue;
         }
 
@@ -68,6 +81,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
             activeTurnId: thread.session.activeTurnId,
             idleDurationMs,
           });
+          skippedActiveTurn += 1;
           continue;
         }
 
@@ -81,6 +95,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
             backgroundLiveness: thread.backgroundLiveness,
             idleDurationMs,
           });
+          skippedBackgroundWork += 1;
           continue;
         }
 
@@ -106,15 +121,23 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
         if (reaped) {
           reapedCount += 1;
+        } else {
+          stopFailedCount += 1;
         }
       }
 
-      if (reapedCount > 0) {
-        yield* Effect.logInfo("provider.session.reaper.sweep-complete", {
-          reapedCount,
-          totalBindings: bindings.length,
-        });
-      }
+      // Logged every sweep, including empty ones: "the sweep ran and found
+      // nothing" and "the sweep never ran" must not look the same.
+      yield* Effect.logInfo("provider.session.reaper.sweep-complete", {
+        totalBindings: bindings.length,
+        reapedCount,
+        stopFailedCount,
+        skippedStopped,
+        skippedInvalidLastSeen,
+        skippedBelowThreshold,
+        skippedActiveTurn,
+        skippedBackgroundWork,
+      });
     });
 
     const start: ProviderSessionReaperShape["start"] = () =>
@@ -135,7 +158,11 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           ),
         );
 
+        // `forkParked` resolves its parked latch before activation runs, so
+        // this proves the fiber exists, not that a sweep has executed. The
+        // per-sweep `sweep-complete` line is the proof that it is running.
         yield* Effect.logInfo("provider.session.reaper.started", {
+          phase: "forked",
           inactivityThresholdMs,
           sweepIntervalMs,
         });

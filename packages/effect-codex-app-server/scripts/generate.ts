@@ -17,7 +17,7 @@ import {
 } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-const UPSTREAM_REF = "678157acaa819d5510adfe359abb5d0392cfe461";
+const UPSTREAM_REF = "78c290807ce710180111df227df3b7a4fe845452";
 const USER_AGENT = "effect-codex-app-server-generator";
 const GITHUB_API_BASE =
   "https://api.github.com/repos/openai/codex/contents/codex-rs/app-server-protocol";
@@ -340,14 +340,22 @@ function toPascalCaseMethod(method: string) {
     .join("");
 }
 
+function normalizeParamsType(rawParamsType: string): string {
+  const member = rawParamsType
+    .split("|")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0 && entry !== "undefined" && entry !== "null");
+  return member ?? "undefined";
+}
+
 function parseRequestEntries(fileContents: string): ReadonlyArray<MethodEntry> {
-  const entryPattern = /\{\s*"method":\s*"([^"]+)",\s*id:\s*RequestId,\s*params:\s*([^,}]+)/g;
+  const entryPattern = /\{\s*"method":\s*"([^"]+)",\s*id:\s*RequestId,\s*params\??:\s*([^,}]+)/g;
   const entries: Array<MethodEntry> = [];
   let match: RegExpExecArray | null;
   while ((match = entryPattern.exec(fileContents)) !== null) {
     entries.push({
       method: match[1]!,
-      paramsType: match[2]!.trim(),
+      paramsType: normalizeParamsType(match[2]!),
     });
   }
   return entries;
@@ -379,6 +387,10 @@ function resolveSchemaTypeName(
     `V2${rawTypeName}`,
     `V1${rawTypeName}`,
     `SerdeJson${rawTypeName}`,
+    // Upstream emits `Nullable<T>` schema files for methods whose params are optional.
+    `Nullable${rawTypeName}`,
+    `V2Nullable${rawTypeName}`,
+    `V1Nullable${rawTypeName}`,
   ];
   for (const candidate of candidates) {
     if (generatedSchemaNames.has(candidate)) {

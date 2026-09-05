@@ -13,6 +13,10 @@
  * shells) when they are the ONLY live work; any agent work presents as
  * "working".
  *
+ * Entries expire. Background work that stops emitting for `staleAfterMs`
+ * stops counting as live, so a subagent lost without a terminal status can
+ * neither pin the sidebar pill nor block `ProviderSessionReaper` forever.
+ *
  * @module ThreadBackgroundLivenessService
  */
 import { INERT_TASK_TYPES, MONITOR_TASK_TYPES } from "@t3tools/contracts";
@@ -23,9 +27,25 @@ import * as Layer from "effect/Layer";
 export type ThreadBackgroundLiveness = "working" | "monitoring" | null;
 
 interface ThreadLivenessState {
-  readonly agents: Set<string>;
-  readonly monitors: Set<string>;
+  /** taskId -> last time a non-terminal transition was seen, in ms. */
+  readonly agents: Map<string, number>;
+  readonly monitors: Map<string, number>;
 }
+
+export interface ThreadBackgroundLivenessOptions {
+  /**
+   * A task that emits nothing for this long is treated as a ghost and stops
+   * counting as live. Without it a subagent that dies without a terminal
+   * status pins its thread as "working" for the life of the server, which
+   * also makes `ProviderSessionReaper` skip that thread forever.
+   */
+  readonly staleAfterMs?: number;
+  readonly now?: () => number;
+}
+
+// Four hours is well past any legitimate quiet gap (a Monitor watch loop
+// wakes at most an hour apart) while still bounding a ghost's lifetime.
+const DEFAULT_STALE_AFTER_MS = 4 * 60 * 60 * 1000;
 
 // Classification sets are the shared contracts copies (MONITOR_TASK_TYPES:
 // watch loops — monitor tasks plus background shells, which in practice are
@@ -72,15 +92,19 @@ export class ThreadBackgroundLivenessService extends Context.Service<
   }
 >()("t3/orchestration/ThreadBackgroundLiveness/ThreadBackgroundLivenessService") {}
 
-export function make(): ThreadBackgroundLivenessService["Service"] {
+export function make(
+  options?: ThreadBackgroundLivenessOptions,
+): ThreadBackgroundLivenessService["Service"] {
   const stateByThreadId = new Map<string, ThreadLivenessState>();
+  const staleAfterMs = Math.max(1, options?.staleAfterMs ?? DEFAULT_STALE_AFTER_MS);
+  const now = options?.now ?? (() => Date.now());
 
   const stateFor = (threadId: string): ThreadLivenessState => {
     const existing = stateByThreadId.get(threadId);
     if (existing) {
       return existing;
     }
-    const created: ThreadLivenessState = { agents: new Set(), monitors: new Set() };
+    const created: ThreadLivenessState = { agents: new Map(), monitors: new Map() };
     stateByThreadId.set(threadId, created);
     return created;
   };
@@ -96,6 +120,23 @@ export function make(): ThreadBackgroundLivenessService["Service"] {
     }
     state.agents.delete(taskId);
     state.monitors.delete(taskId);
+    if (state.agents.size === 0 && state.monitors.size === 0) {
+      stateByThreadId.delete(threadId);
+    }
+  };
+
+  // Read-time sweep: entries are dropped, not just ignored, so a thread that
+  // only ever holds ghosts cannot grow without bound. A task that keeps
+  // emitting anything refreshes its stamp and is never pruned.
+  const pruneStale = (threadId: string, state: ThreadLivenessState) => {
+    const cutoff = now() - staleAfterMs;
+    for (const bucket of [state.agents, state.monitors]) {
+      for (const [taskId, lastSeenMs] of bucket) {
+        if (lastSeenMs <= cutoff) {
+          bucket.delete(taskId);
+        }
+      }
+    }
     if (state.agents.size === 0 && state.monitors.size === 0) {
       stateByThreadId.delete(threadId);
     }
@@ -146,7 +187,7 @@ export function make(): ThreadBackgroundLivenessService["Service"] {
       const state = stateFor(input.threadId);
       const bucket =
         taskType !== undefined && MONITOR_TASK_TYPES.has(taskType) ? state.monitors : state.agents;
-      bucket.add(input.taskId);
+      bucket.set(input.taskId, now());
     },
 
     clearThreadLiveness: (threadId) => {
@@ -158,6 +199,7 @@ export function make(): ThreadBackgroundLivenessService["Service"] {
       if (!state) {
         return null;
       }
+      pruneStale(threadId, state);
       if (state.agents.size > 0) {
         return "working";
       }
@@ -169,4 +211,9 @@ export function make(): ThreadBackgroundLivenessService["Service"] {
   };
 }
 
-export const layer = Layer.effect(ThreadBackgroundLivenessService, Effect.sync(make));
+// Wrapped rather than passed by reference: `make` now takes options, and a
+// bare reference would hand it whatever the thunk is called with.
+export const layer = Layer.effect(
+  ThreadBackgroundLivenessService,
+  Effect.sync(() => make()),
+);

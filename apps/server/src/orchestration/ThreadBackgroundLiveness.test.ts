@@ -226,4 +226,60 @@ describe("ThreadBackgroundLiveness", () => {
     a.clearThreadLiveness("t");
     expect(a.getThreadBackgroundLiveness("t")).toBeNull();
   });
+
+  it("stops counting work that goes silent past the stale window", () => {
+    let clock = 1_000_000;
+    const liveness = ThreadBackgroundLiveness.make({
+      staleAfterMs: 60_000,
+      now: () => clock,
+    });
+
+    liveness.recordTaskLiveness({
+      threadId: "t",
+      taskId: "lost-subagent",
+      taskType: "local_workflow",
+      status: undefined,
+      kind: "started",
+    });
+    expect(liveness.getThreadBackgroundLiveness("t")).toBe("working");
+
+    // Still inside the window: a quiet gap is not death.
+    clock += 59_999;
+    expect(liveness.getThreadBackgroundLiveness("t")).toBe("working");
+
+    // Past it, with no terminal status ever emitted, the entry is a ghost.
+    clock += 2;
+    expect(liveness.getThreadBackgroundLiveness("t")).toBeNull();
+  });
+
+  it("keeps work live while it keeps emitting", () => {
+    let clock = 1_000_000;
+    const liveness = ThreadBackgroundLiveness.make({
+      staleAfterMs: 60_000,
+      now: () => clock,
+    });
+
+    liveness.recordTaskLiveness({
+      threadId: "t",
+      taskId: "monitor",
+      taskType: "monitor",
+      status: undefined,
+      kind: "started",
+    });
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      clock += 59_000;
+      liveness.recordTaskLiveness({
+        threadId: "t",
+        taskId: "monitor",
+        taskType: "monitor",
+        status: "running",
+        kind: "progress",
+      });
+      expect(liveness.getThreadBackgroundLiveness("t")).toBe("monitoring");
+    }
+
+    clock += 60_001;
+    expect(liveness.getThreadBackgroundLiveness("t")).toBeNull();
+  });
 });
