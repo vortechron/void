@@ -2,6 +2,10 @@
 
 Open **Settings → Appearance** to customize how T3 Code looks in the web and desktop apps.
 
+The default Dark palette uses warm charcoal surfaces and soft lavender accents. Light uses
+warm white surfaces. Both have rounded controls, softly lit menus, and a framed glass composer.
+Named and imported themes keep their own colors with the same surface styling.
+
 ## Themes
 
 The interface theme can follow your system, use the standard Light or Dark palette, or use

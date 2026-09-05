@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./components/beautiful/motion.css";
+@import "./void-glass.css";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
