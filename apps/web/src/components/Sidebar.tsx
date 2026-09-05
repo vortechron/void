@@ -211,6 +211,7 @@ import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrom
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { LONG_PRESS_TARGET_STYLE, useLongPressContextMenu } from "~/hooks/useLongPressContextMenu";
 import { useIsMobile } from "~/hooks/useMediaQuery";
+import { usePrivateProjectName } from "~/hooks/usePrivateProjectNames";
 import { CommandDialogTrigger } from "./ui/command";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { primaryServerKeybindingsAtom } from "../state/server";
@@ -3479,6 +3480,7 @@ export default function Sidebar() {
   const shortcutModifiers = useShortcutModifierState();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const privateProjectName = usePrivateProjectName();
   const environmentLabelById = useMemo(
     () =>
       new Map(
@@ -3535,11 +3537,17 @@ export default function Sidebar() {
       primaryEnvironmentId,
       resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       isDesktopLocalEnvironment: (environmentId) => desktopLocalEnvironmentIds.has(environmentId),
-    });
+      // Only the rendered label is swapped. Member titles keep the real name
+      // so rename, remove, and grouping still act on the real project.
+    }).map((project) => ({
+      ...project,
+      displayName: privateProjectName(project.displayName),
+    }));
   }, [
     environmentLabelById,
     desktopLocalEnvironmentIds,
     orderedProjects,
+    privateProjectName,
     projectGroupingSettings,
     primaryEnvironmentId,
   ]);

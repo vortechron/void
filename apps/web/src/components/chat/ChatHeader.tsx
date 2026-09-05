@@ -41,6 +41,7 @@ import type { ProjectActionScopeChange } from "~/projectActionScopes";
 import { OpenInPicker } from "./OpenInPicker";
 import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { usePrivateProjectName } from "~/hooks/usePrivateProjectNames";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { threadEnvironment } from "../../state/threads";
@@ -167,7 +168,7 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   isServerThread,
-  activeProjectName,
+  activeProjectName: activeProjectRealName,
   activeProjectCwd,
   activeProjectFaviconPath,
   openInCwd,
@@ -212,6 +213,11 @@ export const ChatHeader = memo(function ChatHeader({
       breakpoint: { value: HEADER_ACTIONS_EXPANDED_BREAKPOINT_REM, unit: "rem" },
     });
   }, [panelAnimationDurationMs, panelAnimationsActive]);
+  // Display-only: the real title still drives `activeProjectCwd`, rename
+  // fields, and everything the header hands to a provider.
+  const privateProjectName = usePrivateProjectName();
+  const activeProjectName =
+    activeProjectRealName === undefined ? undefined : privateProjectName(activeProjectRealName);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,

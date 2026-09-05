@@ -619,6 +619,10 @@ export const ClientSettingsSchema = Schema.Struct({
   // Void keeps its customized project/workspace sidebar as the default. The
   // upstream flat sidebar remains available as an explicit Beta opt-in.
   sidebarV2Enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Screen-share guard: render stand-in project names in the sidebar and the
+  // thread header. Display only — renames, paths, and anything sent to a
+  // provider still use the real title.
+  privateProjectNames: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // Legacy context window meter. The composer hides it by default; users who
   // still want the old usage indicator can restore it from Settings.
   contextWindowMeterEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1400,6 +1404,7 @@ export const ClientSettingsPatch = Schema.Struct({
   ),
   planModeEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),
+  privateProjectNames: Schema.optionalKey(Schema.Boolean),
   contextWindowMeterEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),

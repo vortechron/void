@@ -90,6 +90,7 @@ import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { usePrivateProjectName } from "../hooks/usePrivateProjectNames";
 import { LONG_PRESS_TARGET_STYLE, useLongPressContextMenu } from "../hooks/useLongPressContextMenu";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
@@ -1332,6 +1333,7 @@ export default function Sidebar() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const privateProjectName = usePrivateProjectName();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1391,11 +1393,14 @@ export default function Sidebar() {
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
-      }),
+        // Only the rendered label is swapped. Member titles keep the real name
+        // so rename, remove, and grouping still act on the real project.
+      }).map((group) => ({ ...group, displayName: privateProjectName(group.displayName) })),
     [
       environmentLabelById,
       orderedProjects,
       primaryEnvironmentId,
+      privateProjectName,
       projectGroupingSettings,
       projects,
       sidebarProjectSortOrder,

@@ -6,6 +6,7 @@ import { FolderPlusIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 
 import { openCommandPalette } from "~/commandPaletteBus";
+import { usePrivateProjectName } from "~/hooks/usePrivateProjectNames";
 import { useClientSettings } from "~/hooks/useSettings";
 import { hasExplicitComposerModelSelection } from "~/lib/chatThreadActions";
 import { selectProjectGroupingSettings } from "~/logicalProject";
@@ -59,6 +60,7 @@ export function DraftHeroHeadline({
       ),
     [environments],
   );
+  const privateProjectName = usePrivateProjectName();
   const projectGroups = useMemo(
     () =>
       sortLogicalProjectsForSidebar(
@@ -68,13 +70,16 @@ export function DraftHeroHeadline({
           primaryEnvironmentId,
           resolveEnvironmentLabel: (environmentId) =>
             environmentLabelById.get(environmentId) ?? null,
-        }),
+          // Only the rendered label is swapped; picking a project still
+          // resolves through the group's real member refs.
+        }).map((group) => ({ ...group, displayName: privateProjectName(group.displayName) })),
         threads,
         projectSortOrder,
       ),
     [
       environmentLabelById,
       primaryEnvironmentId,
+      privateProjectName,
       projectGroupingSettings,
       projectSortOrder,
       projects,
@@ -102,7 +107,9 @@ export function DraftHeroHeadline({
           ),
         ) ?? null);
   const activeProjectKey = activeProjectGroup?.projectKey ?? "";
-  const activeProjectDisplayName = activeProjectGroup?.displayName ?? activeProjectTitle;
+  const activeProjectDisplayName =
+    activeProjectGroup?.displayName ??
+    (activeProjectTitle === null ? null : privateProjectName(activeProjectTitle));
   const hasResolvedProject = activeProjectTitle !== null;
   const canChooseProject = projectPickerEntries.length > 0;
   const shouldShowProjectMenu = canChooseProject;
@@ -185,7 +192,7 @@ export function DraftHeroHeadline({
       onClick={openAddProject}
       className="pointer-events-auto inline cursor-pointer border-muted-foreground/35 border-b border-dotted text-muted-foreground/60 transition-colors hover:border-muted-foreground/60 hover:text-muted-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
     >
-      {activeProjectTitle ?? "Add a project"}
+      {activeProjectDisplayName ?? "Add a project"}
     </button>
   );
 
