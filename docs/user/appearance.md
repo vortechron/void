@@ -26,3 +26,16 @@ with the other settings listed in the confirmation dialog.
 Your browser may ask for permission before showing installed fonts. A local font is available only
 on the device where it is installed; T3 Code does not upload or copy the font file. If your browser
 cannot list installed fonts, type the exact font family name in the picker.
+
+## Private project names
+
+**Private project names** replaces your real project names with stand-ins such as _Project Alpha_
+and _Project Bravo_. Turn it on before you stream or take screenshots so a viewer cannot read the
+names of your projects.
+
+The stand-ins appear in the thread sidebar, the thread header, and the project picker on the
+new-thread screen. Each project keeps the same stand-in for as long as your project list is
+unchanged, so the sidebar and the header always agree.
+
+Nothing is renamed. Renaming a project, the **Settings → Projects** page, file paths, terminal
+output, and anything the agent writes still use the real name.

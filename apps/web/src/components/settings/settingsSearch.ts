@@ -153,6 +153,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["long lines code blocks tables diffs file previews"],
   },
   {
+    id: "private-project-names",
+    title: "Private project names",
+    to: "/settings/appearance",
+    searchTerms: ["stream screenshot screen share hide mask anonymize demo dummy"],
+  },
+  {
     id: "usage-meter-mode",
     title: "Usage meter",
     to: "/settings/appearance",

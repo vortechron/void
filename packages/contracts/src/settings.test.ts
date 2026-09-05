@@ -281,6 +281,12 @@ describe("ClientSettings sidebar", () => {
     expect(decodeClientSettingsPatch({ sidebarV2Enabled: true }).sidebarV2Enabled).toBe(true);
   });
 
+  it("shows real project names until private project names are turned on", () => {
+    expect(decodeClientSettings({}).privateProjectNames).toBe(false);
+    expect(decodeClientSettings({ privateProjectNames: true }).privateProjectNames).toBe(true);
+    expect(decodeClientSettingsPatch({ privateProjectNames: true }).privateProjectNames).toBe(true);
+  });
+
   it("shows skills in the slash menu by default and allows hiding them", () => {
     expect(decodeClientSettings({}).showSkillsInSlashMenu).toBe(true);
     expect(decodeClientSettingsPatch({ showSkillsInSlashMenu: false }).showSkillsInSlashMenu).toBe(

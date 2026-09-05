@@ -1555,6 +1555,22 @@ export function AppearanceSettingsPanel() {
         />
       </SettingsSection>
 
+      <SettingsSection id="privacy" title="Privacy">
+        <SettingsRow
+          {...searchableSetting("private-project-names")}
+          description="Show stand-in names like “Project Alpha” instead of your real project names in the sidebar, the thread header, and the new-thread picker. Useful while streaming or taking screenshots. Nothing is renamed: file paths, agent output, and the Projects settings page still show the real name."
+          control={
+            <Switch
+              checked={settings.privateProjectNames}
+              onCheckedChange={(checked) =>
+                updateSettings({ privateProjectNames: Boolean(checked) })
+              }
+              aria-label="Show stand-in project names"
+            />
+          }
+        />
+      </SettingsSection>
+
       <UsageMeterSettingsSection />
     </SettingsPageContainer>
   );
