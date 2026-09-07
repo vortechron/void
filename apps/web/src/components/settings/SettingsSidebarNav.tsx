@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -6,6 +8,7 @@ import {
   useState,
   type ComponentType,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import {
   ArchiveIcon,
@@ -13,6 +16,7 @@ import {
   BotIcon,
   FlaskConicalIcon,
   GitBranchIcon,
+  PanelsTopLeftIcon,
   KeyboardIcon,
   Link2Icon,
   MicIcon,
@@ -24,8 +28,10 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { Button } from "../ui/button";
+import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
+import { cn } from "../../lib/utils";
 import {
   SidebarContent,
   SidebarFooter,
@@ -33,11 +39,13 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   useSidebar,
 } from "../ui/sidebar";
 import { GlidingHighlight } from "../beautiful/GlidingHighlight";
 import { useGlidingHighlight } from "../beautiful/useGlidingHighlight";
-import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3ConnectSidebarSignIn";
 import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
@@ -48,12 +56,24 @@ import {
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 
+const T3ConnectSidebarSignIn = lazy(() =>
+  import("../clerk/T3ConnectSidebarSignIn").then((module) => ({
+    default: module.T3ConnectSidebarSignIn,
+  })),
+);
+const T3ConnectSidebarAvatar = lazy(() =>
+  import("../clerk/T3ConnectSidebarSignIn").then((module) => ({
+    default: module.T3ConnectSidebarAvatar,
+  })),
+);
+
 const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
   "/settings/voice": MicIcon,
+  "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/providers": BotIcon,
   "/settings/integrations": BlocksIcon,
@@ -63,7 +83,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/archived": ArchiveIcon,
 };
 
-export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
+const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
   to: SettingsPath;
   icon: ComponentType<{ className?: string }>;
@@ -76,6 +96,22 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   const Icon = SETTINGS_SECTION_ICONS[to];
   return <Icon className="mt-0.5 size-3.5 shrink-0 text-sidebar-muted-foreground/60" />;
+}
+
+function SettingsSubmenuCollapse({
+  open,
+  children,
+}: {
+  readonly open: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <Collapsible open={open}>
+      <CollapsiblePanel className="duration-150 ease-out motion-reduce:transition-none">
+        {children}
+      </CollapsiblePanel>
+    </Collapsible>
+  );
 }
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
@@ -141,9 +177,32 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void navigate({ to, hash: "", replace: true, hashScrollIntoView: false });
+      void navigate({
+        to,
+        hash: "",
+        replace: true,
+        hashScrollIntoView: false,
+      });
     },
     [isMobile, navigate, setOpenMobile],
+  );
+  const handlePageSectionClick = useCallback(
+    (to: SettingsPath, targetId: string) => {
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+      if (pathname === to && scrollToSettingsTarget(targetId, { highlight: false })) {
+        return;
+      }
+      void navigate({
+        to,
+        hash: targetId,
+        replace: true,
+        hashScrollIntoView: false,
+        state: { settingsTargetHighlight: false },
+      });
+    },
+    [isMobile, navigate, pathname, setOpenMobile],
   );
   const clearSearch = useCallback(() => {
     setQuery("");
@@ -156,11 +215,23 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         setOpenMobile(false);
       }
       const targetId = item.targetId ?? item.id;
-      if (pathname === item.to && currentHash.replace(/^#/, "") === targetId) {
+      if (
+        item.to !== "/settings/projects" &&
+        pathname === item.to &&
+        currentHash.replace(/^#/, "") === targetId
+      ) {
         scrollToSettingsTarget(targetId);
         return;
       }
-      void navigate({ to: item.to, hash: targetId, replace: true, hashScrollIntoView: false });
+      void navigate({
+        to: item.to,
+        search: (previous) =>
+          item.to === "/settings/projects" ? { ...previous, project: undefined } : previous,
+        hash: targetId,
+        replace: true,
+        hashScrollIntoView: false,
+        state: { settingsTargetHighlight: true },
+      });
     },
     [clearSearch, currentHash, isMobile, navigate, pathname, setOpenMobile],
   );
@@ -307,12 +378,16 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-[var(--sidebar-content-inset)]">
-        <T3ConnectSidebarSignIn />
+        <Suspense fallback={null}>
+          <T3ConnectSidebarSignIn />
+        </Suspense>
         <div className="flex items-center gap-1">
           <div className="min-w-0 flex-1">
             <SidebarUtilityMenu />
           </div>
-          <T3ConnectSidebarAvatar />
+          <Suspense fallback={null}>
+            <T3ConnectSidebarAvatar />
+          </Suspense>
         </div>
       </SidebarFooter>
     </>

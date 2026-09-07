@@ -39,7 +39,7 @@ export function buildProjectPromptActionNewTaskRouteParams(input: {
   };
 }
 
-type RouteValue = string | ReadonlyArray<string> | undefined;
+type RouteValue = string | ReadonlyArray<string> | null | undefined;
 
 function firstRouteValue(value: RouteValue): string | undefined {
   return typeof value === "string" ? value : value?.[0];

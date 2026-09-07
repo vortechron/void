@@ -2,7 +2,7 @@ import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
 
 import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
 
-export const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
+const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
 
 /**
  * Theme keeps a localStorage copy even though the server owns the value.
@@ -21,12 +21,7 @@ export function readBrowserClientSettings(): ClientSettings | null {
     return null;
   }
 
-  try {
-    return getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, ClientSettingsSchema);
-  } catch (error) {
-    console.error("Could not read persisted client settings.", error);
-    return null;
-  }
+  return getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, ClientSettingsSchema);
 }
 
 export function writeBrowserClientSettings(settings: ClientSettings): void {

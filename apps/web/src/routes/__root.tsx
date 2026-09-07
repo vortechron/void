@@ -18,6 +18,7 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentCompletionCoordinator } from "../components/AgentCompletionCoordinator";
 import { CommandPalette } from "../components/CommandPalette";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
+import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
@@ -100,6 +101,13 @@ function RootRouteView() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
+  const returningFromWelcomeRef = useRef(pathname === "/welcome");
+
+  useEffect(() => {
+    if (pathname === "/welcome") {
+      returningFromWelcomeRef.current = true;
+    }
+  }, [pathname]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -120,6 +128,26 @@ function RootRouteView() {
         <AppearancePreferencesSync />
         <Outlet />
       </>
+    );
+  }
+
+  // Show onboarding over the workspace, keeping automatic thread navigation
+  // and other startup dialogs suspended until setup finishes.
+  if (pathname === "/welcome") {
+    return (
+      <ToastProvider>
+        <AnchoredToastProvider>
+          <DocumentTitleSync />
+          <ContrastAppearanceSync />
+          <EnvironmentThemeSync />
+          <AppearancePreferencesSync />
+          <CommandPalette>
+            <AppSidebarLayout>
+              <Outlet />
+            </AppSidebarLayout>
+          </CommandPalette>
+        </AnchoredToastProvider>
+      </ToastProvider>
     );
   }
 
@@ -144,6 +172,10 @@ function RootRouteView() {
     </CommandPalette>
   );
 
+  // FirstRunGate holds back everything below it — including EventRouter,
+  // whose welcome payload navigates into a thread — until the first-run
+  // decision is known, so a fresh install renders nothing (not the shell,
+  // not a flash of threads) before landing on the welcome wizard.
   return (
     <ToastProvider>
       <AnchoredToastProvider>
@@ -154,22 +186,29 @@ function RootRouteView() {
         <ContrastAppearanceSync />
         <AppearancePreferencesSync />
         <WorkspaceStateSync />
-        {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
-        {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
-        <RelayClientInstallDialog />
-        <ConnectOnboardingDialog />
-        <SshPasswordPromptDialog />
-        <ConfirmDialogHost />
-        <SlowRpcRequestToastCoordinator />
-        <AgentCompletionCoordinator />
-        <HostedStaticEnvironmentBootstrap />
-        {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
-        {primaryEnvironmentAuthenticated ? <PlanAgentSelectionHeal /> : null}
-        {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
-        {appShell}
-        {/* Above the router: a theme draft is judged by walking the app, so the
-            editor has to survive navigation away from settings. */}
-        <ThemeEditorHost />
+        <FirstRunGate
+          enabled={primaryEnvironmentAuthenticated}
+          hostedStatic={authGateState.status === "hosted-static"}
+        >
+          {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
+          {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
+          <RelayClientInstallDialog />
+          <ConnectOnboardingDialog />
+          <SshPasswordPromptDialog />
+          <ConfirmDialogHost />
+          <SlowRpcRequestToastCoordinator />
+          <AgentCompletionCoordinator />
+          <HostedStaticEnvironmentBootstrap />
+          {primaryEnvironmentAuthenticated ? (
+            <EventRouter skipInitialBootstrapNavigation={returningFromWelcomeRef.current} />
+          ) : null}
+          {primaryEnvironmentAuthenticated ? <PlanAgentSelectionHeal /> : null}
+          {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
+          {appShell}
+          {/* Above the router: a theme draft is judged by walking the app, so the
+              editor has to survive navigation away from settings. */}
+          <ThemeEditorHost />
+        </FirstRunGate>
       </AnchoredToastProvider>
     </ToastProvider>
   );
@@ -391,7 +430,11 @@ function AuthenticatedTracingBootstrap() {
   return null;
 }
 
-function EventRouter() {
+function EventRouter({
+  skipInitialBootstrapNavigation,
+}: {
+  readonly skipInitialBootstrapNavigation: boolean;
+}) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -404,6 +447,7 @@ function EventRouter() {
   const serverWelcome = useAtomValue(primaryServerWelcomeAtom);
   const readPathname = useEffectEvent(() => pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
+  const skipInitialBootstrapNavigationRef = useRef(skipInitialBootstrapNavigation);
   const handledConfigEventRef = useRef(serverConfigEvent);
   const [keybindingsToastController] = useState<KeybindingsUpdateToastController>(() =>
     createKeybindingsUpdateToastController({}),
@@ -433,6 +477,11 @@ function EventRouter() {
       useUiStateStore.getState().setProjectExpanded(bootstrapProjectKey, true);
 
       if (readPathname() !== "/") {
+        return;
+      }
+      if (skipInitialBootstrapNavigationRef.current) {
+        skipInitialBootstrapNavigationRef.current = false;
+        handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;
         return;
       }
       if (handledBootstrapThreadIdRef.current === payload.bootstrapThreadId) {

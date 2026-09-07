@@ -97,6 +97,9 @@ export function make(
 ): ThreadBackgroundLivenessService["Service"] {
   const stateByThreadId = new Map<string, ThreadLivenessState>();
   const staleAfterMs = Math.max(1, options?.staleAfterMs ?? DEFAULT_STALE_AFTER_MS);
+  // A plain factory, not an Effect, so there is no Clock to read here.
+  // Tests inject their own time source through `options.now`.
+  // @effect-diagnostics-next-line globalDate:off
   const now = options?.now ?? (() => Date.now());
 
   const stateFor = (threadId: string): ThreadLivenessState => {

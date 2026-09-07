@@ -21,6 +21,7 @@ vi.mock("../SidebarStageBackdrop", () => ({
   useSidebarStageBackdropVariant: (enabled = true) => (enabled ? stageArtworkState.variant : null),
 }));
 
+
 function renderPendingActions(isRunning: boolean) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {

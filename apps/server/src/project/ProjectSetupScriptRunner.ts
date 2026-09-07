@@ -2,6 +2,7 @@ import { ProjectId } from "@t3tools/contracts";
 import {
   mergedActions,
   projectScriptRuntimeEnv,
+  resolveProjectScripts,
   setupProjectScript,
 } from "@t3tools/shared/projectScripts";
 import * as Context from "effect/Context";
@@ -11,7 +12,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 
 export interface ProjectSetupScriptRunnerResultNoScript {
@@ -45,12 +46,7 @@ export class ProjectSetupScriptOperationError extends Schema.TaggedErrorClass<Pr
     projectId: Schema.optional(Schema.String),
     projectCwd: Schema.optional(Schema.String),
     worktreePath: Schema.String,
-    operation: Schema.Literals([
-      "resolveProject",
-      "resolveGlobalScripts",
-      "openTerminal",
-      "writeCommand",
-    ]),
+    operation: Schema.Literals(["resolveProject", "readSettings", "openTerminal", "writeCommand"]),
     cause: Schema.Defect(),
   },
 ) {
@@ -90,8 +86,8 @@ export class ProjectSetupScriptRunner extends Context.Service<
 
 export const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  const serverSettings = yield* ServerSettingsService;
   const terminalManager = yield* TerminalManager.TerminalManager;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
 
   const runForThread: ProjectSetupScriptRunner["Service"]["runForThread"] = Effect.fn(
     "ProjectSetupScriptRunner.runForThread",
@@ -135,21 +131,23 @@ export const make = Effect.gen(function* () {
       return yield* new ProjectSetupScriptProjectNotFoundError(errorContext);
     }
 
-    // A project that declares its own setup action shadows the global one, so
-    // the merged list is project-first and the first match wins.
-    const globalScripts = yield* serverSettings.getSettings.pipe(
-      Effect.map((settings) => settings.globalScripts),
+    const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError(
         (cause) =>
           new ProjectSetupScriptOperationError({
             ...errorContext,
-            operation: "resolveGlobalScripts",
+            operation: "readSettings",
             cause,
           }),
       ),
     );
+    // Upstream resolves defaults and per-project overrides; Void's global
+    // actions sit underneath, so a project-level action still shadows them.
     const script = setupProjectScript(
-      mergedActions({ project: project.scripts, global: globalScripts }),
+      mergedActions({
+        project: resolveProjectScripts(settings, project),
+        global: settings.globalScripts,
+      }),
     );
     if (!script) {
       return {

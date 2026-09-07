@@ -124,6 +124,7 @@ export function ProjectWorkspaceDefaultsSettings() {
                 <ProjectFavicon
                   environmentId={group.environmentId}
                   cwd={group.workspaceRoot}
+                  projectName={group.displayName}
                   className="size-4 shrink-0"
                 />
                 <span className="truncate">{group.displayName}</span>

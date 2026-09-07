@@ -53,6 +53,7 @@ describe("searchSettings", () => {
     expect(searchSettings("  WORD   WRAP  ", ITEMS).map((item) => item.id)).toEqual(["word-wrap"]);
     expect(searchSettings("project new thread workspace").map((item) => item.id)).toEqual([
       "project-new-thread-workspace",
+      "new-threads",
     ]);
     expect(searchSettings("glass").map((item) => item.id)).toEqual(["setting-glass-opacity"]);
     expect(searchSettings("panel animations").map((item) => item.id)).toEqual(["panel-animations"]);
@@ -91,6 +92,8 @@ describe("searchSettings", () => {
     expect(searchSettings("push notifications")[0]?.id).toBe("publish-agent-activity");
     expect(searchSettings("battery saver")[0]?.id).toBe("background-activity");
     expect(searchSettings("binary path")[0]?.id).toBe("providers");
+    expect(searchSettings("Antigravity")[0]?.id).toBe("providers");
+    expect(searchSettings("Google sign in")[0]?.id).toBe("providers");
     expect(searchSettings("authorized clients")[0]?.id).toBe("connections-environment");
     expect(searchSettings("administrative access")[0]?.id).toBe("connections-environment");
   });
@@ -102,6 +105,16 @@ describe("searchSettings", () => {
       "delete-confirmation",
     ]);
   });
+
+  it.each(["usage providers", "CLIProxyAPI", "CLI proxy hub", "management key"])(
+    "finds usage-provider management by %s",
+    (query) => {
+      expect(searchSettings(query)[0]).toMatchObject({
+        id: "usage-providers",
+        to: "/settings/providers",
+      });
+    },
+  );
 
   it("returns no results for an empty query", () => {
     expect(searchSettings("   ", ITEMS)).toEqual([]);
@@ -207,7 +220,7 @@ describe("searchSettings", () => {
     expect(searchSettings("environment identification")[0]).toMatchObject({
       id: "environment-identification",
       to: "/settings/appearance",
-      targetId: "appearance",
+      targetId: "appearance-interface",
     });
   });
 
@@ -229,11 +242,13 @@ describe("searchSettings", () => {
     }
   });
 
-  it("puts Voice in the sidebar between Appearance and Keybindings", () => {
+  it("puts Voice in the sidebar right after Appearance", () => {
     // The label record's key order is the sidebar order.
     const sections = Object.keys(SETTINGS_SECTION_LABELS);
     expect(sections.indexOf("/settings/voice")).toBe(sections.indexOf("/settings/appearance") + 1);
-    expect(sections.indexOf("/settings/voice")).toBe(sections.indexOf("/settings/keybindings") - 1);
+    expect(sections.indexOf("/settings/voice")).toBeLessThan(
+      sections.indexOf("/settings/keybindings"),
+    );
   });
 
   it("gives every catalog entry a section that exists in the sidebar", () => {
@@ -260,5 +275,21 @@ describe("searchSettings", () => {
       to: "/settings/integrations",
     });
     expect(result).not.toHaveProperty("targetId");
+  });
+
+  it("routes where links open to integrations", () => {
+    expect(searchSettings("open links in")[0]).toMatchObject({
+      id: "browser-link-target",
+      to: "/settings/integrations",
+    });
+    expect(searchSettings("external links")[0]).toMatchObject({ id: "browser-link-target" });
+  });
+
+  it("finds the default browser profile action in the profiles list", () => {
+    expect(searchSettings("default profile")[0]).toMatchObject({
+      id: "browser-default-profile",
+      to: "/settings/integrations",
+      targetId: "browser-profiles",
+    });
   });
 });

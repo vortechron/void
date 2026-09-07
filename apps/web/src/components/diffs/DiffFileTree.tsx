@@ -1,339 +1,209 @@
-import {
-  ChevronRightIcon,
-  ChevronsDownUpIcon,
-  ChevronsUpDownIcon,
-  FolderClosedIcon,
-  FolderIcon,
-  XIcon,
-} from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { GitStatusEntry } from "@pierre/trees";
+import { FileTree, useFileTree, useFileTreeSelector } from "@pierre/trees/react";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
-import {
-  buildDiffFileTree,
-  collectDiffFileTreeAncestorPaths,
-  collectDiffFileTreeDirectoryPaths,
-  describeDiffFileChange,
-  type DiffFileChangeType,
-  type DiffFileTreeEntry,
-  type DiffFileTreeNode,
-} from "~/lib/diffFileTree";
+import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
+import { T3_PIERRE_ICONS } from "~/pierre-icons";
+import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
 
-import { DiffStatLabel, hasNonZeroStat } from "../chat/DiffStatLabel";
-import { PierreEntryIcon } from "../chat/PierreEntryIcon";
+import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "../files/fileTreeExpansion";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import {
+  buildDiffFileTreeUpdates,
+  collectDirectoryPaths,
+  type DiffFileTreeEntry,
+} from "./diffFileTree.logic";
 
-const ROW_BASE_PADDING = 6;
-const ROW_INDENT = 12;
-const GUIDE_OFFSET = 7;
-const EMPTY_COLLAPSED_PATHS: ReadonlySet<string> = new Set();
-
-const CHANGE_LETTER_CLASS_NAMES: Record<DiffFileChangeType, string> = {
-  new: "text-success",
-  deleted: "text-destructive",
-  change: "text-warning",
-  "rename-pure": "text-muted-foreground",
-  "rename-changed": "text-warning",
-};
+export type { DiffFileTreeEntry } from "./diffFileTree.logic";
 
 interface DiffFileTreeProps {
-  entries: ReadonlyArray<DiffFileTreeEntry>;
-  activeFileKey: string | null;
-  resolvedTheme: "light" | "dark";
-  onSelectFile: (entry: DiffFileTreeEntry) => void;
-  /** Renders a dismiss button in the header. Used by the mobile overlay. */
-  onClose?: () => void;
-  className?: string;
-  /** Larger rows for touch targets. */
-  touch?: boolean;
+  readonly entries: ReadonlyArray<DiffFileTreeEntry>;
+  /** Called with the file's path when the reader picks a file row. */
+  readonly onSelectFile: (path: string) => void;
+  /**
+   * The file the diff is currently showing, kept selected in the tree. Bump `revealRequestId` to
+   * scroll the tree to the same path again.
+   */
+  readonly selectedPath?: string | null;
+  readonly revealRequestId?: number;
+  readonly ariaLabel: string;
+  /** Right-aligned content in the header row, after the file count. */
+  readonly headerAccessory?: ReactNode;
+  /** Rendered under the tree, for a host that still has files to fetch. */
+  readonly footer?: ReactNode;
+  readonly className?: string;
 }
 
-function IndentGuides(props: { depth: number }) {
-  if (props.depth === 0) return null;
-  return (
-    <>
-      {Array.from({ length: props.depth }, (_unused, level) => (
-        <span
-          key={level}
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 w-px bg-border/70"
-          style={{ left: `${ROW_BASE_PADDING + level * ROW_INDENT + GUIDE_OFFSET}px` }}
-        />
-      ))}
-    </>
-  );
-}
-
-export const DiffFileTree = memo(function DiffFileTree({
+/**
+ * A directory tree of the files in a diff. Every directory starts open: a diff is a short list
+ * compared to a workspace, and the reader came for the files, not the folders.
+ */
+export function DiffFileTree({
   entries,
-  activeFileKey,
-  resolvedTheme,
   onSelectFile,
-  onClose,
+  selectedPath = null,
+  revealRequestId = 0,
+  ariaLabel,
+  headerAccessory,
+  footer,
   className,
-  touch = false,
 }: DiffFileTreeProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const treeNodes = useMemo(() => buildDiffFileTree(entries), [entries]);
-  const directoryPaths = useMemo(() => collectDiffFileTreeDirectoryPaths(treeNodes), [treeNodes]);
-  const directoryPathsKey = useMemo(() => directoryPaths.join("\u0000"), [directoryPaths]);
-  const [collapsedState, setCollapsedState] = useState<{
-    key: string;
-    paths: ReadonlySet<string>;
-  }>(() => ({ key: directoryPathsKey, paths: EMPTY_COLLAPSED_PATHS }));
-  const collapsedPaths =
-    collapsedState.key === directoryPathsKey ? collapsedState.paths : EMPTY_COLLAPSED_PATHS;
-  const allDirectoriesCollapsed =
-    directoryPaths.length > 0 && directoryPaths.every((path) => collapsedPaths.has(path));
-
-  const activeFilePath = useMemo(
-    () => entries.find((entry) => entry.fileKey === activeFileKey)?.path ?? null,
-    [activeFileKey, entries],
+  const { resolvedTheme } = useTheme();
+  const paths = useMemo(() => entries.map((entry) => entry.path), [entries]);
+  const directoryPaths = useMemo(() => collectDirectoryPaths(paths), [paths]);
+  const gitStatus = useMemo<ReadonlyArray<GitStatusEntry>>(
+    () => entries.map((entry) => ({ path: entry.path, status: entry.status })),
+    [entries],
   );
-
-  // Revealing a file from the diff or from chat must not leave it hidden
-  // behind a folder the user collapsed earlier.
-  useEffect(() => {
-    if (!activeFilePath) return;
-    const ancestors = collectDiffFileTreeAncestorPaths(activeFilePath);
-    setCollapsedState((current) => {
-      const currentPaths =
-        current.key === directoryPathsKey ? current.paths : EMPTY_COLLAPSED_PATHS;
-      if (!ancestors.some((path) => currentPaths.has(path))) {
-        return current.key === directoryPathsKey
-          ? current
-          : { key: directoryPathsKey, paths: EMPTY_COLLAPSED_PATHS };
-      }
-      const paths = new Set(currentPaths);
-      for (const ancestor of ancestors) paths.delete(ancestor);
-      return { key: directoryPathsKey, paths };
-    });
-  }, [activeFilePath, directoryPathsKey]);
+  const filePathsRef = useRef<ReadonlySet<string>>(new Set(paths));
+  const onSelectFileRef = useRef(onSelectFile);
+  // Selection driven by `selectedPath` below is an echo of a file already on screen, not a
+  // request to scroll to it again.
+  const syncingSelectionRef = useRef(false);
+  const handledRevealRef = useRef<{ path: string; revealRequestId: number } | null>(null);
+  const mountedPathsRef = useRef<ReadonlyArray<string> | null>(null);
 
   useEffect(() => {
-    if (!activeFileKey) return;
-    const row = containerRef.current?.querySelector(
-      `[data-diff-tree-file="${CSS.escape(activeFileKey)}"]`,
-    );
-    row?.scrollIntoView({ block: "nearest" });
-  }, [activeFileKey]);
+    filePathsRef.current = new Set(paths);
+    onSelectFileRef.current = onSelectFile;
+  }, [onSelectFile, paths]);
 
-  const toggleDirectory = useCallback(
-    (path: string) => {
-      setCollapsedState((current) => {
-        const paths = new Set(current.key === directoryPathsKey ? current.paths : []);
-        if (paths.has(path)) {
-          paths.delete(path);
-        } else {
-          paths.add(path);
-        }
-        return { key: directoryPathsKey, paths };
-      });
+  const { model } = useFileTree({
+    density: "compact",
+    flattenEmptyDirectories: true,
+    initialExpansion: "open",
+    icons: T3_PIERRE_ICONS,
+    onSelectionChange: (selectedPaths) => {
+      if (syncingSelectionRef.current) return;
+      const path = selectedPaths.at(-1)?.replace(/\/$/, "");
+      if (path && filePathsRef.current.has(path)) onSelectFileRef.current(path);
     },
-    [directoryPathsKey],
+    paths: [],
+    search: false,
+    unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
+  });
+  const allDirectoriesExpanded = useFileTreeSelector(model, (currentModel) =>
+    areAllDirectoriesExpanded(currentModel, directoryPaths),
   );
 
-  const toggleAllDirectories = useCallback(() => {
-    setCollapsedState({
-      key: directoryPathsKey,
-      paths: allDirectoriesCollapsed ? EMPTY_COLLAPSED_PATHS : new Set(directoryPaths),
-    });
-  }, [allDirectoriesCollapsed, directoryPaths, directoryPathsKey]);
-
-  const renderNode = (node: DiffFileTreeNode, depth: number) => {
-    const paddingLeft = `${ROW_BASE_PADDING + depth * ROW_INDENT}px`;
-
-    if (node.kind === "directory") {
-      const isExpanded = !collapsedPaths.has(node.path);
-      return (
-        <div key={`dir:${node.path}`}>
-          <div className="relative">
-            <IndentGuides depth={depth} />
-            <button
-              type="button"
-              aria-expanded={isExpanded}
-              className={cn(
-                "group flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                touch ? "py-2" : "py-1",
-              )}
-              style={{ paddingLeft }}
-              onClick={() => toggleDirectory(node.path)}
-            >
-              <ChevronRightIcon
-                aria-hidden="true"
-                className={cn(
-                  "size-3.5 shrink-0 text-muted-foreground/70 transition-transform group-hover:text-foreground/80",
-                  isExpanded && "rotate-90",
-                )}
-              />
-              {isExpanded ? (
-                <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
-              ) : (
-                <FolderClosedIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
-              )}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span
-                      className={cn(
-                        "truncate font-mono text-muted-foreground/90 group-hover:text-foreground/90",
-                        touch ? "text-[13px]" : "text-[11px]",
-                      )}
-                    >
-                      {node.name}
-                    </span>
-                  }
-                />
-                <TooltipPopup side="right" className="max-w-96 font-mono text-[11px]">
-                  {node.path}
-                </TooltipPopup>
-              </Tooltip>
-              {!isExpanded && hasNonZeroStat(node.stat) && (
-                <span className="ml-auto shrink-0 pl-1 font-mono text-[10px]">
-                  <DiffStatLabel
-                    additions={node.stat.additions}
-                    deletions={node.stat.deletions}
-                    layout="inline"
-                  />
-                </span>
-              )}
-            </button>
-          </div>
-          {isExpanded && node.children.map((child) => renderNode(child, depth + 1))}
-        </div>
-      );
+  useEffect(() => {
+    const mountedPaths = mountedPathsRef.current;
+    if (mountedPaths === paths) return;
+    mountedPathsRef.current = paths;
+    if (mountedPaths === null) {
+      model.resetPaths(paths);
+    } else {
+      const updates = buildDiffFileTreeUpdates(mountedPaths, paths);
+      if (updates.length > 0) model.batch(updates);
     }
+    model.setGitStatus(gitStatus);
+  }, [gitStatus, model, paths]);
 
-    const isActive = node.entry.fileKey === activeFileKey;
-    const change = describeDiffFileChange(node.entry.changeType);
-    return (
-      <div key={`file:${node.entry.fileKey}`} className="relative">
-        <IndentGuides depth={depth} />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                data-diff-tree-file={node.entry.fileKey}
-                aria-current={isActive ? "true" : undefined}
-                className={cn(
-                  "group flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  touch ? "py-2" : "py-1",
-                  isActive ? "bg-accent text-foreground" : "hover:bg-accent/60",
-                )}
-                style={{ paddingLeft }}
-                onClick={() => onSelectFile(node.entry)}
-              >
-                <span aria-hidden="true" className="size-3.5 shrink-0" />
-                <PierreEntryIcon
-                  pathValue={node.path}
-                  kind="file"
-                  theme={resolvedTheme}
-                  className="size-3.5 shrink-0 text-muted-foreground/70"
-                />
-                <span
-                  className={cn(
-                    "truncate",
-                    touch ? "text-[13px]" : "text-[11px]",
-                    isActive
-                      ? "text-foreground"
-                      : "text-muted-foreground/85 group-hover:text-foreground/90",
-                  )}
-                >
-                  {node.name}
-                </span>
-                <span className="ml-auto flex shrink-0 items-center gap-1 pl-1">
-                  <span
-                    aria-label={change.label}
-                    className={cn(
-                      "font-mono text-[10px] font-medium",
-                      CHANGE_LETTER_CLASS_NAMES[node.entry.changeType],
-                    )}
-                  >
-                    {change.letter}
-                  </span>
-                  <span className="font-mono text-[10px]">
-                    <DiffStatLabel
-                      additions={node.entry.stat.additions}
-                      deletions={node.entry.stat.deletions}
-                      layout="inline"
-                    />
-                  </span>
-                </span>
-              </button>
-            }
-          />
-          <TooltipPopup side="right" className="max-w-96 font-mono text-[11px]">
-            {node.path}
-          </TooltipPopup>
-        </Tooltip>
-      </div>
-    );
-  };
+  useEffect(() => {
+    if (selectedPath === null) {
+      handledRevealRef.current = null;
+      return;
+    }
+    // A path list that changes under an already-revealed file (a refresh, a later slice) must
+    // not pull the tree back to it over whatever the reader has picked since.
+    const item = model.getItem(selectedPath);
+    if (item === null || item.isDirectory()) {
+      // A file that left the diff has to be revealed again when it comes back.
+      handledRevealRef.current = null;
+      return;
+    }
+    const handled = handledRevealRef.current;
+    if (handled?.path === selectedPath && handled.revealRequestId === revealRequestId) return;
+    handledRevealRef.current = { path: selectedPath, revealRequestId };
+    syncingSelectionRef.current = true;
+    for (const path of model.getSelectedPaths()) {
+      if (path !== selectedPath) model.getItem(path)?.deselect();
+    }
+    let ancestor = "";
+    for (const segment of selectedPath.split("/").slice(0, -1)) {
+      ancestor += `${segment}/`;
+      const directory = model.getItem(ancestor);
+      if (directory !== null && "expand" in directory) directory.expand();
+    }
+    item.select();
+    model.scrollToPath(selectedPath, { offset: "nearest" });
+    queueMicrotask(() => {
+      syncingSelectionRef.current = false;
+    });
+    // `paths` is a dependency so a file that arrives after it was asked for is still revealed.
+  }, [model, paths, revealRequestId, selectedPath]);
 
   return (
-    <div className={cn("flex min-h-0 flex-col bg-background/40", className)}>
+    <div className={cn("flex min-h-0 flex-1 flex-col bg-background", className)}>
       <div
-        className={cn(
-          "flex shrink-0 items-center gap-2 border-b border-border/60 pl-2.5 pr-1.5",
-          touch ? "py-1.5" : "py-1",
-        )}
+        className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 text-xs text-muted-foreground in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"
+        data-surface-subheader
       >
-        <span
-          className={cn(
-            "truncate text-muted-foreground",
-            touch ? "text-xs font-medium" : "text-[11px]",
-          )}
-        >
-          {entries.length} file{entries.length === 1 ? "" : "s"}
-        </span>
-        {directoryPaths.length > 0 && (
+        <span className="px-1 font-medium text-foreground">Files</span>
+        <span className="ml-auto tabular-nums">{entries.length}</span>
+        {headerAccessory}
+        {directoryPaths.length > 0 ? (
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
                   type="button"
-                  size={touch ? "icon-sm" : "icon-xs"}
+                  size="icon-xs"
                   variant="ghost"
-                  className="ml-auto"
                   aria-label={
-                    allDirectoriesCollapsed ? "Expand all folders" : "Collapse all folders"
+                    allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"
                   }
-                  onClick={toggleAllDirectories}
+                  onClick={() =>
+                    setAllDirectoriesExpanded(model, directoryPaths, !allDirectoriesExpanded)
+                  }
                 />
               }
             >
-              {allDirectoriesCollapsed ? (
-                <ChevronsUpDownIcon className={touch ? "size-4" : "size-3"} />
+              {allDirectoriesExpanded ? (
+                <ChevronsDownUpIcon className="size-3.5" />
               ) : (
-                <ChevronsDownUpIcon className={touch ? "size-4" : "size-3"} />
+                <ChevronsUpDownIcon className="size-3.5" />
               )}
             </TooltipTrigger>
-            <TooltipPopup side="top">
-              {allDirectoriesCollapsed ? "Expand all folders" : "Collapse all folders"}
+            <TooltipPopup>
+              {allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"}
             </TooltipPopup>
           </Tooltip>
-        )}
-        {onClose && (
-          <Button
-            type="button"
-            size={touch ? "icon-sm" : "icon-xs"}
-            variant="ghost"
-            className={directoryPaths.length > 0 ? undefined : "ml-auto"}
-            aria-label="Close file tree"
-            onClick={onClose}
-          >
-            <XIcon className={touch ? "size-4" : "size-3"} />
-          </Button>
-        )}
+        ) : null}
       </div>
-      <div
-        ref={containerRef}
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-1 pr-1"
-      >
-        {treeNodes.map((node) => renderNode(node, 0))}
-      </div>
+      <FileTree
+        model={model}
+        aria-label={ariaLabel}
+        onClickCapture={(event) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.shiftKey ||
+            event.altKey
+          ) {
+            return;
+          }
+          // Pierre does not emit a selection change for its sole selected row.
+          // Read selection before the row handles the click so new selections reveal only once.
+          const selected = model.getSelectedPaths();
+          const path = selected.length === 1 ? selected[0] : undefined;
+          if (!path || !filePathsRef.current.has(path)) return;
+          const clickedSelectedRow = event.nativeEvent
+            .composedPath()
+            .some(
+              (node) => node instanceof HTMLElement && node.getAttribute("data-item-path") === path,
+            );
+          if (clickedSelectedRow) onSelectFileRef.current(path);
+        }}
+        className="min-h-0 flex-1 overflow-hidden"
+        style={pierreTreeStyle(resolvedTheme)}
+      />
+      {footer}
     </div>
   );
-});
+}

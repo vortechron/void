@@ -2,7 +2,7 @@ import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import type { FileDiffMetadata } from "@pierre/diffs/types";
 import type { CodeTheme } from "@t3tools/contracts/settings";
 
-export const DIFF_THEME_NAMES = {
+const DIFF_THEME_NAMES = {
   light: "pierre-light",
   dark: "pierre-dark",
   "catppuccin-latte": "catppuccin-latte",
@@ -111,7 +111,7 @@ interface RenderablePatchOptions {
   compactPartialHunkOffsets?: boolean;
 }
 
-export function compactPartialHunkOffsets(file: FileDiffMetadata): FileDiffMetadata {
+function compactPartialHunkOffsets(file: FileDiffMetadata): FileDiffMetadata {
   if (!file.isPartial) return file;
 
   let splitLineStart = 0;

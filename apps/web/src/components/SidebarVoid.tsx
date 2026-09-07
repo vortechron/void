@@ -20,7 +20,7 @@ import {
   ChangeRequestStatusIcon,
   prStatusIndicator,
   PrStatusTooltipContent,
-  resolveThreadPr,
+  useLinkedThreadPullRequest,
   terminalStatusFromRunningIds,
   ThreadStatusLabel,
   ThreadWorktreeIndicator,
@@ -513,11 +513,12 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       lastVisitedAt,
     },
   });
-  const pr = resolveThreadPr({
-    threadBranch: thread.branch,
-    gitStatus: gitStatus.data,
-  });
-  const prStatus = prStatusIndicator(pr, gitStatus.data?.sourceControlProvider);
+  const linkedPullRequestStatus = useLinkedThreadPullRequest(
+    thread.environmentId,
+    thread.linkedPullRequest ?? thread.branchPullRequest,
+  );
+  const pr = linkedPullRequestStatus?.pr ?? null;
+  const prStatus = prStatusIndicator(pr, linkedPullRequestStatus?.sourceControlProvider);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   // A worktree thread owns its working tree, so its diff is the row's headline
   // and outranks the timestamp. Threads on the shared checkout report through
@@ -767,7 +768,11 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                     className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
                     onClick={handlePrClick}
                   >
-                    <ChangeRequestStatusIcon className="size-3" />
+                    <ChangeRequestStatusIcon
+                      state={pr?.state ?? "open"}
+                      isDraft={pr?.isDraft ?? false}
+                      className="size-3"
+                    />
                   </button>
                 }
               />
@@ -1166,6 +1171,7 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
             <ProjectFavicon
               environmentId={workspace.projectRef.environmentId}
               cwd={workspace.projectRoot}
+              projectName={workspace.projectRoot.split("/").pop() ?? ""}
             />
           ) : null}
           <SidebarWorkspaceStatusIcon status={status} />
@@ -2606,7 +2612,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               }`}
             />
           )}
-          <ProjectFavicon environmentId={project.environmentId} cwd={project.workspaceRoot} />
+          <ProjectFavicon
+            environmentId={project.environmentId}
+            cwd={project.workspaceRoot}
+            projectName={project.displayName}
+          />
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span className="truncate text-sm font-medium text-sidebar-foreground/90">
               {project.displayName}

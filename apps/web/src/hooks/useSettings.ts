@@ -42,9 +42,11 @@ import {
   readBrowserThemePreference,
 } from "~/clientPersistenceStorage";
 import {
+  filterSharedServerPatch,
   findSharedSettingsMismatches,
   pickSharedServerSettings,
   splitSharedServerPatch,
+  supportsSharedSettingsSync,
 } from "@t3tools/client-runtime/state/shared-settings";
 import {
   getThemeDefinition,
@@ -68,6 +70,10 @@ import {
   useEnvironments,
   usePrimaryEnvironment,
 } from "~/state/environments";
+import {
+  runAtomCommand,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
 
@@ -180,6 +186,11 @@ export function useClientSettingsHydrated(): boolean {
   return useAtomValue(primaryServerConfigAtom) !== null;
 }
 
+/** Void reads settings from the server config, so there is no failed state. */
+export function useClientSettingsHydrationStatus(): "pending" | "ready" {
+  return useClientSettingsHydrated() ? "ready" : "pending";
+}
+
 function useClientSettingsValue(): ClientSettings {
   const fromServer =
     useAtomValue(primaryServerSettingsAtom)?.clientSettings ?? DEFAULT_CLIENT_SETTINGS;
@@ -251,15 +262,21 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
 }
 
 /**
- * Whether the upstream sidebar v2 is explicitly enabled in Settings → Beta.
- *
- * Held at Void's custom sidebar until client settings hydrate so a cold load
- * cannot briefly replace it with v2 before the persisted preference arrives.
+ * Whether Void's own sidebar is in use. It is the fork's default, so this holds
+ * at `true` until client settings hydrate: a cold load must not flash upstream's
+ * sidebar before the persisted preference arrives.
  */
-export function useSidebarV2Enabled(): boolean {
+export function useVoidSidebarEnabled(): boolean {
   const settingsHydrated = useClientSettingsHydrated();
-  const sidebarV2Enabled = useClientSettingsValue().sidebarV2Enabled;
-  return settingsHydrated && sidebarV2Enabled;
+  const voidSidebarEnabled = useClientSettingsValue().voidSidebarEnabled;
+  return settingsHydrated ? voidSidebarEnabled : true;
+}
+
+/** Upstream's original per-project tree. Only reachable with Void's sidebar off. */
+export function useLegacySidebarEnabled(): boolean {
+  const settingsHydrated = useClientSettingsHydrated();
+  const legacySidebarEnabled = useClientSettingsValue().legacySidebarEnabled;
+  return settingsHydrated && legacySidebarEnabled;
 }
 
 /** Presentation of the sidebar provider usage meter. */
@@ -382,7 +399,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
       }
 
       if (Object.keys(sharedPatch).length > 0) {
-        const targets = new Set(connectedEnvironmentIds);
+        const targets = new Set<EnvironmentId>(connectedEnvironmentIds);
         if (environmentId) targets.add(environmentId);
         if (targets.size === 0) warnUnsaved();
         for (const targetId of targets) {
@@ -397,7 +414,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
 }
 
 /**
- * Connected environments whose shared settings differ from the primary's,
+ * Shared-settings sync targets whose values differ from the primary's,
  * plus an action that writes the primary's values to all of them. Drift
  * happens when an environment was offline during an edit or was changed by
  * an older client.
@@ -405,12 +422,13 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
 export function useSharedSettingsSync() {
   const primaryEnvironment = usePrimaryEnvironment();
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
+  const primaryCapabilities = primaryEnvironment?.serverConfig?.environment.capabilities;
   // Read the loaded config, not `primaryServerSettingsAtom`: that atom falls
   // back to defaults while the primary is disconnected, and "apply to all"
   // must never push defaults over real values. Same for a primary too old to
   // hold the shared keys: its decoded defaults are not a source of truth.
   const primarySettings =
-    primaryEnvironment !== null && supportsSharedSettings(primaryEnvironment)
+    primaryEnvironment !== null && supportsSharedSettingsSync(primaryEnvironment)
       ? (primaryEnvironment.serverConfig?.settings ?? null)
       : null;
   const { environments } = useEnvironments();
@@ -424,28 +442,35 @@ export function useSharedSettingsSync() {
       findSharedSettingsMismatches({
         primaryEnvironmentId,
         primarySettings,
+        primaryCapabilities,
         environments: environments.map((environment) => ({
           environmentId: environment.environmentId,
           label: environment.label,
-          connected: supportsSharedSettings(environment),
+          syncEligible: supportsSharedSettingsSync(environment),
           settings: environment.serverConfig?.settings ?? null,
+          capabilities: environment.serverConfig?.environment.capabilities,
         })),
       }),
-    [environments, primaryEnvironmentId, primarySettings],
+    [environments, primaryEnvironmentId, primarySettings, primaryCapabilities],
   );
 
   const applyToAll = useCallback(() => {
     if (primarySettings === null) {
       return;
     }
-    const patch = pickSharedServerSettings(primarySettings);
+    const patch = pickSharedServerSettings(primarySettings, primaryCapabilities);
     for (const mismatch of mismatches) {
+      const target = environments.find(
+        (candidate) => candidate.environmentId === mismatch.environmentId,
+      );
       void persistServerSettings({
         environmentId: mismatch.environmentId,
-        input: { patch },
+        input: {
+          patch: filterSharedServerPatch(patch, target?.serverConfig?.environment.capabilities),
+        },
       });
     }
-  }, [mismatches, persistServerSettings, primarySettings]);
+  }, [environments, mismatches, persistServerSettings, primarySettings, primaryCapabilities]);
 
   return { mismatches, applyToAll };
 }
@@ -477,6 +502,39 @@ export function useUpdateClientSettings() {
  * some browser must not overwrite it. The local key is cleared either way, so
  * this cannot fire twice on the same origin.
  */
+/**
+ * Imperative client-settings write for the non-React call sites.
+ *
+ * Void keeps UI preferences in the server's settings.json, so a write is an
+ * RPC rather than a localStorage set. The updater runs against the freshest
+ * snapshot, and the resolved value is exactly what was sent.
+ */
+export async function persistClientSettingsUpdate(
+  update: (current: ClientSettings) => ClientSettings,
+): Promise<ClientSettings> {
+  await ensureClientSettingsHydrated();
+  const environmentId = appAtomRegistry.get(primaryEnvironmentIdAtom);
+  if (!environmentId) {
+    throw new Error("No primary environment is connected, so settings cannot be saved.");
+  }
+  const next = update(readClientSettingsSnapshot());
+  const result = await runAtomCommand(
+    appAtomRegistry,
+    serverEnvironment.updateSettings,
+    { environmentId, input: { patch: { clientSettings: next } } },
+    { label: "client settings update" },
+  );
+  if (result._tag === "Failure") {
+    throw squashAtomCommandFailure(result);
+  }
+  return next;
+}
+
+/** Fire-and-forget form of {@link persistClientSettingsUpdate}. */
+export function persistClientSettingsPatch(patch: ClientSettingsPatch): void {
+  void persistClientSettingsUpdate((current) => ({ ...current, ...patch }));
+}
+
 export function useClientSettingsMigration(): void {
   const updateSettings = useUpdatePrimarySettings();
   const serverConfig = useAtomValue(primaryServerConfigAtom);

@@ -1,3 +1,4 @@
+import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import type { FileDiffContentsLoader } from "@pierre/diffs";
 import { useParams } from "@tanstack/react-router";
@@ -9,12 +10,14 @@ import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCodeViewFileReveal } from "./diffs/useCodeViewFileReveal";
 import { useOpenInPreferredEditor } from "../editorPreferences";
 import { type DraftId } from "../composerDraftStore";
 import { openDiffFilePrimaryAction } from "../diffFileActions";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
+import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useTheme } from "../hooks/useTheme";
 import {
   buildFileDiffContentVersion,
@@ -36,14 +39,14 @@ import { useResizableWidth } from "../hooks/useResizableWidth";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
 import { useProject, useThread } from "../state/entities";
 import { resolveThreadRouteRef } from "../threadRoutes";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { DiffBaseRefPicker } from "./diffs/DiffBaseRefPicker";
-import { DiffFileTree } from "./diffs/DiffFileTree";
+import { DiffFileTreeVoid } from "./diffs/DiffFileTreeVoid";
 import { DiffToolbarActions } from "./diffs/DiffToolbarActions";
 import { Button } from "./ui/button";
 import {
@@ -297,8 +300,6 @@ interface DiffPanelProps {
   initialGitScope: "branch" | "unstaged";
   workspaceMutationId: string | null;
 }
-
-export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 
 export default function DiffPanel({
   mode = "inline",
@@ -994,7 +995,7 @@ export default function DiffPanel({
                   (isNarrow ? (
                     // A sheet cannot spare width for a docked column, so the tree
                     // covers the diff until a file is picked.
-                    <DiffFileTree
+                    <DiffFileTreeVoid
                       className="absolute inset-0 z-20 bg-background"
                       touch
                       entries={diffFileTreeEntries}
@@ -1011,7 +1012,7 @@ export default function DiffPanel({
                       className="relative h-full shrink-0"
                       style={{ width: `${diffFileTreeWidth}px` }}
                     >
-                      <DiffFileTree
+                      <DiffFileTreeVoid
                         className="h-full border-r border-border/70"
                         entries={diffFileTreeEntries}
                         activeFileKey={revealedDiffFileKey}
