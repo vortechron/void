@@ -46,18 +46,43 @@ the size of the gap.
 
 ### The custom sidebar is fork-owned
 
-Void's customized project/workspace sidebar is the default. Upstream's flat
-sidebar v2 is optional and must stay behind **Settings → Beta → Sidebar v2**.
+Void's sidebar lives in `apps/web/src/components/SidebarVoid.tsx`, a fork-only
+file. `Sidebar.tsx` and `LegacySidebar.tsx` are upstream's and should always be
+resolved in upstream's favour — the two projects share no code in them.
 
-During an upstream sync, never resolve sidebar conflicts by accepting upstream's
-`Sidebar.tsx`, deleting the Beta toggle, or promoting sidebar v2 to the default.
+Which one renders is a three-step fall-through in `AppSidebarLayout.tsx`:
+
+1. `voidSidebarEnabled` (default **true**) → `SidebarVoid.tsx`
+2. else `legacySidebarEnabled` (upstream's key, default false) → `LegacySidebar.tsx`
+3. else → upstream's `Sidebar.tsx`
+
+Both toggles sit in **Settings → General**, and `useVoidSidebarEnabled()` holds
+at `true` until client settings hydrate so a cold load never flashes the other
+sidebar.
+
 Preserve Void's `SidebarWorkspaceRow` and `workspaceSidebarStore` integration,
 including custom labels, Pinned, and recoverable Archived workspaces. Port useful
-upstream sidebar changes deliberately into `SidebarV2.tsx`; do not replace the
+upstream sidebar changes into `SidebarVoid.tsx` deliberately; never replace the
 custom layout wholesale.
 
-After resolving a sidebar sync, verify both choices still exist and that
-`sidebarV2Enabled` defaults to `false`.
+The retired `sidebarV2Enabled` key had the opposite meaning, so it was dropped
+rather than renamed. Anyone who had opted into upstream's sidebar gets Void's
+back and can turn it off again.
+
+### Database migrations are offset by one
+
+Void inserted `036_ProjectionProjectPromptActions`, so from 36 onward every
+upstream migration sits one number higher here. When a sync brings in new
+upstream migrations, renumber them to continue Void's sequence and bump the
+`toMigrationInclusive` numbers inside their tests. Check the live database
+first — it is the only record of what has actually run:
+
+```bash
+sqlite3 "file:$HOME/.t3/userdata/state.sqlite?mode=ro" \
+  "select migration_id, name from effect_sql_migrations order by migration_id;"
+```
+
+Never reuse an id the database has already applied under a different name.
 
 ## Branding is deliberately minimal
 
