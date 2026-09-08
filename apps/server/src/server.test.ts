@@ -1030,7 +1030,7 @@ const buildAppUnderTest = (options?: {
             latest: EMPTY_PROVIDER_USAGE_STATE,
             changes: Stream.empty,
           }),
-          recordEvent: () => Effect.void,
+          recordProviders: () => Effect.void,
           ...options?.layers?.providerUsage,
         }),
       ),

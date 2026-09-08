@@ -2,153 +2,152 @@ import {
   EMPTY_PROVIDER_USAGE_STATE,
   ProviderDriverKind,
   ProviderInstanceId,
-  type ProviderUsageState,
+  type ServerProvider,
+  type ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import { assert, it } from "vite-plus/test";
 
-import { applyUsageEvent, usageWindowsEqual } from "./ProviderUsage.ts";
+import { applyProviderSnapshots } from "./ProviderUsage.ts";
 
-const CLAUDE = ProviderDriverKind.make("claudeAgent");
 const CODEX = ProviderDriverKind.make("codex");
-const OBSERVED_AT = "2026-08-05T12:00:00.000Z";
-const LATER = "2026-08-05T12:05:00.000Z";
+const CHECKED_AT = "2026-09-09T08:00:00.000Z";
+const LATER = "2026-09-09T08:05:00.000Z";
 
-const claudeEvent = (rateLimitType: string, utilization: number) => ({
-  rate_limit_info: { rateLimitType, utilization },
+const provider = (input: {
+  readonly driver?: ProviderDriverKind;
+  readonly instanceId?: string;
+  readonly usageLimits?: ServerProviderUsageLimits;
+}): ServerProvider => ({
+  instanceId: ProviderInstanceId.make(input.instanceId ?? "codex"),
+  driver: input.driver ?? CODEX,
+  enabled: true,
+  installed: true,
+  version: "0.153.4",
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: CHECKED_AT,
+  models: [],
+  slashCommands: [],
+  skills: [],
+  ...(input.usageLimits ? { usageLimits: input.usageLimits } : {}),
 });
 
-it("accumulates the Claude windows that arrive one event at a time", () => {
-  const first = applyUsageEvent(EMPTY_PROVIDER_USAGE_STATE, {
-    provider: CLAUDE,
-    providerInstanceId: undefined,
-    payload: claudeEvent("five_hour", 0.27),
-    observedAt: OBSERVED_AT,
-  });
-  assert.ok(first);
-
-  const second = applyUsageEvent(first, {
-    provider: CLAUDE,
-    providerInstanceId: undefined,
-    payload: claudeEvent("seven_day", 0.03),
-    observedAt: LATER,
-  });
-  assert.ok(second);
-
-  assert.equal(second.providers.length, 1);
-  assert.deepEqual(
-    second.providers[0]?.windows.map((window) => [window.label, window.usedPercent]),
-    [
-      ["5h", 27],
-      ["week", 3],
-    ],
-  );
-  assert.equal(second.providers[0]?.updatedAt, LATER);
+const weekly = (usedPercent: number, checkedAt: string): ServerProviderUsageLimits => ({
+  checkedAt,
+  windows: [
+    { id: "primary", kind: "weekly", label: "Weekly", usedPercent, windowDurationMins: 10_080 },
+  ],
 });
 
-it("keeps each provider in its own snapshot", () => {
-  const withClaude = applyUsageEvent(EMPTY_PROVIDER_USAGE_STATE, {
-    provider: CLAUDE,
-    providerInstanceId: undefined,
-    payload: claudeEvent("five_hour", 0.27),
-    observedAt: OBSERVED_AT,
-  });
-  assert.ok(withClaude);
-
-  const withCodex = applyUsageEvent(withClaude, {
-    provider: CODEX,
-    providerInstanceId: undefined,
-    payload: { rateLimits: { primary: { usedPercent: 31, windowDurationMins: 300 } } },
-    observedAt: OBSERVED_AT,
-  });
-  assert.ok(withCodex);
+it("projects the windows a provider publishes onto a meter column", () => {
+  const next = applyProviderSnapshots(EMPTY_PROVIDER_USAGE_STATE, [
+    provider({ usageLimits: weekly(40, CHECKED_AT) }),
+  ]);
 
   assert.deepEqual(
-    withCodex.providers.map((snapshot) => snapshot.provider as string),
-    ["claudeAgent", "codex"],
+    next.providers[0]?.windows.map((window) => [window.label, window.usedPercent]),
+    [["week", 40]],
   );
+  assert.equal(next.providers[0]?.updatedAt, CHECKED_AT);
 });
 
-it("separates instances of the same driver", () => {
-  const withDefault = applyUsageEvent(EMPTY_PROVIDER_USAGE_STATE, {
-    provider: CLAUDE,
-    providerInstanceId: undefined,
-    payload: claudeEvent("five_hour", 0.27),
-    observedAt: OBSERVED_AT,
-  });
-  assert.ok(withDefault);
-
-  const withSecond = applyUsageEvent(withDefault, {
-    provider: CLAUDE,
-    providerInstanceId: ProviderInstanceId.make("work"),
-    payload: claudeEvent("five_hour", 0.8),
-    observedAt: OBSERVED_AT,
-  });
-  assert.ok(withSecond);
-
-  assert.equal(withSecond.providers.length, 2);
-  assert.equal(withSecond.providers[1]?.providerInstanceId, "work");
-  assert.equal(withSecond.providers[0]?.windows[0]?.usedPercent, 27);
-});
-
-it("carries a previously reported plan through a payload that omits it", () => {
-  const withPlan = applyUsageEvent(EMPTY_PROVIDER_USAGE_STATE, {
-    provider: CODEX,
-    providerInstanceId: undefined,
-    payload: { rateLimits: { planType: "pro", primary: { usedPercent: 10 } } },
-    observedAt: OBSERVED_AT,
-  });
-  assert.ok(withPlan);
-  assert.equal(withPlan.providers[0]?.planLabel, "pro");
-
-  const withoutPlan = applyUsageEvent(withPlan, {
-    provider: CODEX,
-    providerInstanceId: undefined,
-    payload: { rateLimits: { primary: { usedPercent: 12 } } },
-    observedAt: LATER,
-  });
-  assert.equal(withoutPlan?.providers[0]?.planLabel, "pro");
-});
-
-it("treats a repeated snapshot as unchanged so it is not rebroadcast", () => {
-  const payload = { rateLimits: { primary: { usedPercent: 29, windowDurationMins: 10_080 } } };
-  const first = applyUsageEvent(EMPTY_PROVIDER_USAGE_STATE, {
-    provider: CODEX,
-    providerInstanceId: undefined,
-    payload,
-    observedAt: OBSERVED_AT,
-  });
-  assert.ok(first);
-
-  // Same numbers, later timestamp: exactly what Codex re-sends every few seconds.
-  const repeated = applyUsageEvent(first, {
-    provider: CODEX,
-    providerInstanceId: undefined,
-    payload,
-    observedAt: LATER,
-  });
-  assert.ok(repeated);
-  assert.equal(usageWindowsEqual(first, repeated), true);
-
-  const moved = applyUsageEvent(repeated, {
-    provider: CODEX,
-    providerInstanceId: undefined,
-    payload: { rateLimits: { primary: { usedPercent: 30, windowDurationMins: 10_080 } } },
-    observedAt: LATER,
-  });
-  assert.ok(moved);
-  assert.equal(usageWindowsEqual(repeated, moved), false);
-});
-
-it("leaves the state untouched when a payload reports nothing usable", () => {
-  const state: ProviderUsageState = EMPTY_PROVIDER_USAGE_STATE;
-
-  assert.equal(
-    applyUsageEvent(state, {
-      provider: CLAUDE,
-      providerInstanceId: undefined,
-      payload: { rate_limit_info: { status: "allowed" } },
-      observedAt: OBSERVED_AT,
+it("retires a window the provider stopped reporting", () => {
+  // Codex dropped the five-hour bucket for this plan. Carrying it forward left
+  // a column stuck at a percentage from a window that ended days ago.
+  const withSession = applyProviderSnapshots(EMPTY_PROVIDER_USAGE_STATE, [
+    provider({
+      usageLimits: {
+        checkedAt: CHECKED_AT,
+        windows: [
+          {
+            id: "primary",
+            kind: "session",
+            label: "Session",
+            usedPercent: 0,
+            windowDurationMins: 300,
+          },
+          {
+            id: "secondary",
+            kind: "weekly",
+            label: "Weekly",
+            usedPercent: 7,
+            windowDurationMins: 10_080,
+          },
+        ],
+      },
     }),
-    null,
+  ]);
+  assert.equal(withSession.providers[0]?.windows.length, 2);
+
+  const weeklyOnly = applyProviderSnapshots(withSession, [
+    provider({ usageLimits: weekly(40, LATER) }),
+  ]);
+
+  assert.deepEqual(
+    weeklyOnly.providers[0]?.windows.map((window) => window.label),
+    ["week"],
   );
+});
+
+it("keeps the last good numbers when a probe fails", () => {
+  const good = applyProviderSnapshots(EMPTY_PROVIDER_USAGE_STATE, [
+    provider({ usageLimits: weekly(40, CHECKED_AT) }),
+  ]);
+
+  const afterFailure = applyProviderSnapshots(good, [
+    provider({
+      usageLimits: {
+        checkedAt: LATER,
+        windows: [],
+        unavailable: { reason: "probeFailed", message: "Codex did not answer." },
+      },
+    }),
+  ]);
+
+  assert.equal(afterFailure, good);
+});
+
+it("clears the column for an account that can never report windows", () => {
+  const good = applyProviderSnapshots(EMPTY_PROVIDER_USAGE_STATE, [
+    provider({ usageLimits: weekly(40, CHECKED_AT) }),
+  ]);
+
+  const afterApiKey = applyProviderSnapshots(good, [
+    provider({
+      usageLimits: { checkedAt: LATER, windows: [], unavailable: { reason: "unsupported" } },
+    }),
+  ]);
+
+  assert.deepEqual(afterApiKey.providers, []);
+});
+
+it("leaves the state untouched when a provider has not been read yet", () => {
+  const good = applyProviderSnapshots(EMPTY_PROVIDER_USAGE_STATE, [
+    provider({ usageLimits: weekly(40, CHECKED_AT) }),
+  ]);
+
+  assert.equal(applyProviderSnapshots(good, [provider({})]), good);
+});
+
+it("returns the same state when a registry change carries no new usage", () => {
+  const first = applyProviderSnapshots(EMPTY_PROVIDER_USAGE_STATE, [
+    provider({ usageLimits: weekly(40, CHECKED_AT) }),
+  ]);
+
+  const repeated = applyProviderSnapshots(first, [
+    provider({ usageLimits: weekly(40, CHECKED_AT) }),
+  ]);
+
+  assert.equal(repeated, first);
+});
+
+it("keeps instances of the same driver apart", () => {
+  const next = applyProviderSnapshots(EMPTY_PROVIDER_USAGE_STATE, [
+    provider({ usageLimits: weekly(40, CHECKED_AT) }),
+    provider({ instanceId: "work", usageLimits: weekly(12, CHECKED_AT) }),
+  ]);
+
+  assert.equal(next.providers.length, 2);
+  assert.equal(next.providers[1]?.providerInstanceId, "work");
+  assert.equal(next.providers[0]?.windows[0]?.usedPercent, 40);
 });
