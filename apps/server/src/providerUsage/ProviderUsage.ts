@@ -1,14 +1,19 @@
 /**
- * ProviderUsage - subscription usage reported by the providers themselves.
+ * ProviderUsage - subscription usage as the meter renders it.
  *
- * Providers publish `account.rate-limits.updated` while a session runs. Nothing
- * else consumed those events, so this service taps the runtime event stream,
- * merges each report onto the last known windows per provider, and republishes
- * the merged state to clients.
+ * Every provider publishes what it knows about the signed-in account on
+ * `ServerProvider.usageLimits`: the status probe writes the full window set
+ * there, and `ProviderUsageLimitsIngestion` folds turn-driven rate-limit
+ * events onto the same rows. This service watches the provider registry, keeps
+ * the projection the sidebar meter needs, and republishes it to clients.
  *
- * The state is cached on disk because a provider only reports usage during a
- * turn: without the cache the meter would sit blank after every restart until
- * the user happened to run an agent.
+ * Reading the registry rather than the raw event stream is what keeps the
+ * meter honest about usage spent outside T3 Code: the five-minute status probe
+ * asks the provider itself, so a week spent in the ChatGPT app shows up here
+ * without the user having to run a turn first.
+ *
+ * The state is cached on disk so the meter is populated on the next boot
+ * instead of blank until the first probe answers.
  *
  * @module ProviderUsage
  */
@@ -16,13 +21,11 @@ import {
   EMPTY_PROVIDER_USAGE_STATE,
   type ProviderInstanceId,
   type ProviderDriverKind,
-  type ProviderRuntimeEvent,
   ProviderUsageState,
   type ProviderUsageSnapshot,
+  type ServerProvider,
 } from "@t3tools/contracts";
-import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -36,45 +39,12 @@ import * as Stream from "effect/Stream";
 
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 import * as ServerConfig from "../config.ts";
-import { ProviderService } from "../provider/Services/ProviderService.ts";
+import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
 import { forkParked } from "../serverActivation.ts";
 import { subscribeBeforeSnapshot } from "../utils/subscribeBeforeSnapshot.ts";
-import { mergeUsageWindows, normalizeProviderUsagePayload } from "./normalize.ts";
+import { toMeterWindow } from "./normalize.ts";
 
 export const PROVIDER_USAGE_CACHE_FILENAME = "provider-usage.json";
-
-/** How often an unchanged snapshot is rebroadcast so "synced" stays truthful. */
-const UNCHANGED_REPUBLISH_INTERVAL_MS = 60_000;
-
-/**
- * Compares the numbers the meter actually renders, ignoring `updatedAt`. A
- * provider repeating the same snapshot is not a change worth broadcasting.
- */
-export const usageWindowsEqual = (left: ProviderUsageState, right: ProviderUsageState): boolean => {
-  if (left.providers.length !== right.providers.length) return false;
-  return left.providers.every((leftSnapshot, index) => {
-    const rightSnapshot = right.providers[index];
-    if (!rightSnapshot) return false;
-    if (
-      leftSnapshot.provider !== rightSnapshot.provider ||
-      leftSnapshot.providerInstanceId !== rightSnapshot.providerInstanceId ||
-      leftSnapshot.planLabel !== rightSnapshot.planLabel ||
-      leftSnapshot.windows.length !== rightSnapshot.windows.length
-    ) {
-      return false;
-    }
-    return leftSnapshot.windows.every((leftWindow, windowIndex) => {
-      const rightWindow = rightSnapshot.windows[windowIndex];
-      return (
-        rightWindow !== undefined &&
-        leftWindow.key === rightWindow.key &&
-        leftWindow.label === rightWindow.label &&
-        leftWindow.usedPercent === rightWindow.usedPercent &&
-        leftWindow.resetsAt === rightWindow.resetsAt
-      );
-    });
-  });
-};
 
 export class ProviderUsage extends Context.Service<
   ProviderUsage,
@@ -88,8 +58,8 @@ export class ProviderUsage extends Context.Service<
       never,
       Scope.Scope
     >;
-    /** Exposed for tests and for adapters that observe usage out of band. */
-    readonly recordEvent: (event: ProviderRuntimeEvent) => Effect.Effect<void>;
+    /** Exposed for tests and for callers that observe the registry out of band. */
+    readonly recordProviders: (providers: ReadonlyArray<ServerProvider>) => Effect.Effect<void>;
   }
 >()("t3/providerUsage/ProviderUsage") {}
 
@@ -101,49 +71,80 @@ const snapshotKey = (
   providerInstanceId: ProviderInstanceId | undefined,
 ): string => (providerInstanceId ? `${provider}:${providerInstanceId}` : provider);
 
-export const applyUsageEvent = (
+const snapshotsEqual = (left: ProviderUsageSnapshot, right: ProviderUsageSnapshot): boolean => {
+  if (left.updatedAt !== right.updatedAt || left.windows.length !== right.windows.length) {
+    return false;
+  }
+  return left.windows.every((window, index) => {
+    const other = right.windows[index];
+    return (
+      other !== undefined &&
+      window.key === other.key &&
+      window.label === other.label &&
+      window.usedPercent === other.usedPercent &&
+      window.resetsAt === other.resetsAt &&
+      window.windowMinutes === other.windowMinutes
+    );
+  });
+};
+
+/**
+ * Folds the providers' published limits into the meter state, returning
+ * `state` untouched when nothing moved.
+ *
+ * A provider that reported nothing this round keeps what it last reported:
+ * `usageLimits` is absent until the first probe answers, and a probe that
+ * failed publishes `probeFailed` rather than an empty window set. Only
+ * `unsupported` — an account that can never have windows, such as an API key —
+ * clears a column. Anything else replaces that provider's windows outright,
+ * which is what retires a window the provider has stopped reporting.
+ */
+export const applyProviderSnapshots = (
   state: ProviderUsageState,
-  input: {
-    readonly provider: ProviderDriverKind;
-    readonly providerInstanceId: ProviderInstanceId | undefined;
-    readonly payload: unknown;
-    readonly observedAt: string;
-  },
-): ProviderUsageState | null => {
-  const normalized = normalizeProviderUsagePayload(input.payload, input.observedAt);
-  if (!normalized) return null;
-
-  const key = snapshotKey(input.provider, input.providerInstanceId);
-  const previous = state.providers.find(
-    (candidate) => snapshotKey(candidate.provider, candidate.providerInstanceId) === key,
+  providers: ReadonlyArray<ServerProvider>,
+): ProviderUsageState => {
+  const byKey = new Map(
+    state.providers.map(
+      (snapshot) =>
+        [snapshotKey(snapshot.provider, snapshot.providerInstanceId), snapshot] as const,
+    ),
   );
-  const planLabel = normalized.planLabel ?? previous?.planLabel;
-  const next: ProviderUsageSnapshot = {
-    provider: input.provider,
-    ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
-    ...(planLabel ? { planLabel } : {}),
-    windows: mergeUsageWindows(previous?.windows ?? [], normalized.windows),
-    updatedAt: input.observedAt,
-  };
+  let changed = false;
 
-  const providers = previous
-    ? state.providers.map((candidate) =>
-        snapshotKey(candidate.provider, candidate.providerInstanceId) === key ? next : candidate,
-      )
-    : [...state.providers, next];
+  for (const provider of providers) {
+    const limits = provider.usageLimits;
+    if (!limits || limits.unavailable?.reason === "probeFailed") continue;
 
-  return { providers };
+    const key = snapshotKey(provider.driver, provider.instanceId);
+    if (limits.unavailable?.reason === "unsupported") {
+      changed = byKey.delete(key) || changed;
+      continue;
+    }
+
+    const next: ProviderUsageSnapshot = {
+      provider: provider.driver,
+      providerInstanceId: provider.instanceId,
+      windows: limits.windows.map((window) => toMeterWindow(window, limits.checkedAt)),
+      updatedAt: limits.checkedAt,
+    };
+    const previous = byKey.get(key);
+    if (previous && snapshotsEqual(previous, next)) continue;
+    byKey.set(key, next);
+    changed = true;
+  }
+
+  return changed ? { providers: [...byKey.values()] } : state;
 };
 
 const make = Effect.fn("ProviderUsage.make")(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const providerService = yield* ProviderService;
+  const providerRegistry = yield* ProviderRegistry;
 
   const cachePath = path.join(config.stateDir, PROVIDER_USAGE_CACHE_FILENAME);
-  // `recordEvent` is exposed on a service whose signature carries no context,
-  // so the platform services the cache write needs are captured here.
+  // `recordProviders` is exposed on a service whose signature carries no
+  // context, so the platform services the cache write needs are captured here.
   const platform = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
 
   const restored = yield* fs.readFileString(cachePath).pipe(
@@ -170,50 +171,38 @@ const make = Effect.fn("ProviderUsage.make")(function* () {
       Effect.provide(platform),
     );
 
-  const lastPublishedAtRef = yield* Ref.make<number>(0);
+  const recordProviders = (providers: ReadonlyArray<ServerProvider>) =>
+    publishMutex.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* Ref.get(stateRef);
+        const next = applyProviderSnapshots(current, providers);
+        // The registry republishes on every snapshot change — a version
+        // advisory, a model list, an update run — and only a few of those
+        // carry new usage. Nothing goes over the wire for the rest.
+        if (next === current) return;
 
-  const recordEvent = (event: ProviderRuntimeEvent) =>
-    // Checked before taking the semaphore: every runtime event passes through
-    // here, including per-token content deltas, and they must not queue behind
-    // a cache write.
-    event.type !== "account.rate-limits.updated"
-      ? Effect.void
-      : publishMutex.withPermits(1)(
-          Effect.gen(function* () {
-            const observedAt = event.createdAt || DateTime.formatIso(yield* DateTime.now);
-            const current = yield* Ref.get(stateRef);
-            const next = applyUsageEvent(current, {
-              provider: event.provider,
-              providerInstanceId: event.providerInstanceId,
-              payload: event.payload.rateLimits,
-              observedAt,
-            });
-            if (!next) return;
+        yield* Ref.set(stateRef, next);
+        yield* PubSub.publish(changes, next);
+        yield* persist(next);
+      }),
+    );
 
-            yield* Ref.set(stateRef, next);
-
-            // Providers re-send an unchanged snapshot every few seconds during
-            // a turn. Broadcasting each one would push identical payloads to
-            // every connected client and rewrite the cache file for nothing,
-            // so an unchanged snapshot only goes out on the heartbeat that
-            // keeps the "synced" label honest.
-            const nowMs = yield* Clock.currentTimeMillis;
-            const lastPublishedAt = yield* Ref.get(lastPublishedAtRef);
-            const changed = !usageWindowsEqual(current, next);
-            if (!changed && nowMs - lastPublishedAt < UNCHANGED_REPUBLISH_INTERVAL_MS) return;
-
-            yield* Ref.set(lastPublishedAtRef, nowMs);
-            yield* PubSub.publish(changes, next);
-            yield* persist(next);
-          }),
-        );
-
-  yield* forkParked(Stream.runForEach(providerService.streamEvents, recordEvent));
+  yield* forkParked(
+    Stream.runForEach(
+      // The registry streams changes only, so the snapshots that were already
+      // current when this fork started have to be read in as well.
+      Stream.concat(
+        Stream.fromEffect(providerRegistry.getProviders),
+        providerRegistry.streamChanges,
+      ),
+      recordProviders,
+    ),
+  );
 
   return ProviderUsage.of({
     snapshot,
     subscribe: subscribeBeforeSnapshot(changes, snapshot, publishMutex),
-    recordEvent,
+    recordProviders,
   });
 });
 
