@@ -1,5 +1,5 @@
 import type { CodeFontFamily, CodeTheme, UiFontFamily } from "@t3tools/contracts/settings";
-import { APP_THEME_VALUES, DEFAULT_UI_ZOOM } from "@t3tools/contracts/settings";
+import { APP_THEME_VALUES } from "@t3tools/contracts/settings";
 
 export { APP_THEME_VALUES };
 
@@ -90,16 +90,9 @@ export function resolveAppTheme(theme: AppTheme, systemDark: boolean): ResolvedA
   return "dark";
 }
 
-/** Zoom only earns its layout override once it is actually off 100%, so an
-    untouched install keeps the viewport-unit sizing it has always used. */
-export function isUiZoomActive(uiZoom: number): boolean {
-  return uiZoom !== DEFAULT_UI_ZOOM;
-}
-
 export function resolveAppearanceCssVariables(settings: {
   readonly uiFontFamily: UiFontFamily;
   readonly uiFontSize: number;
-  readonly uiZoom: number;
   readonly codeFontFamily: CodeFontFamily;
   readonly codeFontSize: number;
 }): Readonly<Record<string, string>> {
@@ -115,7 +108,6 @@ export function resolveAppearanceCssVariables(settings: {
       CODE_LOCAL_FONT_FALLBACK,
     ),
     "--ui-font-scale": String(settings.uiFontSize / 16),
-    "--ui-zoom": String(settings.uiZoom / 100),
     "--code-font-size": `${settings.codeFontSize}px`,
     "--code-line-height": `${Math.max(settings.codeFontSize + 6, Math.round(settings.codeFontSize * 1.5))}px`,
   };

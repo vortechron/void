@@ -22,7 +22,9 @@ and diffs without changing the rest of the interface.
 - **UI font size** scales the standard interface text from 12 to 20 pixels.
 - **Interface zoom** scales the whole interface from 50% to 150%, including spacing, icons, and
   controls rather than text alone. Zooming out fits more on screen, which helps on tablets and small
-  laptop displays where the browser's own zoom is not available.
+  laptop displays where the browser's own zoom is not available. Unlike the settings around it, zoom
+  is stored per browser and is not synced, so a tablet and a desktop can each sit at the size that
+  suits their screen.
 - **Code font family** changes the font used for code and diff surfaces. Search the fonts installed
   on your device, or use one of the built-in monospace choices.
 - **Code font size** changes code and diff text from 10 to 20 pixels.

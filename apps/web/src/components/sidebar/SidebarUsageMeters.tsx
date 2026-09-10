@@ -1,4 +1,9 @@
-import type { ProviderDriverKind, UsageMeterMode, UsageMeterSettings } from "@t3tools/contracts";
+import {
+  PROVIDER_DISPLAY_NAMES,
+  type ProviderDriverKind,
+  type UsageMeterMode,
+  type UsageMeterSettings,
+} from "@t3tools/contracts";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
@@ -35,6 +40,10 @@ const MUTED_ACCENT_COLOR = "color-mix(in oklab, var(--color-muted-foreground) 70
 function accentColor(provider: ProviderDriverKind, usedPercent: number | null): string {
   if (isExhaustedUsage(usedPercent)) return "var(--color-red-500)";
   return ACCENT_COLOR_BY_PROVIDER[provider] ?? MUTED_ACCENT_COLOR;
+}
+
+function providerName(provider: ProviderDriverKind): string {
+  return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
 }
 
 /** Percentages are unitless on their own; the basis has to be readable out loud. */
@@ -76,8 +85,12 @@ function ProviderIcon({
 }
 
 // ── Expanded ─────────────────────────────────────────────────────────
+//
+// One window per line, providers stacked. The sidebar is too narrow to seat
+// providers side by side: every column ended up thin enough that the window
+// labels and the reset countdowns truncated to a letter or two.
 
-const ExpandedWindow = memo(function ExpandedWindow({
+const ExpandedWindowRow = memo(function ExpandedWindowRow({
   provider,
   window,
   settings,
@@ -91,78 +104,78 @@ const ExpandedWindow = memo(function ExpandedWindow({
   const percent = resolveDisplayPercent(window.usedPercent, settings.percentageBasis);
   const color = accentColor(provider, window.usedPercent);
   const placement = usageChartPlacement(settings.chartStyle);
-  const chart = (
-    <UsageChart
-      chartStyle={settings.chartStyle}
-      color={color}
-      percent={percent}
-      samples={samples}
-    />
-  );
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5">
-      <div className="flex w-full items-center justify-center gap-1">
-        {placement === "inline" ? chart : null}
-        <span className="flex min-w-0 flex-col leading-none">
-          <span className="truncate text-[9px] text-muted-foreground">{window.label}</span>
-          <span
-            className={cn(
-              "font-semibold text-[13px] tabular-nums",
-              // An unknown value is dimmed so it reads as "not reported"
-              // rather than as a number worth looking at.
-              percent === null ? "text-muted-foreground" : "text-foreground",
-            )}
-          >
-            {formatUsagePercent(percent)}
-            {percent === null ? null : (
-              <span className="ml-px font-normal text-[9px] text-muted-foreground">%</span>
-            )}
-          </span>
+    <div className="flex items-center gap-1.5">
+      <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+        {window.label}
+      </span>
+      {placement === "none" ? null : (
+        // A ring is square and sizes itself; the wide styles need a fixed
+        // slot, or a long label would squeeze them down to nothing.
+        <span className={cn("flex shrink-0 items-center", placement === "below" && "w-12")}>
+          <UsageChart
+            chartStyle={settings.chartStyle}
+            color={color}
+            percent={percent}
+            samples={samples}
+          />
         </span>
-      </div>
-      {placement === "below" ? <div className="w-full px-0.5 pt-0.5">{chart}</div> : null}
-      {window.resetsDuration ? (
-        <span className="truncate text-[9px] text-muted-foreground">{window.resetsDuration}</span>
-      ) : null}
+      )}
+      <span
+        className={cn(
+          "w-9 shrink-0 text-right font-semibold text-[11px] tabular-nums",
+          // An unknown value is dimmed so it reads as "not reported" rather
+          // than as a number worth looking at. A spent window goes red even
+          // when the chart is off and has no color left to carry the alarm.
+          percent === null
+            ? "text-muted-foreground"
+            : isExhaustedUsage(window.usedPercent)
+              ? "text-red-500"
+              : "text-foreground",
+        )}
+      >
+        {formatUsagePercent(percent)}
+        {percent === null ? null : (
+          <span className="font-normal text-[9px] text-muted-foreground">%</span>
+        )}
+      </span>
+      <span className="w-11 shrink-0 truncate text-right text-[10px] text-muted-foreground tabular-nums">
+        {window.resetsDuration}
+      </span>
     </div>
   );
 });
 
-function ExpandedColumn({
+function ExpandedProvider({
   column,
-  align,
   settings,
   history,
 }: {
   readonly column: UsageMeterColumn;
-  readonly align: "start" | "center" | "end";
   readonly settings: UsageMeterSettings;
   readonly history: UsageSampleHistory;
 }) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-1 px-1">
-      <div
-        className={cn(
-          "flex",
-          align === "start" && "justify-start",
-          align === "center" && "justify-center",
-          align === "end" && "justify-end",
-        )}
-      >
-        <ProviderIcon className="size-3.5 shrink-0" provider={column.provider} />
+    // Its own card, matching the minimized pills: two providers in one frame
+    // read as one list, and the reset countdowns of the second get mistaken
+    // for the first.
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-[var(--control-radius)] border border-sidebar-border px-2 py-1.5">
+      <div className="flex min-w-0 items-center gap-1">
+        <ProviderIcon className="size-3 shrink-0" provider={column.provider} />
+        <span className="truncate font-medium text-[10px] text-foreground">
+          {providerName(column.provider)}
+        </span>
       </div>
-      <div className="flex items-start justify-center gap-2">
-        {column.windows.map((window) => (
-          <ExpandedWindow
-            key={window.key}
-            provider={column.provider}
-            samples={history.get(`${column.id}:${window.key}`) ?? []}
-            settings={settings}
-            window={window}
-          />
-        ))}
-      </div>
+      {column.windows.map((window) => (
+        <ExpandedWindowRow
+          key={window.key}
+          provider={column.provider}
+          samples={history.get(`${column.id}:${window.key}`) ?? []}
+          settings={settings}
+          window={window}
+        />
+      ))}
     </div>
   );
 }
@@ -181,29 +194,13 @@ function ExpandedMeters({
   return (
     <section
       aria-label={`Provider usage. ${describeColumns(columns, settings)}`}
-      className="rounded-[var(--control-radius)] border border-sidebar-border px-1.5 pt-1.5 pb-1"
+      className="flex flex-col gap-1"
     >
-      <div className="flex items-stretch">
-        {columns.map((column, index) => (
-          <ExpandedColumn
-            align={
-              columns.length === 1
-                ? "center"
-                : index === 0
-                  ? "start"
-                  : index === columns.length - 1
-                    ? "end"
-                    : "center"
-            }
-            column={column}
-            history={history}
-            key={column.id}
-            settings={settings}
-          />
-        ))}
-      </div>
+      {columns.map((column) => (
+        <ExpandedProvider column={column} history={history} key={column.id} settings={settings} />
+      ))}
       {syncedLabel ? (
-        <div className="flex items-center justify-start gap-1 pt-2 text-[8px] text-muted-foreground">
+        <div className="flex items-center justify-start gap-1 px-0.5 text-[8px] text-muted-foreground">
           <span aria-hidden className="size-1 shrink-0 rounded-full bg-emerald-500" />
           <span className="truncate">{syncedLabel}</span>
         </div>
@@ -215,9 +212,11 @@ function ExpandedMeters({
 // ── Minimized ────────────────────────────────────────────────────────
 
 /**
- * One pill per provider: the icon, then every window as "percent countdown".
- * No chart — at this size a shape would be decoration, and the countdown is
- * the part that decides whether to keep working or wait.
+ * One pill per provider, stacked so each gets the sidebar's full width: the
+ * icon, then every window as "percent countdown". No chart — at this size a
+ * shape would be decoration, and the countdown is the part that decides
+ * whether to keep working or wait. Windows wrap rather than truncate, since a
+ * countdown cut to "2d…" is worse than a second line.
  */
 function MinimizedPill({
   column,
@@ -237,13 +236,13 @@ function MinimizedPill({
     <Tooltip>
       <TooltipTrigger
         render={
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--control-radius)] border border-sidebar-border px-1.5 py-1">
+          <div className="flex min-w-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-sidebar-border px-1.5 py-1">
             <ProviderIcon className="size-3.5 shrink-0" provider={column.provider} />
-            <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] font-semibold tabular-nums leading-none">
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold text-[11px] tabular-nums leading-none">
               {column.windows.map((window) => {
                 const percent = resolveDisplayPercent(window.usedPercent, settings.percentageBasis);
                 return (
-                  <span className="truncate" key={window.key} style={{ color }}>
+                  <span key={window.key} style={{ color }}>
                     {formatUsagePercent(percent)}
                     {percent === null ? "" : "%"}
                     {window.resetsDuration ? (
@@ -280,7 +279,7 @@ function MinimizedMeters({
   return (
     <section
       aria-label={`Provider usage. ${describeColumns(columns, settings)}`}
-      className="flex items-stretch gap-1"
+      className="flex flex-col gap-1"
     >
       {columns.map((column) => (
         <MinimizedPill column={column} key={column.id} settings={settings} />

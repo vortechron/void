@@ -124,19 +124,29 @@ function UsageMeterPreview({ settings }: { readonly settings: UsageMeterSettings
   }
 
   return (
-    <div className="flex w-32 flex-col items-center gap-0.5 rounded-xl border border-border px-2 py-2">
-      <div className="flex w-full items-center justify-center gap-1">
-        {placement === "inline" ? chart : null}
-        <span className="flex flex-col leading-none">
-          <span className="text-[9px] text-muted-foreground">5h</span>
-          <span className="text-[13px] font-semibold tabular-nums text-foreground">
-            {formatUsagePercent(percent)}
-            <span className="ml-px text-[9px] font-normal text-muted-foreground">%</span>
+    <div className="flex w-44 flex-col gap-0.5 rounded-xl border border-border px-2 py-2">
+      <span className="text-[10px] font-medium text-foreground">Claude</span>
+      <div className="flex items-center gap-1.5">
+        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">Session</span>
+        {placement === "none" ? null : (
+          <span
+            className={
+              placement === "below"
+                ? "flex w-12 shrink-0 items-center"
+                : "flex shrink-0 items-center"
+            }
+          >
+            {chart}
           </span>
+        )}
+        <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums text-foreground">
+          {formatUsagePercent(percent)}
+          <span className="text-[9px] font-normal text-muted-foreground">%</span>
+        </span>
+        <span className="w-11 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
+          4h
         </span>
       </div>
-      {placement === "below" ? <div className="w-full px-0.5 pt-0.5">{chart}</div> : null}
-      <span className="text-[9px] text-muted-foreground">4h</span>
     </div>
   );
 }
