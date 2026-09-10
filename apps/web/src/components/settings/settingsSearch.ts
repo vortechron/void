@@ -112,6 +112,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    // Prefixed because the slider control already owns the `ui-zoom` id.
+    id: "setting-ui-zoom",
+    title: "Interface zoom",
+    to: "/settings/appearance",
+    searchTerms: ["zoom in out scale bigger smaller tablet ipad density"],
+  },
+  {
     id: "code-theme",
     title: "Code theme",
     to: "/settings/appearance",

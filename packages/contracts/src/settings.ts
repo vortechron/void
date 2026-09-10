@@ -166,6 +166,17 @@ export const UiFontSize = Schema.Int.check(
 );
 export type UiFontSize = typeof UiFontSize.Type;
 export const DEFAULT_UI_FONT_SIZE: UiFontSize = 16;
+// Interface zoom, as a percentage. Scales the whole UI, not just text: it is
+// applied as a CSS `zoom` on the document element, so one-off pixel sizes
+// scale along with fonts and spacing. Kept separate from `uiFontSize`, which
+// only changes text.
+export const MIN_UI_ZOOM = 50;
+export const MAX_UI_ZOOM = 150;
+export const UiZoom = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_UI_ZOOM, maximum: MAX_UI_ZOOM }),
+);
+export type UiZoom = typeof UiZoom.Type;
+export const DEFAULT_UI_ZOOM: UiZoom = 100;
 export const CodeFontFamily = FontFamilyName;
 export type CodeFontFamily = typeof CodeFontFamily.Type;
 export const DEFAULT_CODE_FONT_FAMILY: CodeFontFamily = "system-mono";
@@ -648,6 +659,7 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_UI_FONT_FAMILY)),
   ),
   uiFontSize: UiFontSize.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_UI_FONT_SIZE))),
+  uiZoom: UiZoom.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_UI_ZOOM))),
   codeFontFamily: CodeFontFamily.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_CODE_FONT_FAMILY)),
   ),
@@ -1667,6 +1679,7 @@ export const ClientSettingsPatch = Schema.Struct({
   glassOpacity: Schema.optionalKey(GlassOpacity),
   uiFontFamily: Schema.optionalKey(UiFontFamily),
   uiFontSize: Schema.optionalKey(UiFontSize),
+  uiZoom: Schema.optionalKey(UiZoom),
   chatBackgroundEffect: Schema.optionalKey(ChatBackgroundEffect),
   chatBorderEffect: Schema.optionalKey(ChatBorderEffect),
   codeFontFamily: Schema.optionalKey(CodeFontFamily),

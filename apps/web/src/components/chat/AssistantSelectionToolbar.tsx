@@ -16,6 +16,7 @@ import {
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
+import { readEffectiveZoom } from "../../effectiveZoom";
 import { Button } from "../ui/button";
 
 export function AssistantSelectionToolbar({
@@ -38,9 +39,15 @@ export function AssistantSelectionToolbar({
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     if (!toolbar || !selection) return;
+    // Every input here is measured after interface zoom, while the offsets
+    // written back are read inside the zoomed box, so they all convert to
+    // layout pixels first. At the default zoom this is a division by one.
+    const zoom = readEffectiveZoom(toolbar);
     const rect = toolbar.getBoundingClientRect();
-    toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
-    toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
+    const maxLeft = (window.innerWidth - rect.width) / zoom - 8;
+    const maxTop = (window.innerHeight - rect.height) / zoom - 8;
+    toolbar.style.left = `${Math.max(8, Math.min(selection.position.x / zoom, maxLeft))}px`;
+    toolbar.style.top = `${Math.max(8, Math.min(selection.position.y / zoom, maxTop))}px`;
   }, [selection]);
 
   useEffect(() => {

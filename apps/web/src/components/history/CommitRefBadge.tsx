@@ -45,15 +45,18 @@ export function CommitRefBadge({
         render={
           <span
             className={cn(
-              "inline-flex h-4 min-w-0 max-w-52 items-center gap-1 rounded px-1 text-[10px] leading-none",
+              // Never shrinks and never clips: which branch a commit carries is
+              // the one thing the row cannot half-say. The subject beside it is
+              // what gives way when the Description column runs out of room.
+              "inline-flex h-4 shrink-0 items-center gap-1 whitespace-nowrap rounded px-1 text-[10px] leading-none",
               KIND_CLASS[refValue.kind],
               refValue.isCurrent && "ring-1 ring-primary/60",
             )}
             onContextMenu={onContextMenu ? (event) => onContextMenu(event, refValue) : undefined}
           >
             <Icon aria-hidden className="size-2.5 shrink-0 opacity-70" />
-            {remote ? <span className="shrink-0 opacity-70">{remote}</span> : null}
-            <span className="truncate">{branch}</span>
+            {remote ? <span className="opacity-70">{remote}</span> : null}
+            <span>{branch}</span>
           </span>
         }
       />

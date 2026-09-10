@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeftCloseIcon, PanelLeftIcon } from "lucide-react";
 import * as React from "react";
 import { cn } from "~/lib/utils";
+import { readEffectiveZoom } from "~/effectiveZoom";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -377,6 +378,9 @@ function SidebarRail({
     transitionTargets: HTMLElement[];
     width: number;
     wrapper: HTMLElement;
+    /** Captured once so pointer travel converts to layout pixels the same way
+        for the whole drag, even if the setting changes mid-gesture. */
+    zoom: number;
   } | null>(null);
   const resolvedResizable = sidebarInstance?.resizable ?? null;
   const canResize = resolvedResizable !== null && open;
@@ -428,7 +432,12 @@ function SidebarRail({
         return;
       }
 
-      const startWidth = sidebarContainer.getBoundingClientRect().width;
+      // Rects and pointer coordinates arrive in post-zoom pixels, while
+      // `--sidebar-width` is read inside the zoomed box. Both have to come back
+      // to layout pixels or the sidebar jumps on grab and then outruns the
+      // pointer.
+      const zoom = readEffectiveZoom(sidebarContainer);
+      const startWidth = sidebarContainer.getBoundingClientRect().width / zoom;
       const initialWidth = clampSidebarWidth(startWidth, resolvedResizable);
       const transitionTargets = [
         sidebarRoot.querySelector<HTMLElement>("[data-slot='sidebar-gap']"),
@@ -453,6 +462,7 @@ function SidebarRail({
         transitionTargets,
         width: initialWidth,
         wrapper,
+        zoom,
       };
       wrapper.style.setProperty("--sidebar-width", `${initialWidth}px`);
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -470,10 +480,11 @@ function SidebarRail({
       if (!resizeState || resizeState.pointerId !== event.pointerId || !resolvedResizable) return;
 
       event.preventDefault();
-      const delta =
+      const pointerTravel =
         resizeState.side === "right"
           ? resizeState.startX - event.clientX
           : event.clientX - resizeState.startX;
+      const delta = pointerTravel / resizeState.zoom;
       if (Math.abs(delta) > 2) {
         resizeState.moved = true;
       }
