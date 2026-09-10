@@ -29,17 +29,16 @@ import {
   MAX_PANEL_ANIMATION_DURATION_MS,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MAX_UI_FONT_SIZE,
-  MAX_UI_ZOOM,
   MIN_APPEARANCE_CONTRAST,
   MIN_CODE_FONT_SIZE,
   MIN_GLASS_OPACITY,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MIN_PANEL_ANIMATION_DURATION_MS,
   MIN_UI_FONT_SIZE,
-  MIN_UI_ZOOM,
   type QuitConfirmationMode,
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import { MAX_UI_ZOOM, MIN_UI_ZOOM, isUiZoomActive, useUiZoom } from "../../uiZoomPreference";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
@@ -498,6 +497,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   } = useTheme();
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
+  const { zoom: uiZoom, resetZoom: resetUiZoom } = useUiZoom();
 
   const isTextGenerationModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,
@@ -512,7 +512,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["UI font family"]
         : []),
       ...(settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize ? ["UI font size"] : []),
-      ...(settings.uiZoom !== DEFAULT_UNIFIED_SETTINGS.uiZoom ? ["Interface zoom"] : []),
+      ...(isUiZoomActive(uiZoom) ? ["Interface zoom"] : []),
       ...(settings.codeTheme !== DEFAULT_UNIFIED_SETTINGS.codeTheme ? ["Code theme"] : []),
       ...(settings.codeFontFamily !== DEFAULT_UNIFIED_SETTINGS.codeFontFamily
         ? ["Code font family"]
@@ -654,7 +654,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.timestampFormat,
       settings.uiFontFamily,
       settings.uiFontSize,
-      settings.uiZoom,
+      uiZoom,
       settings.wordWrap,
       followSystem,
       theme,
@@ -724,11 +724,13 @@ export function useSettingsRestore(onRestored?: () => void) {
       notifyThemeRestoreFailure();
       return;
     }
+    // Zoom lives in this browser's storage, so it resets alongside the synced
+    // settings rather than inside the same patch.
+    resetUiZoom();
     updateSettings({
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       uiFontFamily: DEFAULT_UNIFIED_SETTINGS.uiFontFamily,
       uiFontSize: DEFAULT_UNIFIED_SETTINGS.uiFontSize,
-      uiZoom: DEFAULT_UNIFIED_SETTINGS.uiZoom,
       codeFontFamily: DEFAULT_UNIFIED_SETTINGS.codeFontFamily,
       codeFontSize: DEFAULT_UNIFIED_SETTINGS.codeFontSize,
       codeTheme: DEFAULT_UNIFIED_SETTINGS.codeTheme,
@@ -780,6 +782,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     changedSettingLabels,
     clearThemeHalves,
     onRestored,
+    resetUiZoom,
     setFollowSystem,
     setTheme,
     setThemeHalf,
@@ -1125,10 +1128,11 @@ export function AppearanceSettingsPanel() {
   const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
+  const { zoom: uiZoom, setZoom: setUiZoom, resetZoom: resetUiZoom } = useUiZoom();
   const environmentStageLabel = useEnvironmentStageLabel();
   const showEnvironmentIdentification =
     resolveEnvironmentIdentificationPillLabel(environmentStageLabel) !== null;
-  const uiZoomRatio = (settings.uiZoom - MIN_UI_ZOOM) / (MAX_UI_ZOOM - MIN_UI_ZOOM);
+  const uiZoomRatio = (uiZoom - MIN_UI_ZOOM) / (MAX_UI_ZOOM - MIN_UI_ZOOM);
   const uiZoomSliderStyle = {
     "--settings-slider-progress": `${uiZoomRatio * 100}%`,
     "--settings-slider-fill-offset": `${0.5 - uiZoomRatio}rem`,
@@ -1272,11 +1276,8 @@ export function AppearanceSettingsPanel() {
           {...searchableSetting("setting-ui-zoom")}
           description="Scales the whole interface, not only text. Lower values fit more on screen."
           resetAction={
-            settings.uiZoom !== DEFAULT_UNIFIED_SETTINGS.uiZoom ? (
-              <SettingResetButton
-                label="interface zoom"
-                onClick={() => updateSettings({ uiZoom: DEFAULT_UNIFIED_SETTINGS.uiZoom })}
-              />
+            isUiZoomActive(uiZoom) ? (
+              <SettingResetButton label="interface zoom" onClick={resetUiZoom} />
             ) : null
           }
           control={
@@ -1285,7 +1286,7 @@ export function AppearanceSettingsPanel() {
                 className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
                 htmlFor="ui-zoom"
               >
-                {settings.uiZoom}%
+                {uiZoom}%
               </output>
               <input
                 aria-label="Interface zoom"
@@ -1293,16 +1294,11 @@ export function AppearanceSettingsPanel() {
                 id="ui-zoom"
                 max={MAX_UI_ZOOM}
                 min={MIN_UI_ZOOM}
-                onChange={(event) => {
-                  const uiZoom = Number(event.currentTarget.value);
-                  if (Number.isInteger(uiZoom) && uiZoom >= MIN_UI_ZOOM && uiZoom <= MAX_UI_ZOOM) {
-                    updateSettings({ uiZoom });
-                  }
-                }}
+                onChange={(event) => setUiZoom(Number(event.currentTarget.value))}
                 step={5}
                 style={uiZoomSliderStyle}
                 type="range"
-                value={settings.uiZoom}
+                value={uiZoom}
               />
             </div>
           }

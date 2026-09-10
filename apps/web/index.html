@@ -410,6 +410,37 @@
         }
       })();
     </script>
+    <script>
+      // Interface zoom is a per-browser preference, so it is read here rather
+      // than waiting for settings to arrive. Applying it before first paint
+      // keeps the app from laying out at 100% and then jumping. Kept apart
+      // from the theme boot so a storage failure in one cannot take out the
+      // other.
+      (() => {
+        const UI_ZOOM_STORAGE_KEY = "t3code:ui-zoom";
+        const MIN_UI_ZOOM = 50;
+        const MAX_UI_ZOOM = 150;
+        const DEFAULT_UI_ZOOM = 100;
+        try {
+          const stored = Number(
+            JSON.parse(window.localStorage.getItem(UI_ZOOM_STORAGE_KEY) ?? "null"),
+          );
+          if (
+            !Number.isInteger(stored) ||
+            stored < MIN_UI_ZOOM ||
+            stored > MAX_UI_ZOOM ||
+            stored === DEFAULT_UI_ZOOM
+          ) {
+            return;
+          }
+          document.documentElement.style.setProperty("--ui-zoom", String(stored / 100));
+          document.documentElement.dataset.uiZoomed = "true";
+        } catch {
+          // No stored zoom, or storage is unreadable: the stylesheet default
+          // already means 100%.
+        }
+      })();
+    </script>
     <style>
       html,
       body,

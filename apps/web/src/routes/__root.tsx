@@ -12,7 +12,8 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
-import { isUiZoomActive, resolveAppearanceCssVariables } from "../appearancePreferences";
+import { resolveAppearanceCssVariables } from "../appearancePreferences";
+import { isUiZoomActive, resolveUiZoomFactor, useUiZoom } from "../uiZoomPreference";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentCompletionCoordinator } from "../components/AgentCompletionCoordinator";
@@ -126,6 +127,7 @@ function RootRouteView() {
         <ThemePreferenceSync />
         <ContrastAppearanceSync />
         <AppearancePreferencesSync />
+        <UiZoomSync />
         <Outlet />
       </>
     );
@@ -141,6 +143,7 @@ function RootRouteView() {
           <ContrastAppearanceSync />
           <EnvironmentThemeSync />
           <AppearancePreferencesSync />
+          <UiZoomSync />
           <CommandPalette>
             <AppSidebarLayout>
               <Outlet />
@@ -159,6 +162,7 @@ function RootRouteView() {
         <ThemePreferenceSync />
         <ContrastAppearanceSync />
         <AppearancePreferencesSync />
+        <UiZoomSync />
         <Outlet />
       </>
     );
@@ -185,6 +189,7 @@ function RootRouteView() {
         <EnvironmentThemeSync />
         <ContrastAppearanceSync />
         <AppearancePreferencesSync />
+        <UiZoomSync />
         <WorkspaceStateSync />
         <FirstRunGate
           enabled={primaryEnvironmentAuthenticated}
@@ -255,18 +260,10 @@ function AppearancePreferencesSync() {
   const settings = useClientSettings();
 
   useEffect(() => {
-    const root = document.documentElement;
-    const rootStyle = root.style;
+    const rootStyle = document.documentElement.style;
     rootStyle.setProperty("--glass-opacity", `${settings.glassOpacity}%`);
     for (const [name, value] of Object.entries(resolveAppearanceCssVariables(settings))) {
       rootStyle.setProperty(name, value);
-    }
-    // The flag, not the factor, gates the zoom rules: at 100% the app keeps its
-    // untouched viewport-unit layout instead of paying for a no-op zoom.
-    if (isUiZoomActive(settings.uiZoom)) {
-      root.dataset.uiZoomed = "true";
-    } else {
-      delete root.dataset.uiZoomed;
     }
   }, [
     settings.codeFontFamily,
@@ -274,8 +271,28 @@ function AppearancePreferencesSync() {
     settings.glassOpacity,
     settings.uiFontFamily,
     settings.uiFontSize,
-    settings.uiZoom,
   ]);
+
+  return null;
+}
+
+/** Zoom belongs to this browser, so it follows local storage rather than the
+    synced settings. The boot script applies the stored value before first
+    paint; this keeps it in step afterwards, including from a second tab. */
+function UiZoomSync() {
+  const { zoom } = useUiZoom();
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--ui-zoom", resolveUiZoomFactor(zoom));
+    // The flag, not the factor, gates the zoom rules: at 100% the app keeps its
+    // untouched viewport-unit layout instead of paying for a no-op zoom.
+    if (isUiZoomActive(zoom)) {
+      root.dataset.uiZoomed = "true";
+    } else {
+      delete root.dataset.uiZoomed;
+    }
+  }, [zoom]);
 
   return null;
 }
