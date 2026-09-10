@@ -261,6 +261,7 @@ describe("ClientSettings appearance preferences", () => {
 
     expect(settings.uiFontFamily).toBe("dm-sans");
     expect(settings.uiFontSize).toBe(16);
+    expect(settings.uiZoom).toBe(100);
     expect(settings.codeFontFamily).toBe("system-mono");
     expect(settings.codeFontSize).toBe(13);
     expect(settings.codeTheme).toBe("default");
@@ -311,6 +312,8 @@ describe("ClientSettings appearance preferences", () => {
   it.each([
     ["uiFontSize", 11],
     ["uiFontSize", 21],
+    ["uiZoom", 49],
+    ["uiZoom", 151],
     ["codeFontSize", 9],
     ["codeFontSize", 21],
   ] as const)("rejects %s outside its supported range", (key, value) => {

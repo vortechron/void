@@ -34,6 +34,7 @@ import { toastManager } from "~/components/ui/toast";
 import { CommitRefBadge } from "./CommitRefBadge";
 import { GRAPH_LANE_WIDTH, GRAPH_ROW_HEIGHT, GitGraphColumn } from "./GitGraphColumn";
 import { HistoryConfirmDialog, HistoryPromptDialog } from "./HistoryActionDialogs";
+import { HistoryColumnResizeHandle } from "./HistoryColumnResizeHandle";
 import { HistoryContextMenuItems } from "./HistoryContextMenuItems";
 import {
   type HistoryConfirm,
@@ -48,18 +49,38 @@ import {
   sortCommitRefs,
 } from "./historyRows";
 import { useHistoryActions } from "./useHistoryActions";
+import { useHistoryColumnWidths } from "./useHistoryColumnWidths";
 
 /**
- * Column widths react to the panel's own width, not the viewport: the panel is
- * as narrow on a phone as it is when a desktop user drags it in. Below each
- * step the column is dropped rather than squeezed, so the subject keeps a
+ * Which columns appear reacts to the panel's own width, not the viewport: the
+ * panel is as narrow on a phone as it is when a desktop user drags it in. Below
+ * each step the column is dropped rather than squeezed, so the subject keeps a
  * readable share of the row instead of being crushed to nothing.
+ *
+ * How wide a visible column is belongs to the user: the widths come from the
+ * variables `useHistoryColumnWidths` writes onto the panel root. The short date
+ * keeps a fixed width because there is no handle to drag at that size.
  */
 const COLUMN = {
+  /** Clips the lanes that no longer fit once the graph is dragged narrower. */
+  graph: "flex w-(--history-col-graph) shrink-0 items-center overflow-hidden",
   dateShort: "w-16 shrink-0 @md/history:hidden",
-  dateFull: "hidden w-36 shrink-0 @md/history:block",
-  author: "hidden w-24 shrink-0 @lg/history:block",
-  sha: "hidden w-16 shrink-0 @xl/history:block",
+  dateFull: "hidden w-(--history-col-date) shrink-0 @md/history:block",
+  author: "hidden w-(--history-col-author) shrink-0 @lg/history:block",
+  sha: "hidden w-(--history-col-sha) shrink-0 @xl/history:block",
+} as const;
+
+/**
+ * Header cells stretch to the row's full height so their resize handle is a
+ * target the whole way down, and each one is the positioning context for the
+ * handle sitting on its left edge.
+ */
+const HEADER_COLUMN = {
+  graph: "relative flex w-(--history-col-graph) shrink-0 items-center self-stretch",
+  date: "relative flex w-16 shrink-0 items-center self-stretch @md/history:w-(--history-col-date)",
+  author:
+    "relative hidden w-(--history-col-author) shrink-0 items-center self-stretch @lg/history:flex",
+  sha: "relative hidden w-(--history-col-sha) shrink-0 items-center self-stretch @xl/history:flex",
 } as const;
 
 const HISTORY_PAGE_SIZE = 100;
@@ -145,6 +166,7 @@ export function GitHistoryPanel({
 
   const view = useMemo(() => buildHistoryView(commitsQuery.data), [commitsQuery.data]);
   const graphWidth = Math.max(view.graph.laneCount, 1) * GRAPH_LANE_WIDTH;
+  const { rootRef, style: columnWidthStyle, resizeHandlers } = useHistoryColumnWidths(graphWidth);
   const canLoadMore = commitsQuery.data?.nextCursor != null && limit < HISTORY_MAX_COMMITS;
 
   const refresh = commitsQuery.refresh;
@@ -217,7 +239,11 @@ export function GitHistoryPanel({
   }
 
   return (
-    <div className="@container/history flex h-full min-h-0 flex-col">
+    <div
+      ref={rootRef}
+      style={columnWidthStyle}
+      className="@container/history flex h-full min-h-0 flex-col"
+    >
       <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-2 py-1.5">
         <Select
           value={refFilter ?? ALL_BRANCHES}
@@ -274,13 +300,27 @@ export function GitHistoryPanel({
       </div>
 
       <div className="flex shrink-0 items-center gap-2 overflow-hidden border-b border-border/60 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-        <span style={{ width: graphWidth }} className="shrink-0">
+        <span className={HEADER_COLUMN.graph}>
           Graph
+          <HistoryColumnResizeHandle column="graph" handlers={resizeHandlers.graph} />
         </span>
         <span className="min-w-0 flex-1 truncate">Description</span>
-        <span className="w-16 shrink-0 @md/history:w-36">Date</span>
-        <span className={COLUMN.author}>Author</span>
-        <span className={COLUMN.sha}>Commit</span>
+        <span className={HEADER_COLUMN.date}>
+          <HistoryColumnResizeHandle
+            column="date"
+            handlers={resizeHandlers.date}
+            className="hidden @md/history:block"
+          />
+          Date
+        </span>
+        <span className={HEADER_COLUMN.author}>
+          <HistoryColumnResizeHandle column="author" handlers={resizeHandlers.author} />
+          Author
+        </span>
+        <span className={HEADER_COLUMN.sha}>
+          <HistoryColumnResizeHandle column="sha" handlers={resizeHandlers.sha} />
+          Commit
+        </span>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -301,15 +341,19 @@ export function GitHistoryPanel({
                     className="flex shrink-0 items-center gap-2 overflow-hidden px-2 text-xs"
                     style={{ height: GRAPH_ROW_HEIGHT }}
                   >
-                    <GitGraphColumn
-                      row={graphRow}
-                      laneCount={view.graph.laneCount}
-                      variant="pending"
-                    />
+                    <span className={COLUMN.graph}>
+                      <GitGraphColumn
+                        row={graphRow}
+                        laneCount={view.graph.laneCount}
+                        variant="pending"
+                      />
+                    </span>
                     <span className="min-w-0 flex-1 truncate font-medium">
                       Uncommitted Changes ({row.fileCount})
                     </span>
-                    <span className="w-16 shrink-0 text-muted-foreground @md/history:w-36">—</span>
+                    <span className="w-16 shrink-0 text-muted-foreground @md/history:w-(--history-col-date)">
+                      —
+                    </span>
                     <span className={cn(COLUMN.author, "text-muted-foreground")}>*</span>
                     <span className={cn(COLUMN.sha, "font-mono text-muted-foreground")}>*</span>
                   </div>
@@ -349,11 +393,13 @@ export function GitHistoryPanel({
                     });
                   }}
                 >
-                  <GitGraphColumn
-                    row={graphRow}
-                    laneCount={view.graph.laneCount}
-                    variant={row.isHead ? "head" : "commit"}
-                  />
+                  <span className={COLUMN.graph}>
+                    <GitGraphColumn
+                      row={graphRow}
+                      laneCount={view.graph.laneCount}
+                      variant={row.isHead ? "head" : "commit"}
+                    />
+                  </span>
                   <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
                     {sortCommitRefs(commit.refs).map((refValue) => (
                       <span

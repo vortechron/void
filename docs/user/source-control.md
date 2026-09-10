@@ -63,6 +63,9 @@ Open **History** in the right panel to see the commit graph for the current proj
 - Right-click a branch label to check it out or copy its name. Right-click a commit to copy its
   SHA or message.
 - Click a commit to open its own diff in a new tab, showing only what that commit changed.
+- Drag the divider beside the Graph, Date, Author, or Commit heading to resize that column, and
+  double-click the divider to put it back. T3 Code remembers the widths for the next time you open
+  History.
 
 History is available for any project in a Git repository.
 

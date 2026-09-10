@@ -1,5 +1,8 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
+import { readEffectiveZoom } from "~/effectiveZoom";
+import { resolveHighlightGeometry } from "./glidingHighlightGeometry";
+
 /* ─────────────────────────────────────────────────────────
  * GLIDING HIGHLIGHT
  *
@@ -46,15 +49,20 @@ export function useDelegatedGlidingHighlight(rowSelector: string) {
         setBox(null);
         return;
       }
-      const containerRect = container.getBoundingClientRect();
-      const rowRect = row.getBoundingClientRect();
+      const geometry = resolveHighlightGeometry(
+        container.getBoundingClientRect(),
+        row.getBoundingClientRect(),
+        readEffectiveZoom(container),
+      );
       setBox({
-        top: rowRect.top - containerRect.top + container.scrollTop,
-        height: rowRect.height,
+        // `scrollTop` is already an unzoomed layout offset, so it is added
+        // after the measured rects have been scaled back.
+        top: geometry.top + container.scrollTop,
+        height: geometry.height,
         // Tracked because rows in a tree are indented by depth; a full-width
         // pill would sit under the indent instead of around the row.
-        left: rowRect.left - containerRect.left,
-        width: rowRect.width,
+        left: geometry.left,
+        width: geometry.width,
       });
     },
     [rowSelector],
@@ -92,11 +100,14 @@ export function useGlidingHighlight(restKey: string | null) {
       setBox(null);
       return;
     }
-    const containerRect = container.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
+    const geometry = resolveHighlightGeometry(
+      container.getBoundingClientRect(),
+      element.getBoundingClientRect(),
+      readEffectiveZoom(container),
+    );
     setBox({
-      top: elementRect.top - containerRect.top,
-      height: elementRect.height,
+      top: geometry.top,
+      height: geometry.height,
     });
   }, [target]);
 

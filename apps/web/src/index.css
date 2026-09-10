@@ -123,6 +123,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --code-font-family:
     "SF Mono", "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --ui-font-scale: 1;
+  --ui-zoom: 1;
   --code-font-size: 13px;
   --code-line-height: 20px;
   --diffs-font-family: var(--code-font-family);
@@ -649,6 +650,34 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   body {
     @apply text-foreground relative;
   }
+
+  /* Interface zoom. `zoom` is the only scaling that reaches every length in the
+     app, including the one-off pixel sizes utility classes never see. It sits
+     on the app root rather than the document element because the root
+     element's box is always stretched to the viewport, so zooming that box
+     above 100% pushes the app off screen no matter what height it is given.
+     Pinning the app root to the viewport instead hands the zoomed subtree the
+     real viewport as its containing block. Viewport units inside it are then
+     wrong in both directions — zoom multiplies them a second time — so the
+     full-height shells switch to percentages of that pinned box. Zoom at 100%
+     drops the whole override, leaving untouched installs on their dvh sizing. */
+  html[data-ui-zoomed="true"] #root {
+    position: fixed;
+    inset: 0;
+    zoom: var(--ui-zoom);
+    /* Layout containment makes the pinned root the containing block for the
+       app's fixed elements — the sidebar panel above all. Without it they
+       measure themselves against the unzoomed viewport and end up scaled past
+       the screen edge, which cuts off the sidebar footer and slides every
+       hover row out from under the pointer. */
+    contain: layout;
+  }
+
+  html[data-ui-zoomed="true"] [data-slot="sidebar-wrapper"],
+  html[data-ui-zoomed="true"] [data-slot="sidebar-inset"],
+  html[data-ui-zoomed="true"] [data-slot="sidebar-container"] {
+    height: 100% !important;
+  }
 }
 
 @layer components {
@@ -1150,9 +1179,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      Split the glass into exact surfaces while a drawer or tab is present; the
      default composer keeps the cheaper continuous layer. */
   .chat-composer-glass-shell:is(
-    .chat-composer-glass-shell-attached,
-    :has(:is(.chat-composer-top-drawer, .chat-composer-shoulder-tab))
-  )::before,
+      .chat-composer-glass-shell-attached,
+      :has(:is(.chat-composer-top-drawer, .chat-composer-shoulder-tab))
+    )::before,
   .chat-composer-glass-shell:is(
       .chat-composer-glass-shell-attached,
       :has(:is(.chat-composer-top-drawer, .chat-composer-shoulder-tab))

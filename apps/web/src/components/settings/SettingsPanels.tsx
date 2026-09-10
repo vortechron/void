@@ -29,12 +29,14 @@ import {
   MAX_PANEL_ANIMATION_DURATION_MS,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MAX_UI_FONT_SIZE,
+  MAX_UI_ZOOM,
   MIN_APPEARANCE_CONTRAST,
   MIN_CODE_FONT_SIZE,
   MIN_GLASS_OPACITY,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MIN_PANEL_ANIMATION_DURATION_MS,
   MIN_UI_FONT_SIZE,
+  MIN_UI_ZOOM,
   type QuitConfirmationMode,
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -510,6 +512,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["UI font family"]
         : []),
       ...(settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize ? ["UI font size"] : []),
+      ...(settings.uiZoom !== DEFAULT_UNIFIED_SETTINGS.uiZoom ? ["Interface zoom"] : []),
       ...(settings.codeTheme !== DEFAULT_UNIFIED_SETTINGS.codeTheme ? ["Code theme"] : []),
       ...(settings.codeFontFamily !== DEFAULT_UNIFIED_SETTINGS.codeFontFamily
         ? ["Code font family"]
@@ -651,6 +654,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.timestampFormat,
       settings.uiFontFamily,
       settings.uiFontSize,
+      settings.uiZoom,
       settings.wordWrap,
       followSystem,
       theme,
@@ -724,6 +728,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       uiFontFamily: DEFAULT_UNIFIED_SETTINGS.uiFontFamily,
       uiFontSize: DEFAULT_UNIFIED_SETTINGS.uiFontSize,
+      uiZoom: DEFAULT_UNIFIED_SETTINGS.uiZoom,
       codeFontFamily: DEFAULT_UNIFIED_SETTINGS.codeFontFamily,
       codeFontSize: DEFAULT_UNIFIED_SETTINGS.codeFontSize,
       codeTheme: DEFAULT_UNIFIED_SETTINGS.codeTheme,
@@ -1123,6 +1128,11 @@ export function AppearanceSettingsPanel() {
   const environmentStageLabel = useEnvironmentStageLabel();
   const showEnvironmentIdentification =
     resolveEnvironmentIdentificationPillLabel(environmentStageLabel) !== null;
+  const uiZoomRatio = (settings.uiZoom - MIN_UI_ZOOM) / (MAX_UI_ZOOM - MIN_UI_ZOOM);
+  const uiZoomSliderStyle = {
+    "--settings-slider-progress": `${uiZoomRatio * 100}%`,
+    "--settings-slider-fill-offset": `${0.5 - uiZoomRatio}rem`,
+  } as CSSProperties;
   const glassOpacityRatio =
     (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
   const glassOpacitySliderStyle = {
@@ -1255,6 +1265,46 @@ export function AppearanceSettingsPanel() {
               onChange={(uiFontSize) => updateSettings({ uiFontSize })}
               value={settings.uiFontSize}
             />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("setting-ui-zoom")}
+          description="Scales the whole interface, not only text. Lower values fit more on screen."
+          resetAction={
+            settings.uiZoom !== DEFAULT_UNIFIED_SETTINGS.uiZoom ? (
+              <SettingResetButton
+                label="interface zoom"
+                onClick={() => updateSettings({ uiZoom: DEFAULT_UNIFIED_SETTINGS.uiZoom })}
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full items-center gap-3 sm:w-52">
+              <output
+                className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                htmlFor="ui-zoom"
+              >
+                {settings.uiZoom}%
+              </output>
+              <input
+                aria-label="Interface zoom"
+                className="settings-slider min-w-0 flex-1"
+                id="ui-zoom"
+                max={MAX_UI_ZOOM}
+                min={MIN_UI_ZOOM}
+                onChange={(event) => {
+                  const uiZoom = Number(event.currentTarget.value);
+                  if (Number.isInteger(uiZoom) && uiZoom >= MIN_UI_ZOOM && uiZoom <= MAX_UI_ZOOM) {
+                    updateSettings({ uiZoom });
+                  }
+                }}
+                step={5}
+                style={uiZoomSliderStyle}
+                type="range"
+                value={settings.uiZoom}
+              />
+            </div>
           }
         />
 

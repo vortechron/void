@@ -12,7 +12,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
-import { resolveAppearanceCssVariables } from "../appearancePreferences";
+import { isUiZoomActive, resolveAppearanceCssVariables } from "../appearancePreferences";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentCompletionCoordinator } from "../components/AgentCompletionCoordinator";
@@ -255,10 +255,18 @@ function AppearancePreferencesSync() {
   const settings = useClientSettings();
 
   useEffect(() => {
-    const rootStyle = document.documentElement.style;
+    const root = document.documentElement;
+    const rootStyle = root.style;
     rootStyle.setProperty("--glass-opacity", `${settings.glassOpacity}%`);
     for (const [name, value] of Object.entries(resolveAppearanceCssVariables(settings))) {
       rootStyle.setProperty(name, value);
+    }
+    // The flag, not the factor, gates the zoom rules: at 100% the app keeps its
+    // untouched viewport-unit layout instead of paying for a no-op zoom.
+    if (isUiZoomActive(settings.uiZoom)) {
+      root.dataset.uiZoomed = "true";
+    } else {
+      delete root.dataset.uiZoomed;
     }
   }, [
     settings.codeFontFamily,
@@ -266,6 +274,7 @@ function AppearancePreferencesSync() {
     settings.glassOpacity,
     settings.uiFontFamily,
     settings.uiFontSize,
+    settings.uiZoom,
   ]);
 
   return null;
