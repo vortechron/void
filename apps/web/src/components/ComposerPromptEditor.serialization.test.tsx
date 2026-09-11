@@ -1,6 +1,13 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { $copyNode, $getRoot, $isElementNode, PASTE_COMMAND, type LexicalEditor } from "lexical";
-import { act, createRef } from "react";
+import {
+  $copyNode,
+  $getRoot,
+  $getSelection,
+  $isElementNode,
+  PASTE_COMMAND,
+  type LexicalEditor,
+} from "lexical";
+import { act, createRef, type ComponentProps } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -29,13 +36,16 @@ vi.mock("@lexical/react/LexicalPlainTextPlugin", () => ({
 let renderer: ReactTestRenderer | undefined;
 const editorRef = createRef<ComposerPromptEditorHandle>();
 
-function composer(value: string) {
+function composer(
+  value: string,
+  skills: ComponentProps<typeof ComposerPromptEditor>["skills"] = [],
+) {
   return (
     <ComposerPromptEditor
       value={value}
       cursor={collapseExpandedComposerCursor(value, value.length)}
       terminalContexts={[]}
-      skills={[]}
+      skills={skills}
       disabled={false}
       placeholder="Write a prompt"
       onRemoveTerminalContext={() => {}}
@@ -46,10 +56,13 @@ function composer(value: string) {
   );
 }
 
-async function renderPrompt(value: string) {
+async function renderPrompt(
+  value: string,
+  skills: ComponentProps<typeof ComposerPromptEditor>["skills"] = [],
+) {
   await act(() => {
-    if (renderer) renderer.update(composer(value));
-    else renderer = create(composer(value));
+    if (renderer) renderer.update(composer(value, skills));
+    else renderer = create(composer(value, skills));
   });
 }
 
@@ -79,6 +92,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await act(() => renderer?.unmount());
   renderer = undefined;
   vi.unstubAllGlobals();
@@ -109,6 +123,75 @@ describe("composer mention serialization", () => {
         expect(lexicalEditor.getEditorState().read(() => $firstMention().isInline())).toBe(true);
       }
     }
+  });
+
+  it.each(["Second branch draft", ""])(
+    "loads draft %j without creating a selection in the unfocused editor",
+    async (prompt) => {
+      await renderPrompt("First branch draft");
+      expect(lexicalEditor.getEditorState().read($getSelection)).toBeNull();
+
+      await renderPrompt(prompt);
+
+      expect(editorRef.current?.readSnapshot()).toMatchObject({
+        value: prompt,
+        expandedCursor: prompt.length,
+      });
+      expect(lexicalEditor.getEditorState().read($getSelection)).toBeNull();
+    },
+  );
+
+  it("loads another workspace's skills without selecting the empty composer", async () => {
+    await renderPrompt("");
+    await renderPrompt("", [
+      { name: "review", path: "/workspace/.agents/skills/review/SKILL.md", enabled: true },
+    ]);
+
+    expect(editorRef.current?.readSnapshot().value).toBe("");
+    expect(lexicalEditor.getEditorState().read($getSelection)).toBeNull();
+  });
+
+  it.each(["cursor", "end"])(
+    "ignores delayed %s caret requests while the composer is unfocused",
+    async (position) => {
+      await renderPrompt("Saved draft");
+      const focus = vi.fn();
+      // Only the DOM focus boundary is supplied; editor updates stay real.
+      const element = { focus } as unknown as HTMLElement;
+      const getRootElement = vi.spyOn(lexicalEditor, "getRootElement").mockReturnValue(element);
+      focus.mockImplementation(() => getRootElement.mockReturnValue(null));
+
+      await act(() => {
+        if (position === "cursor") editorRef.current?.focusAt(2);
+        else editorRef.current?.focusAtEnd();
+      });
+
+      expect(focus).not.toHaveBeenCalled();
+      expect(lexicalEditor.getEditorState().read($getSelection)).toBeNull();
+      expect(editorRef.current?.readSnapshot().value).toBe("Saved draft");
+    },
+  );
+
+  it("clears pending selection updates when navigation blurs the editor", async () => {
+    await renderPrompt("Saved draft");
+    await act(() => {
+      lexicalEditor.update(() => $getRoot().selectEnd());
+      editorRef.current?.blur();
+    });
+
+    expect(lexicalEditor.getEditorState().read($getSelection)).toBeNull();
+    expect(editorRef.current?.readSnapshot().value).toBe("Saved draft");
+  });
+
+  it("still moves the caret when the user is already editing", async () => {
+    await renderPrompt("Saved draft");
+    const element = {} as HTMLElement;
+    vi.stubGlobal("document", { activeElement: element });
+    vi.spyOn(lexicalEditor, "getRootElement").mockReturnValueOnce(element).mockReturnValue(null);
+
+    await act(() => editorRef.current?.focusAt(2));
+
+    expect(editorRef.current?.readSnapshot()).toMatchObject({ value: "Saved draft", cursor: 2 });
   });
 
   it("preserves source when Lexical clones the mention and reloads exported state", async () => {

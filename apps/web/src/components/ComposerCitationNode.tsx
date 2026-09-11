@@ -8,6 +8,7 @@ import {
   $applyNodeReplacement,
   $getNodeByKey,
   $getRoot,
+  $setSelection,
   $isElementNode,
   DecoratorNode,
   HISTORY_PUSH_TAG,
@@ -95,17 +96,18 @@ function ComposerCitationDecorator(props: { citation: AssistantCitation; nodeKey
   };
   const onRemove = () => {
     if (!editor.isEditable()) return;
+    const isFocused = document.activeElement === editor.getRootElement();
     editor.update(
       () => {
         const node = $getNodeByKey(props.nodeKey);
         if (node instanceof ComposerCitationNode) {
-          node.selectPrevious();
+          if (isFocused) node.selectPrevious();
           node.remove();
+          if (!isFocused) $setSelection(null);
         }
       },
-      { tag: HISTORY_PUSH_TAG },
+      { tag: isFocused ? HISTORY_PUSH_TAG : [HISTORY_PUSH_TAG, SKIP_DOM_SELECTION_TAG] },
     );
-    editor.getRootElement()?.focus({ preventScroll: true });
   };
 
   return (

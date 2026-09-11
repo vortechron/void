@@ -2652,8 +2652,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       setComposerTrigger(detectComposerTrigger(next.text, nextExpandedCursor));
       if (options?.focusEditorAfterReplace !== false) {
         window.requestAnimationFrame(() => {
-          // Type-to-focus routes only the first key through here; once the
-          // controlled update focuses the editor, later keys land natively.
           // Skip the deferred caret placement when the draft has moved on,
           // or it drags the caret back behind what was typed since.
           if (promptRef.current !== next.text) return;
@@ -2990,28 +2988,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setComposerDraftPrompt,
     submitComposer,
   ]);
-  const expandMobileComposer = useCallback(() => {
-    if (composerBlurFrameRef.current !== null) {
-      window.cancelAnimationFrame(composerBlurFrameRef.current);
-      composerBlurFrameRef.current = null;
-    }
-    if (mobileComposerExpandFrameRef.current !== null) {
-      window.cancelAnimationFrame(mobileComposerExpandFrameRef.current);
-    }
-    if (mobileComposerExpandReleaseFrameRef.current !== null) {
-      window.cancelAnimationFrame(mobileComposerExpandReleaseFrameRef.current);
-    }
-    mobileComposerExpandInFlightRef.current = true;
-    setIsComposerFocused(true);
-    mobileComposerExpandFrameRef.current = window.requestAnimationFrame(() => {
-      mobileComposerExpandFrameRef.current = null;
-      composerEditorRef.current?.focusAtEnd();
-      mobileComposerExpandReleaseFrameRef.current = window.requestAnimationFrame(() => {
-        mobileComposerExpandReleaseFrameRef.current = null;
-        mobileComposerExpandInFlightRef.current = false;
+  const expandMobileComposer = useCallback(
+    (focusEditor = false) => {
+      if (composerBlurFrameRef.current !== null) {
+        window.cancelAnimationFrame(composerBlurFrameRef.current);
+        composerBlurFrameRef.current = null;
+      }
+      if (mobileComposerExpandFrameRef.current !== null) {
+        window.cancelAnimationFrame(mobileComposerExpandFrameRef.current);
+      }
+      if (mobileComposerExpandReleaseFrameRef.current !== null) {
+        window.cancelAnimationFrame(mobileComposerExpandReleaseFrameRef.current);
+      }
+      mobileComposerExpandInFlightRef.current = true;
+      setIsComposerFocused(true);
+      mobileComposerExpandFrameRef.current = window.requestAnimationFrame(() => {
+        mobileComposerExpandFrameRef.current = null;
+        if (focusEditor) composerEditorRef.current?.focus();
+        mobileComposerExpandReleaseFrameRef.current = window.requestAnimationFrame(() => {
+          mobileComposerExpandReleaseFrameRef.current = null;
+          mobileComposerExpandInFlightRef.current = false;
+        });
       });
-    });
-  }, [setIsComposerFocused]);
+    },
+    [setIsComposerFocused],
+  );
 
   // ------------------------------------------------------------------
   // Prompt history (ArrowUp / ArrowDown)
@@ -3025,6 +3026,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // be treated as active in thread B, where the text-match fallback could
   // otherwise turn B's own draft into a browsing position.
   const promptHistoryTargetKey = composerTargetKey(composerDraftTarget);
+  useLayoutEffect(() => {
+    // A touch on a sidebar row can leave the previous editor focused.
+    // End that editing session when the viewed thread changes.
+    composerEditorRef.current?.blur();
+  }, [promptHistoryTargetKey]);
   useEffect(() => {
     promptHistoryPositionRef.current = null;
   }, [promptHistoryTargetKey]);
@@ -4428,9 +4434,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (text, options) => {
       const inserted = insertComposerText(text, "end", options);
       if (inserted && isComposerCollapsedMobile) {
-        // The expanded editor is hidden at phone widths, so its scheduled
-        // focus cannot expand the composer by itself. Reveal it before the
-        // focus frame runs to preserve type-to-focus and external inserts.
+        // Reveal inserted content without opening the touch keyboard.
         expandMobileComposer();
       }
       return inserted;
@@ -4642,19 +4646,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     });
   }, [isMobileViewport, setIsComposerFocused]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
       if (composerBlurFrameRef.current !== null) {
         window.cancelAnimationFrame(composerBlurFrameRef.current);
+        composerBlurFrameRef.current = null;
       }
       if (mobileComposerExpandFrameRef.current !== null) {
         window.cancelAnimationFrame(mobileComposerExpandFrameRef.current);
+        mobileComposerExpandFrameRef.current = null;
       }
       if (mobileComposerExpandReleaseFrameRef.current !== null) {
         window.cancelAnimationFrame(mobileComposerExpandReleaseFrameRef.current);
+        mobileComposerExpandReleaseFrameRef.current = null;
       }
+      mobileComposerExpandInFlightRef.current = false;
     };
-  }, []);
+  }, [promptHistoryTargetKey]);
 
   // ------------------------------------------------------------------
   // Imperative handle
@@ -4870,7 +4878,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           // placement from text.
           event.preventDefault();
           setIsComposerFocused(true);
-          scheduleComposerFocus();
+          composerEditorRef.current?.focus();
         }
       }}
       onFocusCapture={(event) => {
@@ -5026,7 +5034,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 !activePendingProgress?.activeQuestion?.multiSelect && "px-3 py-2",
                               )}
                               onPointerDown={(event) => event.preventDefault()}
-                              onClick={expandMobileComposer}
+                              onClick={() => expandMobileComposer(true)}
                               aria-label="Write custom answer"
                             >
                               {activePendingProgress?.customAnswer || "Write custom answer"}
@@ -5125,7 +5133,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       : "text-placeholder",
                   )}
                   onPointerDown={(event) => event.preventDefault()}
-                  onClick={isChoiceOnlyPendingQuestion ? undefined : expandMobileComposer}
+                  onClick={
+                    isChoiceOnlyPendingQuestion ? undefined : () => expandMobileComposer(true)
+                  }
                   disabled={isChoiceOnlyPendingQuestion}
                   aria-label="Expand composer"
                 >
