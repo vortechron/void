@@ -1464,7 +1464,7 @@ describe("shouldShowBranchMismatchBanner", () => {
     wasShownForCurrentMismatch: false,
   };
 
-  it("stays hidden during passive browsing (even though the composer autofocuses)", () => {
+  it("stays hidden during passive browsing", () => {
     expect(shouldShowBranchMismatchBanner(base)).toBe(false);
   });
 
