@@ -49,6 +49,7 @@ import { DiffBaseRefPicker } from "./diffs/DiffBaseRefPicker";
 import { DiffFileTreeVoid } from "./diffs/DiffFileTreeVoid";
 import { DiffToolbarActions } from "./diffs/DiffToolbarActions";
 import { Button } from "./ui/button";
+import { PanelResizeGrip } from "./ui/panel-resize-grip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1026,13 +1027,14 @@ export default function DiffPanel({
                         aria-valuemin={DIFF_FILE_TREE_MIN_WIDTH}
                         aria-valuemax={diffFileTreeMaxWidth}
                         aria-valuenow={Math.round(diffFileTreeWidth)}
-                        className="group absolute inset-y-0 -right-1 z-20 w-2 touch-none cursor-col-resize select-none"
+                        className="group/resize absolute inset-y-0 -right-1 z-20 w-2 touch-none cursor-col-resize select-none"
                         {...diffFileTreeResizeHandlers}
                       >
                         <span
                           aria-hidden="true"
-                          className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-primary/60 group-active:bg-primary"
+                          className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover/resize:bg-primary/60 group-active/resize:bg-primary"
                         />
+                        <PanelResizeGrip />
                       </div>
                     </div>
                   ))}
