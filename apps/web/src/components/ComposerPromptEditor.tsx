@@ -892,7 +892,10 @@ function collectTerminalContextIds(node: LexicalNode): string[] {
 }
 
 export interface ComposerPromptEditorHandle {
+  /** Only call from a direct tap on the composer. */
   focus: () => void;
+  blur: () => void;
+  /** Move the caret only if the editor already has focus. */
   focusAt: (cursor: number) => void;
   focusAtEnd: () => void;
   requestCitationComment: (request: ComposerCitationCommentRequest) => void;
@@ -1763,8 +1766,12 @@ function ComposerPromptEditorInner({
         if (shouldRewriteEditorState) {
           $setComposerEditorPrompt(value, terminalContexts, skillMetadataRef.current);
         }
-        if (shouldRewriteEditorState || isFocused) {
+        if (isFocused) {
           $setSelectionAtComposerOffset(normalizedCursor);
+        } else {
+          // Loading another workspace's draft or skills must not let Lexical
+          // move browser focus into the composer and open the touch keyboard.
+          $setSelection(null);
         }
         citationToOpen = $consumeComposerCitationCommentRequest(citationCommentRequestRef);
       },
@@ -1783,9 +1790,8 @@ function ComposerPromptEditorInner({
   const focusAt = useCallback(
     (nextCursor: number) => {
       const rootElement = editor.getRootElement();
-      if (!rootElement) return;
+      if (!rootElement || document.activeElement !== rootElement) return;
       const boundedCursor = clampCollapsedComposerCursor(snapshotRef.current.value, nextCursor);
-      rootElement.focus({ preventScroll: true });
       editor.update(() => {
         $setSelectionAtComposerOffset(boundedCursor);
       });
@@ -1853,7 +1859,17 @@ function ComposerPromptEditorInner({
     editorRef,
     () => ({
       focus: () => {
+        editor.getRootElement()?.focus({ preventScroll: true });
         focusAt(snapshotRef.current.cursor);
+      },
+      blur: () => {
+        editor.getRootElement()?.blur();
+        // Clear any queued selection update too, so it cannot restore focus
+        // after navigation has dismissed the keyboard.
+        editor.update(() => $setSelection(null), {
+          discrete: true,
+          tag: SKIP_DOM_SELECTION_TAG,
+        });
       },
       focusAt,
       focusAtEnd: () => {
