@@ -19,3 +19,13 @@ export function readEffectiveZoom(element: HTMLElement): number {
   const measured = element.getBoundingClientRect().height / layoutHeight;
   return Number.isFinite(measured) && measured > 0 ? measured : 1;
 }
+
+/**
+ * Border-box height in layout pixels — the space a length written back into
+ * the zoomed subtree is read in. Use this instead of `getBoundingClientRect`
+ * whenever a measured height becomes a reserved height, a padding, or an
+ * inset; the raw rect is short by the zoom factor and reserves too little.
+ */
+export function readLayoutHeight(element: HTMLElement): number {
+  return element.getBoundingClientRect().height / readEffectiveZoom(element);
+}

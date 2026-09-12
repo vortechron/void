@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 
+import { readEffectiveZoom } from "../effectiveZoom";
 import { getLocalStorageItem, setLocalStorageItem } from "./useLocalStorage";
 
 const WidthSchema = Schema.Finite;
@@ -80,6 +81,8 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     pending: number;
     rafId: number | null;
     target: HTMLElement;
+    /** Captured on grab; interface zoom cannot change mid-drag. */
+    zoom: number;
   } | null>(null);
 
   const releasePointer = useCallback((pointerId: number) => {
@@ -137,6 +140,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
         pending: clampedWidth,
         rafId: null,
         target,
+        zoom: readEffectiveZoom(target),
       };
     },
     [clampedWidth],
@@ -147,8 +151,13 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
       const state = dragStateRef.current;
       if (!state || state.pointerId !== event.pointerId) return;
       event.preventDefault();
-      const delta = edge === "left" ? state.startX - event.clientX : event.clientX - state.startX;
-      state.pending = clamp(state.startWidth + delta);
+      // Pointer coordinates arrive in post-zoom pixels while the width below
+      // is written back into the zoomed box, so the travel has to come back to
+      // layout pixels or the edge drifts away from the finger under interface
+      // zoom.
+      const pointerTravel =
+        edge === "left" ? state.startX - event.clientX : event.clientX - state.startX;
+      state.pending = clamp(state.startWidth + pointerTravel / state.zoom);
       if (state.rafId !== null) return;
       state.rafId = requestAnimationFrame(() => {
         const active = dragStateRef.current;
