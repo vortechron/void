@@ -102,6 +102,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
+import { readLayoutHeight } from "../effectiveZoom";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
@@ -1909,7 +1910,7 @@ export default function ChatView(props: ChatViewProps) {
     activePreviewMiniPlayer?.tabId ?? null,
     renderedRightPanelSurface,
   );
-  const canMaximizeRightPanel = rightPanelOpen && !shouldUseRightPanelSheet;
+  const canMaximizeRightPanel = rightPanelOpen;
   const rightPanelMaximized =
     canMaximizeRightPanel && maximizedRightPanelThreadKey === routeThreadKey;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUseRightPanelSheet;
@@ -4951,7 +4952,8 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     const controller = createPageScrollController({
       getContainer: () => legendListRef.current?.getScrollableNode() ?? null,
-      getScrollPaddingBottomPx: () => composerOverlayElement?.getBoundingClientRect().height ?? 0,
+      getScrollPaddingBottomPx: () =>
+        composerOverlayElement ? readLayoutHeight(composerOverlayElement) : 0,
       onScrollStart: handlePageScrollStart,
     });
     pageScrollControllerRef.current = controller;
@@ -5456,14 +5458,14 @@ export default function ChatView(props: ChatViewProps) {
   useLayoutEffect(() => {
     if (!composerOverlayElement) return;
     composerTimelineInsetRef.current = 0;
-    publishComposerOverlayHeight(composerOverlayElement.getBoundingClientRect().height);
+    publishComposerOverlayHeight(readLayoutHeight(composerOverlayElement));
   }, [activeThreadKey, composerOverlayElement, publishComposerOverlayHeight]);
 
   useLayoutEffect(() => {
     if (!composerOverlayElement) return;
 
     const updateHeight = () => {
-      publishComposerOverlayHeight(composerOverlayElement.getBoundingClientRect().height);
+      publishComposerOverlayHeight(readLayoutHeight(composerOverlayElement));
     };
 
     updateHeight();
@@ -8670,6 +8672,7 @@ export default function ChatView(props: ChatViewProps) {
       {rightPanelPresent && shouldUseRightPanelSheet && activeThreadRef ? (
         <RightPanelSheet
           animationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
+          maximized={rightPanelMaximized}
           open={rightPanelOpen}
           underFloatingPreview={previewMiniPlayerVisible}
           onClose={closePreviewPanel}
@@ -8682,7 +8685,13 @@ export default function ChatView(props: ChatViewProps) {
             // the sheet opens.
             layoutControls={
               rightPanelOpen ? (
-                <div className="mr-px flex items-center">{panelToggleControls}</div>
+                <div className="mr-px flex items-center">
+                  <RightPanelMaximizeControl
+                    maximized={rightPanelMaximized}
+                    onToggle={toggleRightPanelMaximized}
+                  />
+                  {panelToggleControls}
+                </div>
               ) : null
             }
             surfaces={renderedRightPanelSurfaces}
