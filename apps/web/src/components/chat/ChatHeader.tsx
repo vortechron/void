@@ -11,6 +11,7 @@ import {
 } from "@t3tools/contracts";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -63,10 +64,7 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
-  activeProjectName: string | undefined;
-  activeProjectCwd: string | null;
-  activeProjectFaviconPath: string | null;
-  activeProjectIcon: import("@t3tools/contracts").ProjectIconOverride | null;
+  activeProject: EnvironmentProject | null;
   openInCwd: string | null;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
   activeProjectPromptActions: ReadonlyArray<ProjectPromptAction> | undefined;
@@ -171,10 +169,7 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   isServerThread,
-  activeProjectName: activeProjectRealName,
-  activeProjectCwd,
-  activeProjectFaviconPath,
-  activeProjectIcon,
+  activeProject,
   openInCwd,
   activeProjectScripts,
   activeProjectPromptActions,
@@ -221,9 +216,11 @@ export const ChatHeader = memo(function ChatHeader({
   // Display-only: the real title still drives `activeProjectCwd`, rename
   // fields, and everything the header hands to a provider.
   const privateProjectName = usePrivateProjectName();
+  const activeProjectRealName = activeProject?.title;
   const activeProjectName =
     activeProjectRealName === undefined ? undefined : privateProjectName(activeProjectRealName);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,
     activeProjectScripts ? activeProjectCwd : null,
@@ -390,7 +387,7 @@ export const ChatHeader = memo(function ChatHeader({
         {/* The project always leads the header: knowing which project a
             thread lives in is priority zero, and the thread title alone
             doesn't answer it. */}
-        {activeProjectName ? (
+        {activeProject ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
               <Tooltip>
@@ -404,14 +401,7 @@ export const ChatHeader = memo(function ChatHeader({
                     />
                   }
                 >
-                  <ProjectFavicon
-                    environmentId={activeThreadEnvironmentId}
-                    cwd={activeProjectCwd ?? ""}
-                    projectName={activeProjectName}
-                    faviconPath={activeProjectFaviconPath}
-                    projectIcon={activeProjectIcon}
-                    className="size-3.5"
-                  />
+                  <ProjectFavicon project={activeProject} className="size-3.5" />
                   <span className="max-w-40 truncate">{activeProjectName}</span>
                 </TooltipTrigger>
                 <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>

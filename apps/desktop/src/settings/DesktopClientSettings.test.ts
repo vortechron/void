@@ -18,6 +18,7 @@ import * as DesktopClientSettings from "./DesktopClientSettings.ts";
 
 const clientSettings: ClientSettings = {
   ...DEFAULT_CLIENT_SETTINGS,
+  appearanceContrast: 100,
   autoOpenPlanSidebar: false,
   browserDefaultViewport: { _tag: "preset", width: 1024, height: 600, presetId: "nest-hub" },
   browserDefaultZoomFactor: 1.25,
@@ -56,6 +57,7 @@ const clientSettings: ClientSettings = {
   legacySidebarEnabled: false,
   loadBalancingEnabled: false,
   loadBalancingWeights: { "environment-1": 75, "environment-2": 0 },
+  pullRequestMergeMethodOverrides: {},
   timestampFormat: "24-hour",
   wordWrap: true,
 };
@@ -276,8 +278,8 @@ describe("DesktopClientSettings", () => {
 
   for (const document of [
     { label: "malformed JSON", contents: "{not-json" },
-    { label: "invalid direct settings", contents: '{"fontSizeCode":"large"}' },
-    { label: "invalid legacy settings", contents: '{"settings":{"fontSizeCode":"large"}}' },
+    { label: "invalid direct settings", contents: '{"codeFontSize":"large"}' },
+    { label: "invalid legacy settings", contents: '{"settings":{"codeFontSize":"large"}}' },
   ]) {
     it.effect(`reports ${document.label} without treating the settings file as absent`, () =>
       withClientSettings(

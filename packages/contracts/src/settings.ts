@@ -1,3 +1,4 @@
+import { SshDeviceHostConfigs } from "./device.ts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
 import * as Option from "effect/Option";
@@ -11,6 +12,7 @@ import {
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode } from "./environment.ts";
+import { KeybindingShortcut } from "./keybindings.ts";
 import {
   CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -32,6 +34,7 @@ import {
   ProviderInstanceId,
   type ProviderDriverKind,
 } from "./providerInstance.ts";
+import { PullRequestMergeMethod } from "./pullRequest.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -255,6 +258,66 @@ export const DEFAULT_USAGE_METER_CHART_STYLE: UsageMeterChartStyle = "ring";
 export const UsageMeterMode = Schema.Literals(["expanded", "minimized", "off"]);
 export type UsageMeterMode = typeof UsageMeterMode.Type;
 export const DEFAULT_USAGE_METER_MODE: UsageMeterMode = "expanded";
+
+export const SnapShotKeyChord = KeybindingShortcut.check(
+  Schema.makeFilter(
+    (shortcut) =>
+      shortcut.metaKey ||
+      shortcut.ctrlKey ||
+      shortcut.shiftKey ||
+      shortcut.altKey ||
+      shortcut.modKey ||
+      "Snapshot shortcut requires a modifier.",
+  ),
+);
+export type SnapShotKeyChord = typeof SnapShotKeyChord.Type;
+export const SNAP_SHOT_MODIFIERS = ["shift", "meta", "control", "alt"] as const;
+export const SnapShotModifier = Schema.Literals(SNAP_SHOT_MODIFIERS);
+export type SnapShotModifier = typeof SnapShotModifier.Type;
+export const SnapShotShortcut = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("both-shift-keys") }),
+  Schema.Struct({ kind: Schema.Literal("modifier-pair"), modifier: SnapShotModifier }),
+  SnapShotKeyChord,
+]);
+export type SnapShotShortcut = typeof SnapShotShortcut.Type;
+export const SnapShotSound = Schema.Literals(["soft-pop", "camera-shutter"]);
+export type SnapShotSound = typeof SnapShotSound.Type;
+const DEFAULT_SNAP_SHOT_SOUND: SnapShotSound = "soft-pop";
+
+export type SnapShotModifierPairShortcut = Extract<SnapShotShortcut, { readonly kind: string }>;
+
+export function isModifierPairShortcut(
+  shortcut: SnapShotShortcut,
+): shortcut is SnapShotModifierPairShortcut {
+  return "kind" in shortcut;
+}
+
+export function snapShotShortcutModifierPair(
+  shortcut: SnapShotModifierPairShortcut,
+): SnapShotModifier {
+  return shortcut.kind === "both-shift-keys" ? "shift" : shortcut.modifier;
+}
+
+const APPLE_MODIFIER_LABELS: Record<SnapShotModifier, string> = {
+  shift: "Shift",
+  meta: "Command",
+  control: "Control",
+  alt: "Option",
+};
+const OTHER_MODIFIER_LABELS: Record<SnapShotModifier, string> = {
+  shift: "Shift",
+  meta: "Super",
+  control: "Ctrl",
+  alt: "Alt",
+};
+
+export function snapShotModifierPairLabel(modifier: SnapShotModifier, apple: boolean): string {
+  const label = (apple ? APPLE_MODIFIER_LABELS : OTHER_MODIFIER_LABELS)[modifier];
+  return `${label} + ${label}`;
+}
+const DEFAULT_SNAP_SHOT_SHORTCUT: SnapShotShortcut = {
+  kind: "both-shift-keys",
+};
 
 export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
 export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
@@ -556,9 +619,14 @@ export const LoadBalancingWeights = Schema.Record(
   Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
 );
 
+export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
+
 export const ClientSettingsSchema = Schema.Struct({
   agentNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  diffColorScheme: DiffColorScheme.pipe(
+    Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
+  ),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   appearanceContrast: AppearanceContrast.pipe(
@@ -697,6 +765,10 @@ export const ClientSettingsSchema = Schema.Struct({
       modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
     }),
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  pullRequestMergeMethodOverrides: Schema.Record(
+    TrimmedNonEmptyString,
+    PullRequestMergeMethod,
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Legacy plan mode. The composer's Build/Plan toggle was removed from the
   // default UI; this beta flag restores it (plus the /plan and /default slash
   // commands) for users who still rely on the old workflow.
@@ -757,12 +829,25 @@ export const ClientSettingsSchema = Schema.Struct({
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
   ),
-  // Nested rather than four flat keys so the meter's presentation stays one
+  // Nested rather than four flat keys so the meter'"'"'s presentation stays one
   // unit here and in `ClientSettingsPatch`. Patched whole, like
   // `providerInstances`: the settings panel always holds the full value.
   usageMeter: UsageMeterSettings,
   // Nested for the same reason as `usageMeter`, and patched whole.
   voiceDictation: VoiceDictationSettings,
+  snapShotEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  snapShotIncludeAccessibility: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  snapShotShortcut: SnapShotShortcut.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNAP_SHOT_SHORTCUT)),
+  ),
+  snapShotPlaySound: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  snapShotSound: SnapShotSound.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNAP_SHOT_SOUND)),
+  ),
+  snapShotFlash: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Patched whole, like `usageMeter`: the syncing client always holds the
   // complete value it is replacing.
@@ -1284,6 +1369,23 @@ export const ServerSettings = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /**
+   * Whether agents may drive simulators and emulators. Gates the `device_*`
+   * MCP tools and the preconfigured `agent-device` CLI the same way
+   * `enableAgentBrowserAccess` gates the browser: server-authoritative, applied
+   * when the provider session is prepared. The user's own Device panel is
+   * unaffected.
+   */
+  enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * Whether this server may install and run T3's device helper processes.
+   * Kept separate from agent access so enabling the user's Device panel does
+   * not also grant providers control of simulators and emulators.
+   */
+  enableDeviceSupport: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** Whether the server-local Device panel setup flow has been completed. */
+  deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  deviceHosts: SshDeviceHostConfigs.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
   ),
@@ -1464,7 +1566,7 @@ export const ServerSettingsOperation = Schema.Literals([
 ]);
 export type ServerSettingsOperation = typeof ServerSettingsOperation.Type;
 
-export class ServerSettingsError extends Schema.TaggedErrorClass<ServerSettingsError>()(
+export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>()(
   "ServerSettingsError",
   {
     settingsPath: Schema.String,
@@ -1572,6 +1674,10 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Record(ProjectId, Schema.NullOr(Schema.Boolean)),
   ),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
+  enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
+  deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
+  deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
   sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   backgroundActivity: Schema.optionalKey(
@@ -1644,6 +1750,7 @@ export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 export const ClientSettingsPatch = Schema.Struct({
   agentNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
+  diffColorScheme: Schema.optionalKey(DiffColorScheme),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
@@ -1703,6 +1810,9 @@ export const ClientSettingsPatch = Schema.Struct({
       }),
     ),
   ),
+  pullRequestMergeMethodOverrides: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, PullRequestMergeMethod),
+  ),
   planModeEnabled: Schema.optionalKey(Schema.Boolean),
   voidSidebarEnabled: Schema.optionalKey(Schema.Boolean),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
@@ -1730,6 +1840,13 @@ export const ClientSettingsPatch = Schema.Struct({
   usageMeter: Schema.optionalKey(UsageMeterSettingsValue),
   // Whole-blob replacement, same as `usageMeter`.
   voiceDictation: Schema.optionalKey(VoiceDictationSettingsValue),
+  snapShotEnabled: Schema.optionalKey(Schema.Boolean),
+  snapShotIncludeAccessibility: Schema.optionalKey(Schema.Boolean),
+  snapShotShortcut: Schema.optionalKey(SnapShotShortcut),
+  snapShotPlaySound: Schema.optionalKey(Schema.Boolean),
+  snapShotSound: Schema.optionalKey(SnapShotSound),
+  snapShotFlash: Schema.optionalKey(Schema.Boolean),
+  snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
   // Whole-blob replacements too: the syncing client sends the complete open
   // set / label set it wants the other devices to converge on.

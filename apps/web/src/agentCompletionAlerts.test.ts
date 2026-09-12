@@ -17,6 +17,7 @@ function thread(input: {
     id: (input.threadId ?? "thread-1") as never,
     projectId: "project-1" as never,
     title: "Notification work",
+    pullRequests: [],
     modelSelection: {
       instanceId: "codex" as never,
       model: "gpt-5",

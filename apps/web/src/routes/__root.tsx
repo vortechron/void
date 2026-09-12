@@ -3,6 +3,7 @@ import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/envir
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   Outlet,
+  redirect,
   createRootRoute,
   type ErrorComponentProps,
   useLocation,
@@ -23,6 +24,7 @@ import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
+import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
 import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
@@ -68,6 +70,9 @@ import {
   type KeybindingsUpdateToastController,
 } from "../components/KeybindingsUpdateToast.logic";
 
+import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
+import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
+
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
     if (location.pathname === "/pair" && hasHostedPairingRequest(new URL(window.location.href))) {
@@ -87,6 +92,14 @@ export const Route = createRootRoute({
     }
 
     const authGateState = await resolveInitialServerAuthGateState();
+    if (
+      authGateState.status === "authenticated" &&
+      getDesktopSnapShotBridge() &&
+      shouldResumeSnapShotSetupOnStartup() &&
+      location.pathname !== "/settings/snap-shot"
+    ) {
+      throw redirect({ to: "/settings/snap-shot", replace: true });
+    }
     return {
       authGateState,
     };
@@ -200,6 +213,7 @@ function RootRouteView() {
           <RelayClientInstallDialog />
           <ConnectOnboardingDialog />
           <SshPasswordPromptDialog />
+          <SnapShotCoordinator />
           <ConfirmDialogHost />
           <SlowRpcRequestToastCoordinator />
           <AgentCompletionCoordinator />
@@ -235,6 +249,11 @@ function EnvironmentThemeSync() {
 
 function ContrastAppearanceSync() {
   const appearanceContrast = useClientSettings((settings) => settings.appearanceContrast);
+  const diffColorScheme = useClientSettings((settings) => settings.diffColorScheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.diffColorScheme = diffColorScheme;
+  }, [diffColorScheme]);
 
   useEffect(() => {
     applyAppearanceContrast(document.documentElement, appearanceContrast);
@@ -262,6 +281,11 @@ function AppearancePreferencesSync() {
   useEffect(() => {
     const rootStyle = document.documentElement.style;
     rootStyle.setProperty("--glass-opacity", `${settings.glassOpacity}%`);
+    if (settings.glassOpacity === 100) {
+      rootStyle.setProperty("--glass-blur", "0px");
+    } else {
+      rootStyle.removeProperty("--glass-blur");
+    }
     for (const [name, value] of Object.entries(resolveAppearanceCssVariables(settings))) {
       rootStyle.setProperty(name, value);
     }
