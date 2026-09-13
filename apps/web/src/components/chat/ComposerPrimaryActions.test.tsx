@@ -10,8 +10,17 @@ const stageArtworkState = vi.hoisted(() => ({
 import {
   ComposerPrimaryActions,
   formatPendingPrimaryActionLabel,
+  resolveDictationControlPlacement,
   resolveDictationPressIntent,
 } from "./ComposerPrimaryActions";
+
+const availableDictation = {
+  status: "idle",
+  available: true,
+  unavailableMessage: null,
+  onStart: () => {},
+  onStop: () => {},
+} as const;
 
 vi.mock("~/hooks/useSettings", () => ({
   useEnvironmentIdentificationMode: () => stageArtworkState.mode,
@@ -21,8 +30,10 @@ vi.mock("../SidebarStageBackdrop", () => ({
   useSidebarStageBackdropVariant: (enabled = true) => (enabled ? stageArtworkState.variant : null),
 }));
 
-
-function renderPendingActions(isRunning: boolean) {
+function renderPendingActions(
+  isRunning: boolean,
+  dictation: typeof availableDictation | null = null,
+) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
@@ -42,6 +53,7 @@ function renderPendingActions(isRunning: boolean) {
       isEnvironmentUnavailable: false,
       isPreparingWorktree: false,
       hasSendableContent: false,
+      dictation,
       onPreviousPendingQuestion: () => {},
       onInterrupt: () => {},
       onImplementPlanInNewThread: () => {},
@@ -49,7 +61,11 @@ function renderPendingActions(isRunning: boolean) {
   );
 }
 
-function renderRunningActions(showSendWhileRunning: boolean, hasSendableContent: boolean) {
+function renderRunningActions(
+  showSendWhileRunning: boolean,
+  hasSendableContent: boolean,
+  dictation: typeof availableDictation | null = null,
+) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
@@ -64,6 +80,7 @@ function renderRunningActions(showSendWhileRunning: boolean, hasSendableContent:
       isPreparingWorktree: false,
       hasSendableContent,
       showSendWhileRunning,
+      dictation,
       onPreviousPendingQuestion: () => {},
       onInterrupt: () => {},
       onImplementPlanInNewThread: () => {},
@@ -71,7 +88,10 @@ function renderRunningActions(showSendWhileRunning: boolean, hasSendableContent:
   );
 }
 
-function renderSendButton(sendDisabledReason: string | null = null) {
+function renderSendButton(
+  sendDisabledReason: string | null = null,
+  dictation: typeof availableDictation | null = null,
+) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
@@ -85,6 +105,7 @@ function renderSendButton(sendDisabledReason: string | null = null) {
       isEnvironmentUnavailable: false,
       isPreparingWorktree: false,
       hasSendableContent: true,
+      dictation,
       onPreviousPendingQuestion: () => {},
       onInterrupt: () => {},
       onImplementPlanInNewThread: () => {},
@@ -273,5 +294,67 @@ describe("ComposerPrimaryActions", () => {
 
     expect(markup).toContain('aria-label="Stop generation"');
     expect(markup).not.toContain('aria-label="Send message"');
+  });
+
+  it("offers a dictation button of its own beside stop while running", () => {
+    const markup = renderRunningActions(true, false, availableDictation);
+
+    expect(markup).toContain('aria-label="Dictate"');
+    expect(markup).toContain('aria-label="Stop generation"');
+  });
+
+  it("offers a dictation button of its own while a question is waiting", () => {
+    const markup = renderPendingActions(false, availableDictation);
+
+    expect(markup).toContain('aria-label="Dictate"');
+  });
+
+  it("keeps dictation on the send button while the composer rests", () => {
+    const markup = renderSendButton(null, availableDictation);
+
+    expect(markup).not.toContain('aria-label="Dictate"');
+    expect(markup).toContain('aria-label="Send message, or hold to dictate"');
+  });
+});
+
+describe("resolveDictationControlPlacement", () => {
+  const resting = {
+    isDictationAvailable: true,
+    hasPendingAction: false,
+    isRunning: false,
+    showPlanFollowUpPrompt: false,
+  } as const;
+
+  it("hands the toggle to the send button while the composer rests", () => {
+    expect(resolveDictationControlPlacement(resting)).toBe("send-button");
+  });
+
+  it("moves the toggle off the send button while a turn is running", () => {
+    expect(resolveDictationControlPlacement({ ...resting, isRunning: true })).toBe("standalone");
+  });
+
+  it("moves the toggle off the send button while a question is waiting", () => {
+    expect(resolveDictationControlPlacement({ ...resting, hasPendingAction: true })).toBe(
+      "standalone",
+    );
+  });
+
+  it("moves the toggle off the send button while a plan prompt is up", () => {
+    expect(resolveDictationControlPlacement({ ...resting, showPlanFollowUpPrompt: true })).toBe(
+      "standalone",
+    );
+  });
+
+  it("offers no control at all when dictation is unavailable", () => {
+    expect(resolveDictationControlPlacement({ ...resting, isDictationAvailable: false })).toBe(
+      "none",
+    );
+    expect(
+      resolveDictationControlPlacement({
+        ...resting,
+        isDictationAvailable: false,
+        isRunning: true,
+      }),
+    ).toBe("none");
   });
 });

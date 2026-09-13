@@ -181,7 +181,8 @@ html.dark [data-slot="composer-shell"] {
   box-shadow: none;
 }
 
-[data-slot="composer-submit"] {
+[data-slot="composer-submit"],
+[data-slot="composer-dictation"] {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 0.875rem;
@@ -190,7 +191,9 @@ html.dark [data-slot="composer-shell"] {
 [data-slot="composer-submit"] > [aria-hidden="true"],
 [data-slot="composer-submit"] .dictation-arm-ring,
 [data-slot="composer-submit"] .dictation-listen-ring,
-[data-slot="composer-submit"] .dictation-stop-ring {
+[data-slot="composer-submit"] .dictation-stop-ring,
+[data-slot="composer-dictation"] .dictation-listen-ring,
+[data-slot="composer-dictation"] .dictation-stop-ring {
   border-radius: inherit;
 }
 
@@ -208,7 +211,8 @@ html .dialog-glass {
 }
 
 @media (pointer: coarse) {
-  [data-slot="composer-submit"] {
+  [data-slot="composer-submit"],
+  [data-slot="composer-dictation"] {
     width: 2.75rem;
     height: 2.75rem;
   }
