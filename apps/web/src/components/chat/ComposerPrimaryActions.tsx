@@ -73,6 +73,31 @@ export function resolveDictationPressIntent(input: {
   return input.canHoldToDictate ? "start-hold" : "none";
 }
 
+export type DictationControlPlacement = "send-button" | "standalone" | "none";
+
+/**
+ * Which control carries the dictation toggle right now.
+ *
+ * At rest the toggle is a hold on the send button, so the composer keeps a
+ * single primary control. The moment that button is gone or has been replaced
+ * by something the user must not hit by accident — stop, a pending answer, a
+ * plan prompt — the toggle moves out into a button of its own. Talking to a
+ * running turn must never mean aiming at interrupt.
+ */
+export function resolveDictationControlPlacement(input: {
+  isDictationAvailable: boolean;
+  hasPendingAction: boolean;
+  isRunning: boolean;
+  showPlanFollowUpPrompt: boolean;
+}): DictationControlPlacement {
+  if (!input.isDictationAvailable) {
+    return "none";
+  }
+  return input.hasPendingAction || input.isRunning || input.showPlanFollowUpPrompt
+    ? "standalone"
+    : "send-button";
+}
+
 interface ComposerPrimaryActionsProps {
   compact: boolean;
   pendingAction: PendingActionState | null;
@@ -145,16 +170,21 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     environmentIdentificationMode === "artwork",
   );
 
+  // The microphone sits beside stop whenever a turn is running, so the two
+  // size off one rule rather than drifting apart on a phone.
+  const primaryIconButtonSizeClass = (insidePendingAction: boolean) =>
+    insidePendingAction
+      ? "size-8 sm:size-7"
+      : showSendWhileRunning && hasSendableContent
+        ? "size-9 sm:size-8"
+        : "size-8";
+
   const renderStopGenerationButton = (insidePendingAction: boolean) => (
     <button
       type="button"
       className={cn(
         "flex cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-[0_1px_--theme(--color-white/16%)] transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none",
-        insidePendingAction
-          ? "size-8 sm:size-7"
-          : showSendWhileRunning && hasSendableContent
-            ? "size-9 sm:size-8"
-            : "size-8 sm:h-8 sm:w-8",
+        primaryIconButtonSizeClass(insidePendingAction),
       )}
       {...pointerFocusProps}
       onClick={onInterrupt}
@@ -187,23 +217,31 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   // have to wait out a cleanup pass to send it.
   const isDictating =
     dictation !== null && dictation.status !== "idle" && dictation.status !== "polishing";
+  const dictationPlacement = resolveDictationControlPlacement({
+    isDictationAvailable: dictation?.available === true,
+    hasPendingAction: pendingAction !== null,
+    isRunning,
+    showPlanFollowUpPrompt,
+  });
+  // The send button only wears dictation state while it owns the toggle. Once
+  // the toggle has moved to a button of its own, it is a plain send again even
+  // with a session still open.
+  const sendHostsDictation = dictationPlacement === "send-button";
   // Send stays blocked without content, but a hold has to be reachable from an
   // empty composer — that is the case dictation exists for.
   const canHoldToDictate =
-    dictation?.available === true &&
+    sendHostsDictation &&
     !isSendBusy &&
     !isSendDisabled &&
     !isConnecting &&
     !isEnvironmentUnavailable;
 
   // A session outlives the press that opened it, so it can still be running
-  // when a pending question, a plan prompt, or a started turn takes the send
-  // button off screen. That button is the only way to stop listening, so the
-  // session ends with it rather than being left open with nothing to close it.
-  const rendersDictationControl = pendingAction === null && !isRunning && !showPlanFollowUpPrompt;
+  // once dictation has stopped being offered at all. Rather than leave a
+  // microphone open with nothing to close it, the session ends with the offer.
   useEffect(() => {
-    if (isDictating && !rendersDictationControl) dictation?.onStop();
-  }, [dictation, isDictating, rendersDictationControl]);
+    if (isDictating && dictationPlacement === "none") dictation?.onStop();
+  }, [dictation, dictationPlacement, isDictating]);
 
   // A session ending is as worth seeing as one starting, and the button losing
   // its colour is easy to miss — so the moment it stops listening it throws
@@ -226,7 +264,59 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     return () => window.clearTimeout(timer);
   }, [isListening]);
 
-  const rendersDictationRings = isArming || isDictating || stopFlashKey > 0;
+  const rendersDictationRings = sendHostsDictation && (isArming || isDictating || stopFlashKey > 0);
+
+  // The toggle in standalone form: one tap opens, one tap closes, no hold to
+  // count out. It sits next to stop rather than replacing it, so the red
+  // button stays exactly where it was and is never in the way of dictating.
+  const renderDictationButton = (sizeClassName: string) => (
+    <button
+      type="button"
+      data-slot="composer-dictation"
+      data-chat-composer-dictation-status={dictation ? dictation.status : undefined}
+      // Only set when dictation is switched on but something in this session
+      // blocks it, so the user is not left tapping a button that does nothing.
+      aria-description={dictation?.unavailableMessage ?? undefined}
+      className={cn(
+        // `select-none touch-none` keep the press a tap on a touch device
+        // rather than a text selection or the start of a scroll gesture.
+        "relative flex shrink-0 cursor-pointer touch-none select-none items-center justify-center rounded-full border shadow-xs transition-all duration-150 hover:scale-105 active:shadow-none",
+        sizeClassName,
+        isDictating
+          ? "border-destructive bg-destructive/90 text-white shadow-destructive/24 inset-shadow-[0_1px_--theme(--color-white/16%)] hover:bg-destructive active:inset-shadow-[0_1px_--theme(--color-black/8%)]"
+          : "border-input bg-popover text-muted-foreground hover:bg-accent/50 hover:text-foreground dark:bg-input/32 dark:hover:bg-input/64",
+      )}
+      {...pointerFocusProps}
+      onClick={() => (isDictating ? dictation?.onStop() : dictation?.onStart())}
+      aria-label={
+        dictation?.status === "listening"
+          ? "Listening, tap to stop"
+          : dictation?.status === "starting"
+            ? "Starting dictation"
+            : dictation?.status === "finishing"
+              ? "Finishing dictation"
+              : "Dictate"
+      }
+    >
+      {isListening ? (
+        <>
+          <span className="dictation-listen-ring" aria-hidden="true" />
+          <span className="dictation-listen-ring dictation-listen-ring-late" aria-hidden="true" />
+        </>
+      ) : null}
+      {stopFlashKey > 0 ? (
+        <span key={stopFlashKey} className="dictation-stop-ring" aria-hidden="true" />
+      ) : null}
+      {dictation?.status === "starting" ? (
+        <Spinner className="size-3.5" aria-hidden="true" />
+      ) : (
+        <MicIcon
+          className={cn("size-3.5", isListening ? "dictation-mic-live" : null)}
+          aria-hidden="true"
+        />
+      )}
+    </button>
+  );
 
   const clearHoldTimer = () => {
     if (holdTimerRef.current === null) return;
@@ -295,6 +385,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   if (pendingAction) {
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
+        {dictationPlacement === "standalone"
+          ? renderDictationButton(primaryIconButtonSizeClass(true))
+          : null}
         {isRunning ? renderStopGenerationButton(true) : null}
         {pendingAction.questionIndex > 0 ? (
           compact ? (
@@ -350,65 +443,80 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   if (showPlanFollowUpPrompt) {
     if (promptHasText) {
       return (
-        <Button
-          type="submit"
-          size="sm"
-          className={cn(
-            "rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover",
-            compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8",
-          )}
-          {...pointerFocusProps}
-          disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
-        >
-          {isConnecting || isSendBusy ? "Sending..." : "Refine"}
-        </Button>
+        <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
+          {dictationPlacement === "standalone" ? renderDictationButton("size-9 sm:size-8") : null}
+          <Button
+            type="submit"
+            size="sm"
+            className={cn(
+              "rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover",
+              compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8",
+            )}
+            {...pointerFocusProps}
+            disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+          >
+            {isConnecting || isSendBusy ? "Sending..." : "Refine"}
+          </Button>
+        </div>
       );
     }
 
     return (
-      <div data-chat-composer-implement-actions="true" className="flex items-center justify-end">
-        <Button
-          type="submit"
-          size="sm"
-          className="h-9 rounded-l-full rounded-r-none bg-message-action px-4 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
-          {...pointerFocusProps}
-          disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
-        >
-          {isConnecting || isSendBusy ? "Sending..." : "Implement"}
-        </Button>
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                size="sm"
-                variant="default"
-                className="h-9 rounded-l-none rounded-r-full border-l-message-action-foreground/20 bg-message-action px-2 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
-                aria-label="Implementation actions"
-                {...pointerFocusProps}
-                disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
-              />
-            }
+      <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
+        {dictationPlacement === "standalone" ? renderDictationButton("size-9 sm:size-8") : null}
+        <div data-chat-composer-implement-actions="true" className="flex items-center justify-end">
+          <Button
+            type="submit"
+            size="sm"
+            className="h-9 rounded-l-full rounded-r-none bg-message-action px-4 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
+            {...pointerFocusProps}
+            disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
           >
-            <ChevronDownIcon className="size-3.5" />
-          </MenuTrigger>
-          <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
-            <MenuItem
-              disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
-              onClick={() => void onImplementPlanInNewThread()}
+            {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+          </Button>
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="h-9 rounded-l-none rounded-r-full border-l-message-action-foreground/20 bg-message-action px-2 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
+                  aria-label="Implementation actions"
+                  {...pointerFocusProps}
+                  disabled={
+                    isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable
+                  }
+                />
+              }
             >
-              Implement in a new thread
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
+              <ChevronDownIcon className="size-3.5" />
+            </MenuTrigger>
+            <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
+              <MenuItem
+                disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+                onClick={() => void onImplementPlanInNewThread()}
+              >
+                Implement in a new thread
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        </div>
       </div>
     );
   }
+
+  // What the send button shows of dictation: nothing at all once the toggle
+  // has moved to its own button, so a session opened there never repaints it.
+  const sendDictationStatus = sendHostsDictation ? (dictation?.status ?? null) : null;
+  const sendIsDictating = sendHostsDictation && isDictating;
+  const sendIsListening = sendHostsDictation && isListening;
+  const sendStopFlashKey = sendHostsDictation ? stopFlashKey : 0;
 
   const sendButton = (
     <button
       type="submit"
       data-slot="composer-submit"
-      data-chat-composer-dictation-status={dictation ? dictation.status : undefined}
+      data-chat-composer-dictation-status={sendDictationStatus ?? undefined}
       // Only set when dictation is switched on but something in this session
       // blocks it, so the user is not left holding a button that does nothing.
       aria-description={
@@ -424,7 +532,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         // the clip that keeps the backdrop artwork in bounds has to lift while
         // one is on screen.
         rendersDictationRings ? null : "overflow-hidden",
-        isDictating
+        sendIsDictating
           ? "bg-destructive/90 text-white shadow-destructive/24 hover:bg-destructive"
           : stageBackdropVariant
             ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
@@ -444,7 +552,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       disabled={
         // While a session is open this button is the only way to close it, so
         // none of the usual reasons to block a send may take it away.
-        !isDictating &&
+        !sendIsDictating &&
         (isSendBusy ||
           isSendDisabled ||
           isConnecting ||
@@ -454,11 +562,11 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       aria-label={
         // Dictation states come first: while one is open the button has stopped
         // being a send, so what would have blocked a send no longer describes it.
-        dictation?.status === "listening"
+        sendDictationStatus === "listening"
           ? "Listening, tap to stop"
-          : dictation?.status === "starting"
+          : sendDictationStatus === "starting"
             ? "Starting dictation"
-            : dictation?.status === "finishing"
+            : sendDictationStatus === "finishing"
               ? "Finishing dictation"
               : isEnvironmentUnavailable
                 ? "Environment disconnected"
@@ -477,7 +585,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                           : "Send message"
       }
     >
-      {stageBackdropVariant && !isDictating ? (
+      {stageBackdropVariant && !sendIsDictating ? (
         <span className="absolute inset-0 -z-10 overflow-hidden rounded-full" aria-hidden="true">
           <StageBackdropButtonArt variant={stageBackdropVariant} />
         </span>
@@ -491,20 +599,20 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           aria-hidden="true"
         />
       ) : null}
-      {isListening ? (
+      {sendIsListening ? (
         <>
           <span className="dictation-listen-ring" aria-hidden="true" />
           <span className="dictation-listen-ring dictation-listen-ring-late" aria-hidden="true" />
         </>
       ) : null}
-      {stopFlashKey > 0 ? (
-        <span key={stopFlashKey} className="dictation-stop-ring" aria-hidden="true" />
+      {sendStopFlashKey > 0 ? (
+        <span key={sendStopFlashKey} className="dictation-stop-ring" aria-hidden="true" />
       ) : null}
-      {dictation?.status === "starting" ? (
+      {sendDictationStatus === "starting" ? (
         <Spinner className="size-3.5" aria-hidden="true" />
-      ) : isDictating ? (
+      ) : sendIsDictating ? (
         <MicIcon
-          className={cn("size-3.5", isListening ? "dictation-mic-live" : "opacity-70")}
+          className={cn("size-3.5", sendIsListening ? "dictation-mic-live" : "opacity-70")}
           aria-hidden="true"
         />
       ) : isConnecting || isSendBusy ? (
@@ -529,6 +637,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
 
   return (
     <>
+      {dictationPlacement === "standalone"
+        ? renderDictationButton(primaryIconButtonSizeClass(false))
+        : null}
       {renderStopGenerationButton(false)}
       {showSendWhileRunning && hasSendableContent ? sendButton : null}
     </>
