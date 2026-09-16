@@ -14,7 +14,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
-import { resolveThreadAttentionStatus } from "~/components/sidebarWorkspaceStatus";
+import {
+  resolveThreadAttentionStatus,
+  type ThreadAttentionStatus,
+} from "~/components/sidebarWorkspaceStatus";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -36,6 +39,7 @@ import {
   type WorkspaceSession,
 } from "~/workspaceSessions";
 import { ThreadTabStatusIcon } from "./ThreadTabStatusIcon";
+import { EMPTY_SESSION_STATUSES, resolveSessionStatusesByKey } from "./workspaceHistoryStatus";
 
 type TabContextMenuAction = "close" | "close-others" | "close-to-right" | "close-all";
 const WORKSPACE_HISTORY_PAGE_SIZE = 20;
@@ -311,6 +315,15 @@ const WorkspaceHistoryMenu = memo(function WorkspaceHistoryMenu(props: {
     const workspace = workspaces.find((candidate) => candidate.key === props.workspaceKey);
     return selectClosedWorkspaceSessions(workspace?.sessions ?? [], new Set(props.openSessionKeys));
   }, [draftThreadsByThreadKey, open, project, props.openSessionKeys, props.workspaceKey, threads]);
+  const lastVisitedAtByThreadKey = useUiStateStore((state) => state.threadLastVisitedAtById);
+  // Same gate as `closedSessions`: a shut menu must not pay for status math.
+  const statusBySessionKey = useMemo(
+    () =>
+      open
+        ? resolveSessionStatusesByKey({ threads, lastVisitedAtByThreadKey })
+        : EMPTY_SESSION_STATUSES,
+    [lastVisitedAtByThreadKey, open, threads],
+  );
   const visibleSessions = closedSessions.slice(0, visibleSessionCount);
   const hiddenSessionCount = closedSessions.length - visibleSessions.length;
   const handleOpenChange = useCallback((nextOpen: boolean) => {
@@ -345,7 +358,7 @@ const WorkspaceHistoryMenu = memo(function WorkspaceHistoryMenu(props: {
                 onClick={() => props.onActivate(session)}
                 className="group/history"
               >
-                <MessageSquareTextIcon className="size-4" />
+                <HistorySessionIcon status={statusBySessionKey.get(session.key) ?? "ready"} />
                 <span className="min-w-0 flex-1 truncate">{session.title}</span>
                 <span className="shrink-0 text-xs text-muted-foreground/70">
                   {formatRelativeTimeLabel(session.updatedAt)}
@@ -370,6 +383,17 @@ const WorkspaceHistoryMenu = memo(function WorkspaceHistoryMenu(props: {
     </div>
   );
 });
+
+/** A closed chat keeps the tab strip's status icon; the plain chat glyph is the
+    resting state, so "nothing to do here" still looks like a chat row. */
+function HistorySessionIcon({ status }: { readonly status: ThreadAttentionStatus }) {
+  if (status === "ready") return <MessageSquareTextIcon className="size-4 shrink-0" />;
+  return (
+    <span className="flex size-4 shrink-0 items-center justify-center">
+      <ThreadTabStatusIcon status={status} />
+    </span>
+  );
+}
 
 const ThreadTabButton = memo(function ThreadTabButton(props: {
   tab: ThreadTab;
