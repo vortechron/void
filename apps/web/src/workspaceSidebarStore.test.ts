@@ -16,20 +16,41 @@ beforeEach(() => {
 });
 
 describe("workspace context menu", () => {
-  it("contains only rename, pin, and archive actions", () => {
-    expect(buildWorkspaceContextMenuItems({ isPinned: false, isArchived: false })).toEqual([
-      { id: "rename", label: "Rename", icon: "pencil" },
+  it("contains only refresh, rename, pin, and archive actions", () => {
+    expect(
+      buildWorkspaceContextMenuItems({ isPinned: false, isArchived: false, staleStatusCount: 2 }),
+    ).toEqual([
+      { id: "refresh-status", label: "Refresh status", icon: "refresh-cw", disabled: false },
+      { id: "rename", label: "Rename", icon: "pencil", separatorBefore: true },
       { id: "toggle-pin", label: "Pin", icon: "pin" },
       { id: "toggle-archive", label: "Archive", icon: "archive" },
     ]);
   });
 
   it("shows the reverse actions for organized workspaces", () => {
-    expect(buildWorkspaceContextMenuItems({ isPinned: true, isArchived: true })).toEqual([
-      { id: "rename", label: "Rename", icon: "pencil" },
+    expect(
+      buildWorkspaceContextMenuItems({ isPinned: true, isArchived: true, staleStatusCount: 1 }),
+    ).toEqual([
+      { id: "refresh-status", label: "Refresh status", icon: "refresh-cw", disabled: false },
+      { id: "rename", label: "Rename", icon: "pencil", separatorBefore: true },
       { id: "toggle-pin", label: "Unpin", icon: "pin" },
       { id: "toggle-archive", label: "Unarchive", icon: "archive" },
     ]);
+  });
+
+  it("disables the refresh when the workspace has no stale status", () => {
+    const [refresh] = buildWorkspaceContextMenuItems({
+      isPinned: false,
+      isArchived: false,
+      staleStatusCount: 0,
+    });
+
+    expect(refresh).toEqual({
+      id: "refresh-status",
+      label: "Refresh status",
+      icon: "refresh-cw",
+      disabled: true,
+    });
   });
 });
 

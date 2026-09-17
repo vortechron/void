@@ -7,7 +7,11 @@ import { resolveStorage } from "./lib/storage";
 
 const WORKSPACE_SIDEBAR_STORAGE_KEY = "t3code:workspace-sidebar:v1";
 
-export type WorkspaceContextMenuAction = "rename" | "toggle-pin" | "toggle-archive";
+export type WorkspaceContextMenuAction =
+  | "refresh-status"
+  | "rename"
+  | "toggle-pin"
+  | "toggle-archive";
 
 interface WorkspaceSidebarState {
   readonly namesByWorkspaceKey: Readonly<Record<string, string>>;
@@ -94,12 +98,25 @@ function toggleKey(keys: readonly string[], workspaceKey: string): string[] {
   return keys.includes(workspaceKey) ? withoutKey(keys, workspaceKey) : [...keys, workspaceKey];
 }
 
+/**
+ * `staleStatusCount` is how many chats in this workspace still show a status
+ * the user can no longer clear from the chat itself — see
+ * `planWorkspaceStatusRefresh`. Zero disables the action rather than hiding it,
+ * so the row's menu keeps a stable shape.
+ */
 export function buildWorkspaceContextMenuItems(input: {
   readonly isPinned: boolean;
   readonly isArchived: boolean;
+  readonly staleStatusCount: number;
 }): readonly ContextMenuItem<WorkspaceContextMenuAction>[] {
   return [
-    { id: "rename", label: "Rename", icon: "pencil" },
+    {
+      id: "refresh-status",
+      label: "Refresh status",
+      icon: "refresh-cw",
+      disabled: input.staleStatusCount === 0,
+    },
+    { id: "rename", label: "Rename", icon: "pencil", separatorBefore: true },
     {
       id: "toggle-pin",
       label: input.isPinned ? "Unpin" : "Pin",
