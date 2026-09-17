@@ -44,31 +44,6 @@ changes back upstream, so a linear history buys nothing.
 Sync weekly rather than monthly. Conflict cost grows faster than linearly with
 the size of the gap.
 
-### The custom sidebar is fork-owned
-
-Void's sidebar lives in `apps/web/src/components/SidebarVoid.tsx`, a fork-only
-file. `Sidebar.tsx` and `LegacySidebar.tsx` are upstream's and should always be
-resolved in upstream's favour — the two projects share no code in them.
-
-Which one renders is a three-step fall-through in `AppSidebarLayout.tsx`:
-
-1. `voidSidebarEnabled` (default **true**) → `SidebarVoid.tsx`
-2. else `legacySidebarEnabled` (upstream's key, default false) → `LegacySidebar.tsx`
-3. else → upstream's `Sidebar.tsx`
-
-Both toggles sit in **Settings → General**, and `useVoidSidebarEnabled()` holds
-at `true` until client settings hydrate so a cold load never flashes the other
-sidebar.
-
-Preserve Void's `SidebarWorkspaceRow` and `workspaceSidebarStore` integration,
-including custom labels, Pinned, and recoverable Archived workspaces. Port useful
-upstream sidebar changes into `SidebarVoid.tsx` deliberately; never replace the
-custom layout wholesale.
-
-The retired `sidebarV2Enabled` key had the opposite meaning, so it was dropped
-rather than renamed. Anyone who had opted into upstream's sidebar gets Void's
-back and can turn it off again.
-
 ### Database migrations are offset by one
 
 Void inserted `036_ProjectionProjectPromptActions`, so from 36 onward every
@@ -83,6 +58,181 @@ sqlite3 "file:$HOME/.t3/userdata/state.sqlite?mode=ro" \
 ```
 
 Never reuse an id the database has already applied under a different name.
+
+## Fork-owned features
+
+These are Void's own features. Upstream has no equivalent, or has a different
+one. **An upstream sync must never delete, replace, or "simplify" them.** When a
+merge conflict touches something listed here, Void's side wins — unless upstream
+is only refactoring an API the fork calls, in which case port the call and keep
+the feature.
+
+Most of this lives in fork-only files, which never conflict. The risk sits in
+the handful of upstream files that wire them in. Those are listed under
+[Wiring points](#wiring-points-to-re-check-after-every-sync); check every one
+after a sync.
+
+### 1. The Void sidebar
+
+The most-used fork change and the one most likely to be lost in a merge.
+
+| Piece          | Files                                                                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layout         | `apps/web/src/components/SidebarVoid.tsx`                                                                                                          |
+| Project groups | `SidebarProjectGroupFilter.tsx`, `sidebarProjectGroups.ts`, `sidebarProjectGroupStatus.ts`, `sidebarHiddenProjects.ts`                             |
+| Workspace rows | `SidebarWorkspaceStatusIcon.tsx`, `sidebarWorkspaceStatus.ts`, `sidebarWorkspaceDiff.ts`, `sidebarWorkspaceRefresh.ts`, `workspaceSidebarStore.ts` |
+| Usage meters   | `components/sidebar/SidebarUsageMeters.tsx`, `SidebarUsageMeters.logic.ts`, `usageMeterCharts.tsx`                                                 |
+| Private names  | `privateProjectNames.ts`, `hooks/usePrivateProjectNames.ts` (hides real project names while screen sharing)                                        |
+
+`Sidebar.tsx` and `LegacySidebar.tsx` are upstream's and should always be
+resolved in upstream's favour — the two projects share no code in them. Which
+one renders is a three-step fall-through in `AppSidebarLayout.tsx`:
+
+1. `voidSidebarEnabled` (default **true**) → `SidebarVoid.tsx`
+2. else `legacySidebarEnabled` (upstream's key, default false) → `LegacySidebar.tsx`
+3. else → upstream's `Sidebar.tsx`
+
+Both toggles sit in **Settings → General**, and `useVoidSidebarEnabled()` holds
+at `true` until client settings hydrate so a cold load never flashes the other
+sidebar.
+
+Preserve `SidebarWorkspaceRow` and the `workspaceSidebarStore` integration,
+including custom labels, Pinned, and recoverable Archived workspaces. Port
+useful upstream sidebar changes into `SidebarVoid.tsx` deliberately; never
+replace the custom layout wholesale.
+
+The retired `sidebarV2Enabled` key had the opposite meaning, so it was dropped
+rather than renamed. Anyone who had opted into upstream's sidebar gets Void's
+back and can turn it off again.
+
+Upstream's compact sidebar rail and compact thread list target upstream's
+sidebars. They do not apply here.
+
+### 2. Thread tabs
+
+Several threads open as tabs above one chat, scoped per project and workspace.
+Upstream has no equivalent.
+
+- `apps/web/src/components/chat/ThreadTabs.tsx`
+- `apps/web/src/components/chat/ThreadTabStatusIcon.tsx`
+- `apps/web/src/hooks/useThreadTabs.ts`
+- `apps/web/src/threadTabsStore.ts`
+
+### 3. Voice dictation
+
+Speak into the composer. OpenAI Realtime transcribes, a polish pass cleans the
+text, and a user dictionary plus snippets rewrite terms. Dictation keeps its own
+button while a turn is running.
+
+- Engine: `apps/web/src/lib/voiceDictation/` — `openaiRealtime.ts`, `pcmCapture.ts`,
+  `transcript.ts`, `polish.ts`, `snippets.ts`, `dictationCues.ts`, `availability.ts`, `apiKey.ts`
+- Hook: `apps/web/src/hooks/useVoiceDictation.ts`
+- Settings: `components/settings/VoiceSettingsPanel.tsx`, `VoiceDictationSettingsSection.tsx`,
+  `VoiceDictionarySection.tsx`, `VoiceSnippetsSection.tsx`, `voiceDictationLists.ts`
+- Route: `apps/web/src/routes/settings.voice.tsx`
+- Docs: `docs/user/voice-dictation.md`
+
+### 4. Git history in the right panel
+
+A commit graph, per-commit diffs, and history actions as a right-panel surface.
+
+- Web: `apps/web/src/components/history/` (graph, commit diff panel, ref badges,
+  action dialogs, context menu), `apps/web/src/lib/gitGraph.ts`
+- Server: `apps/server/src/vcs/GitHistoryActions.ts`, `GitHistoryActionCommands.ts`,
+  `GitHistoryActionGuards.ts`, `apps/server/src/git/commitLog.ts`
+- Contract: `packages/contracts/src/vcsHistoryAction.ts`
+- Columns are resizable and persisted: `historyColumnWidths.ts`,
+  `useHistoryColumnWidths.ts`, `HistoryColumnResizeHandle.tsx`
+- Closed-chat history shows each chat's status: `components/chat/workspaceHistoryStatus.ts`
+
+### 5. Diff file tree
+
+A resizable file tree beside the diff, with a base-ref picker.
+
+- `components/diffs/DiffFileTreeVoid.tsx`, `DiffBaseRefPicker.tsx`, `DiffToolbarActions.tsx`
+- `lib/diffFileTree.ts`, `lib/diffFileTreeResize.ts`, `lib/diffPanelCss.ts`
+
+Upstream's diff-tree work targets its own tree. Decide per change whether it is
+worth porting; do not let it overwrite `DiffFileTreeVoid.tsx`.
+
+### 6. Provider usage meters
+
+Subscription limits read from a provider probe and shown in the sidebar. This is
+not upstream's Usage page; both exist.
+
+- Server: `apps/server/src/providerUsage/ProviderUsage.ts`, `normalize.ts`
+- Contract: `packages/contracts/src/providerUsage.ts`
+- Web: `lib/providerUsageState.ts`, `components/settings/UsageMeterSettingsSection.tsx`
+
+### 7. Completion alerts, notifications, and sounds
+
+- `agentCompletionAlerts.ts`, `agentCompletionNotifications.ts`, `completionSound.ts`, `lib/audioCues.ts`
+- `components/AgentCompletionCoordinator.tsx`, `components/settings/AgentCompletionSettings.tsx`
+- Sounds: `apps/web/src/assets/*.mp3`
+- Docs: `docs/user/notifications.md`
+
+Upstream later added its own thread notifications with
+`ThreadNotificationCoordinator.tsx`. Both can coexist. Do not delete Void's
+coordinator to make room for upstream's.
+
+### 8. Project and global prompt actions
+
+Saved prompts fired at a project, plus global ones.
+
+- `projectPromptActions.ts`, `projectActionScopes.ts`, `components/settings/ProjectDefaultActionsSettings.tsx`
+- Mobile: `apps/mobile/src/features/threads/projectPromptActions.ts`
+- Migration `036_ProjectionProjectPromptActions` — the reason every later
+  migration is offset by one
+- Docs: `docs/user/actions.md`
+
+### 9. Appearance: glass, interface zoom, fonts, synced themes
+
+- `void-glass.css`, `appearancePreferences.ts`, `installedFonts.ts`
+- Interface zoom: `uiZoomPreference.ts`, `effectiveZoom.ts`. Zoom is per-browser,
+  and every measured size and drag must stay correct under it.
+- Theme sync: `hooks/useThemeServerSync.ts`
+- Motion: `components/beautiful/` and `components/chat/backgroundEffects/`
+
+### 10. Per-project workspace defaults
+
+Choose worktree or current checkout per project when starting a thread.
+
+- `components/settings/ProjectWorkspaceDefaultsSettings.tsx` and its `.logic.ts`
+- `workspaceSessions.ts`, `hooks/useWorkspaceServerSync.ts`
+- Docs: `docs/user/project-new-thread-workspace.md`
+
+### 11. Smaller fork-owned behaviour
+
+- **The composer never steals focus.** It focuses only on a direct user action.
+  Upstream keeps reintroducing autofocus on thread open; remove it again.
+- Visible panel resize grips: `components/ui/panel-resize-grip.tsx`
+- Touch long-press context menus: `hooks/useLongPressContextMenu.ts`, `lib/longPress.ts`
+- PWA: `public/sw.js`, `pwa/registerServiceWorker.ts`, `chunkLoadRecovery.ts`, `void-icon-*` assets
+- Settings sync and Beta panel: `lib/settingsSync.ts`, `SharedSettingsMismatchAlert.tsx`,
+  `settingsSectionVisibility.ts`, `BetaSettingsPanel.tsx`, `routes/settings.beta.tsx`
+- Bun PTY terminal adapter: `apps/server/src/terminal/BunPtyAdapter.ts`
+- `apps/server/src/service-launcher.ts`
+
+### Wiring points to re-check after every sync
+
+Fork-only files cannot conflict. These upstream files carry the wiring and do:
+
+| File                                                               | What the fork put there                      |
+| ------------------------------------------------------------------ | -------------------------------------------- |
+| `apps/web/src/components/AppSidebarLayout.tsx`                     | sidebar fall-through                         |
+| `apps/web/src/components/sidebar/SidebarChrome.tsx`                | `VoidMark` logo                              |
+| `apps/web/src/components/ChatView.tsx`                             | thread tabs, background effects, focus rules |
+| `apps/web/src/components/chat/ChatComposer.tsx`                    | dictation button, pending contexts           |
+| `apps/web/src/components/RightPanelTabs.tsx`, `rightPanelStore.ts` | history surface                              |
+| `apps/web/src/components/DiffPanel.tsx`, `diffPanelStore.ts`       | Void diff tree                               |
+| `components/settings/SettingsPanels.tsx`, `SettingsSidebarNav.tsx` | Voice, Beta, Actions, Usage pages            |
+| `apps/web/src/hooks/useSettings.ts`                                | every fork setting key                       |
+| `packages/contracts/src/settings.ts`                               | every fork setting schema                    |
+| `apps/server/src/persistence/Migrations.ts`                        | migration list, offset by one                |
+| `apps/web/src/routeTree.gen.ts`                                    | generated — regenerate, never hand-merge     |
+
+A conflict in any of those means an upstream change landed next to fork wiring.
+Keep both sides: take upstream's change, then put the fork's line back.
 
 ## Branding is deliberately minimal
 

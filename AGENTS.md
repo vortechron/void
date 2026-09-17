@@ -4,6 +4,13 @@
 > it covers the branch model, the upstream sync flow, and how the dev server and
 > the daily-driver app stay out of each other's data. Where it disagrees with
 > this document, it wins. The rest of this file is upstream's and still applies.
+>
+> Its **Fork-owned features** section lists what the fork owns: the Void
+> sidebar, thread tabs, voice dictation, the git history panel, the diff file
+> tree, usage meters, completion alerts, prompt actions, and the appearance and
+> workspace settings around them. Read that section before merging upstream,
+> resolving a conflict, deleting a file, or "simplifying" anything under
+> `apps/web/src`. An upstream sync must not remove or replace those features.
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
 
