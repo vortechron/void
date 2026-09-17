@@ -244,6 +244,15 @@ function remoteTabsForWorkspace(
     );
   }
 
+  // A remote device must not close the chat this device is currently showing.
+  // Keep that one real tab locally; the next sync publishes the merged open
+  // set so both devices converge without moving either user's focus.
+  const activeTab = current.tabs.find((tab) => tab.key === current.activeKey);
+  if (activeTab?.draftId === null && !seen.has(activeTab.key)) {
+    seen.add(activeTab.key);
+    adopted.push(activeTab);
+  }
+
   // Unsent draft sessions never left this browser, so the remote set has
   // nothing to say about them: they keep their tabs, after the shared ones.
   for (const tab of current.tabs) {
@@ -262,10 +271,9 @@ function tabListsEqual(left: readonly ThreadTab[], right: readonly ThreadTab[]):
 /**
  * Converges this device's strip on the open set another device published.
  *
- * The remote value is authoritative for real chats — that is what makes a
- * chat started on the phone appear on the laptop, and a tab closed on the
- * laptop close on the phone. The active tab is resolved locally: it is the
- * one thing about the strip that is per-device.
+ * The remote value is authoritative for real chats except for the tab this
+ * device is currently showing. That makes chats opened and closed elsewhere
+ * sync without letting another device move this device's focus.
  */
 export function applyRemoteWorkspaceThreadTabs<State extends WorkspaceThreadTabsState>(
   state: State,

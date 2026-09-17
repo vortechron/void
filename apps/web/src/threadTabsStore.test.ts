@@ -306,7 +306,7 @@ describe("cross-device tab sync", () => {
     expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["a", "b", "c"]);
   });
 
-  it("falls back to the last tab when the active one closed elsewhere", () => {
+  it("keeps the tab being viewed when another device omits it", () => {
     const seeded = openWorkspaceThreadTab(
       openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
       BASE,
@@ -319,7 +319,8 @@ describe("cross-device tab sync", () => {
       byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a" }] },
     });
 
-    expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("a"));
+    expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["a", "b"]);
+    expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("b"));
   });
 
   it("keeps tab identity so unchanged rows do not re-render", () => {
