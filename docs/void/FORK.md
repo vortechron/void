@@ -179,7 +179,7 @@ coordinator to make room for upstream's.
 
 Saved prompts fired at a project, plus global ones.
 
-- `projectPromptActions.ts`, `projectActionScopes.ts`, `components/settings/ProjectDefaultActionsSettings.tsx`
+- `projectPromptActions.ts`, `projectActionScopes.ts`
 - Mobile: `apps/mobile/src/features/threads/projectPromptActions.ts`
 - Migration `036_ProjectionProjectPromptActions` — the reason every later
   migration is offset by one
@@ -209,9 +209,7 @@ Choose worktree or current checkout per project when starting a thread.
 - Touch long-press context menus: `hooks/useLongPressContextMenu.ts`, `lib/longPress.ts`
 - PWA: `public/sw.js`, `pwa/registerServiceWorker.ts`, `chunkLoadRecovery.ts`, `void-icon-*` assets
 - Settings sync and Beta panel: `lib/settingsSync.ts`, `SharedSettingsMismatchAlert.tsx`,
-  `settingsSectionVisibility.ts`, `BetaSettingsPanel.tsx`, `routes/settings.beta.tsx`
-- Bun PTY terminal adapter: `apps/server/src/terminal/BunPtyAdapter.ts`
-- `apps/server/src/service-launcher.ts`
+  `BetaSettingsPanel.tsx`, `routes/settings.beta.tsx`
 
 ### Wiring points to re-check after every sync
 

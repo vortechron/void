@@ -116,17 +116,9 @@ function ScriptIcon({
   return <PlayIcon className={className} />;
 }
 
-export interface NewProjectScriptInput {
-  name: string;
-  command: string;
-  icon: ProjectScriptIcon;
-  runOnWorktreeCreate: boolean;
-  keybinding: string | null;
-  /** Optional URL to open in the in-app preview when this script runs. */
-  previewUrl: string | null;
-  /** When true, automatically open the preview panel pointed at `previewUrl`. */
-  autoOpenPreview: boolean;
-}
+import type { NewProjectScriptInput } from "./projectScriptEditor";
+
+export type { NewProjectScriptInput } from "./projectScriptEditor";
 
 export interface NewProjectPromptActionInput {
   name: string;
@@ -384,6 +376,7 @@ export default function ProjectScriptsControl({
         command: trimmedCommand,
         icon,
         runOnWorktreeCreate,
+        waitForSetup: runOnWorktreeCreate,
         keybinding: keybindingRule?.key ?? null,
         previewUrl: trimmedPreviewUrl.length > 0 ? trimmedPreviewUrl : null,
         autoOpenPreview: trimmedPreviewUrl.length > 0 ? autoOpenPreview : false,
@@ -484,6 +477,7 @@ export default function ProjectScriptsControl({
       command: fileScript.command,
       icon: fileScript.icon ?? "play",
       runOnWorktreeCreate: fileScript.runOnWorktreeCreate ?? false,
+      waitForSetup: fileScript.runOnWorktreeCreate === true && fileScript.async === false,
       keybinding: null,
       previewUrl: fileScript.previewUrl ?? null,
       autoOpenPreview: fileScript.previewUrl ? (fileScript.autoOpenPreview ?? false) : false,

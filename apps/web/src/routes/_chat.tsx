@@ -1,9 +1,15 @@
-import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
-import { useClientSettings, useVoidSidebarEnabled } from "../hooks/useSettings";
+import { ThreadRouteView } from "../components/ThreadRouteView";
+import { resolveThreadRouteTarget } from "../threadRoutes";
+import {
+  useClientSettings,
+  useLegacySidebarEnabled,
+  useVoidSidebarEnabled,
+} from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useProjects } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -175,10 +181,16 @@ function ChatRouteGlobalShortcuts() {
 }
 
 function ChatRouteLayout() {
+  // Both thread routes render here, not in their own leaf components, so the
+  // draft-to-thread promotion keeps one ChatView mounted across the swap.
+  const threadTarget = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteTarget(params),
+  });
   return (
     <>
       <ChatRouteGlobalShortcuts />
-      <Outlet />
+      {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
     </>
   );
 }

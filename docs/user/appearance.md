@@ -15,6 +15,12 @@ Code highlighting has its own theme setting. **Default** follows the interface's
 mode. Choosing a named code theme applies it to chat code blocks, file previews, search results,
 and diffs without changing the rest of the interface.
 
+On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
+Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
+Use **Change appearance** in the command palette to choose System, Light, or Dark independently of
+the theme. **Cmd+Option+Shift+A** on macOS or **Ctrl+Alt+Shift+A** on Windows/Linux cycles through
+those modes. Customize these shortcuts under **Settings → Keybindings**.
+
 ## Fonts and sizes
 
 - **UI font family** changes the interface font. Search the fonts installed on your device, or use
@@ -48,11 +54,15 @@ unchanged, so the sidebar and the header always agree.
 
 Nothing is renamed. Renaming a project, the **Settings → Projects** page, file paths, terminal
 output, and anything the agent writes still use the real name.
+Mobile has its own themes and text, code, and terminal preferences. It does not follow environment
+themes or defaults.
+
 
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
 your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
 can be selected separately for light and dark appearances.
-Android also offers **Material You Layout**, which changes shapes and spacing independently
+Android uses **Material You Layout** by default unless you have turned it off in Appearance.
+It changes shapes, spacing, and controls independently
 of the selected theme.
 
 ## Motion
