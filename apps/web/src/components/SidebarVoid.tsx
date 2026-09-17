@@ -126,6 +126,7 @@ import {
 } from "../threadRoutes";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
+import { planWorkspaceStatusRefresh, workspaceStatusRefreshCount } from "./sidebarWorkspaceRefresh";
 import { SidebarWorkspaceStatusIcon } from "./SidebarWorkspaceStatusIcon";
 import { GlidingHighlight } from "./beautiful/GlidingHighlight";
 import { useDelegatedGlidingHighlight } from "./beautiful/useGlidingHighlight";
@@ -311,6 +312,25 @@ function resolveWorkspaceStatusByKey(
   );
 }
 
+function resolveWorkspaceRefreshCountByKey(
+  workspaces: readonly ProjectWorkspace[],
+  workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>,
+  lastVisitedAtByThreadKey: ReadonlyMap<string, string | null>,
+) {
+  return new Map(
+    workspaces.map((workspace) => [
+      workspace.key,
+      workspaceStatusRefreshCount(
+        planWorkspaceStatusRefresh({
+          sessions: workspace.sessions,
+          threadByKey: workspaceThreadByKey,
+          lastVisitedAtByThreadKey,
+        }),
+      ),
+    ]),
+  );
+}
+
 function useWorkspaceStatusByKey(
   workspaces: readonly ProjectWorkspace[],
   workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>,
@@ -330,8 +350,60 @@ function useWorkspaceStatusByKey(
   );
 
   return useMemo(
-    () => resolveWorkspaceStatusByKey(workspaces, workspaceThreadByKey, lastVisitedAtByThreadKey),
+    () => ({
+      statusByKey: resolveWorkspaceStatusByKey(
+        workspaces,
+        workspaceThreadByKey,
+        lastVisitedAtByThreadKey,
+      ),
+      refreshCountByKey: resolveWorkspaceRefreshCountByKey(
+        workspaces,
+        workspaceThreadByKey,
+        lastVisitedAtByThreadKey,
+      ),
+    }),
     [lastVisitedAtByThreadKey, workspaces, workspaceThreadByKey],
+  );
+}
+
+/**
+ * Clears the stale status icons on one workspace row. The returned callback is
+ * stable so the memoized rows do not re-render whenever any chat updates; it
+ * reads the current threads through a ref instead.
+ */
+function useWorkspaceStatusRefresh(
+  workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>,
+) {
+  const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, "thread session stop");
+  const threadByKeyRef = useRef(workspaceThreadByKey);
+  threadByKeyRef.current = workspaceThreadByKey;
+
+  return useCallback(
+    (workspace: ProjectWorkspace) => {
+      const uiState = useUiStateStore.getState();
+      const plan = planWorkspaceStatusRefresh({
+        sessions: workspace.sessions,
+        threadByKey: threadByKeyRef.current,
+        lastVisitedAtByThreadKey: new Map(
+          workspace.sessions.map((session) => [
+            session.key,
+            uiState.threadLastVisitedAtById[session.key] ?? null,
+          ]),
+        ),
+      });
+
+      const visitedAt = new Date().toISOString();
+      for (const target of plan.markVisited) {
+        uiState.markThreadVisited(target.key, visitedAt);
+      }
+      for (const target of plan.stopSession) {
+        void stopThreadSession({
+          environmentId: target.environmentId,
+          input: { threadId: target.threadId },
+        });
+      }
+    },
+    [stopThreadSession],
   );
 }
 
@@ -1021,10 +1093,20 @@ interface SidebarProjectThreadListProps {
 const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
   workspace: ProjectWorkspace;
   status: ReturnType<typeof resolveSidebarWorkspaceStatus>;
+  /** How many chats here still show a status only a refresh can clear. */
+  refreshCount: number;
+  refreshStatus: (workspace: ProjectWorkspace) => void;
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
   showProjectIcon?: boolean;
 }) {
-  const { workspace, status, handleNewThread, showProjectIcon = false } = props;
+  const {
+    workspace,
+    status,
+    refreshCount,
+    refreshStatus,
+    handleNewThread,
+    showProjectIcon = false,
+  } = props;
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const {
@@ -1117,10 +1199,12 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
         const api = readLocalApi();
         if (!api) return;
         const action = await api.contextMenu.show(
-          buildWorkspaceContextMenuItems({ isPinned, isArchived }),
+          buildWorkspaceContextMenuItems({ isPinned, isArchived, staleStatusCount: refreshCount }),
           { x: position.x, y: position.y },
         );
-        if (action === "rename") {
+        if (action === "refresh-status") {
+          refreshStatus(workspace);
+        } else if (action === "rename") {
           openRenameDialog();
         } else if (action === "toggle-pin") {
           toggleWorkspacePinned(workspace.key);
@@ -1133,9 +1217,11 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
       isArchived,
       isPinned,
       openRenameDialog,
+      refreshCount,
+      refreshStatus,
       toggleWorkspaceArchived,
       toggleWorkspacePinned,
-      workspace.key,
+      workspace,
     ],
   );
 
@@ -1247,7 +1333,11 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     () => workspaces.filter((workspace) => !archivedWorkspaceKeys.includes(workspace.key)),
     [archivedWorkspaceKeys, workspaces],
   );
-  const workspaceStatusByKey = useWorkspaceStatusByKey(visibleWorkspaces, workspaceThreadByKey);
+  const { statusByKey, refreshCountByKey } = useWorkspaceStatusByKey(
+    visibleWorkspaces,
+    workspaceThreadByKey,
+  );
+  const refreshWorkspaceStatus = useWorkspaceStatusRefresh(workspaceThreadByKey);
 
   return (
     <SidebarMenuSub className="mx-0.5 my-0 w-full translate-x-0 gap-0.5 overflow-hidden border-l-0 px-1 py-0 sm:mx-1 sm:px-1.5">
@@ -1256,7 +1346,9 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             <SidebarWorkspaceRow
               key={workspace.key}
               workspace={workspace}
-              status={workspaceStatusByKey.get(workspace.key) ?? "ready"}
+              status={statusByKey.get(workspace.key) ?? "ready"}
+              refreshCount={refreshCountByKey.get(workspace.key) ?? 0}
+              refreshStatus={refreshWorkspaceStatus}
               handleNewThread={handleNewThread}
             />
           ))
@@ -1272,7 +1364,11 @@ const SidebarWorkspaceList = memo(function SidebarWorkspaceList(props: {
   showProjectIcon?: boolean;
 }) {
   const { workspaces, workspaceThreadByKey, handleNewThread, showProjectIcon = false } = props;
-  const workspaceStatusByKey = useWorkspaceStatusByKey(workspaces, workspaceThreadByKey);
+  const { statusByKey, refreshCountByKey } = useWorkspaceStatusByKey(
+    workspaces,
+    workspaceThreadByKey,
+  );
+  const refreshWorkspaceStatus = useWorkspaceStatusRefresh(workspaceThreadByKey);
 
   return (
     <SidebarMenuSub className="mx-0.5 my-0 w-full translate-x-0 gap-0.5 overflow-hidden border-l-0 px-1 py-0 sm:mx-1 sm:px-1.5">
@@ -1280,7 +1376,9 @@ const SidebarWorkspaceList = memo(function SidebarWorkspaceList(props: {
         <SidebarWorkspaceRow
           key={workspace.key}
           workspace={workspace}
-          status={workspaceStatusByKey.get(workspace.key) ?? "ready"}
+          status={statusByKey.get(workspace.key) ?? "ready"}
+          refreshCount={refreshCountByKey.get(workspace.key) ?? 0}
+          refreshStatus={refreshWorkspaceStatus}
           handleNewThread={handleNewThread}
           showProjectIcon={showProjectIcon}
         />
