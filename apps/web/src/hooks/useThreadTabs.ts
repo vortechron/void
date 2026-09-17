@@ -3,7 +3,7 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useEffect, useMemo } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
-import { useAllEnvironmentShellsBootstrapped, useThreadShells } from "../state/entities";
+import { useAllEnvironmentProjectSnapshotsReady, useThreadShells } from "../state/entities";
 import { useThreadTabsStore } from "../threadTabsStore";
 import { projectWorkspaceKey } from "../workspaceSessions";
 
@@ -25,7 +25,7 @@ export function useThreadTabRouteSync(input: {
   const openTab = useThreadTabsStore((state) => state.openTab);
   const reconcile = useThreadTabsStore((state) => state.reconcile);
   const threadShells = useThreadShells();
-  const allEnvironmentShellsBootstrapped = useAllEnvironmentShellsBootstrapped();
+  const allEnvironmentProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   const draftThreads = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
 
   useEffect(() => {
@@ -64,13 +64,13 @@ export function useThreadTabRouteSync(input: {
   // is never reconciled away — a freshly created thread would otherwise lose
   // its tab in the gap between navigation and the first shell projection.
   useEffect(() => {
-    if (!allEnvironmentShellsBootstrapped || workspaceKey === null) return;
+    if (!allEnvironmentProjectSnapshotsReady || workspaceKey === null) return;
     reconcile(
       workspaceKey,
       new Set([...liveKeys, scopedThreadKey(scopeThreadRef(environmentId, threadId))]),
     );
   }, [
-    allEnvironmentShellsBootstrapped,
+    allEnvironmentProjectSnapshotsReady,
     environmentId,
     liveKeys,
     reconcile,

@@ -462,7 +462,9 @@ const ThreadTabButton = memo(function ThreadTabButton(props: {
         onClick={props.onClose}
         className={cn(
           "flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100",
-          props.active ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-100",
+          props.active
+            ? "opacity-60 hover:opacity-100"
+            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto",
         )}
       >
         <XIcon className="size-3" />
