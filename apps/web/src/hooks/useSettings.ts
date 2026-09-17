@@ -466,7 +466,12 @@ export function useSharedSettingsSync() {
       void persistServerSettings({
         environmentId: mismatch.environmentId,
         input: {
-          patch: filterSharedServerPatch(patch, target?.serverConfig?.environment.capabilities),
+          patch: filterSharedServerPatch(
+            patch,
+            target?.serverConfig?.environment.capabilities,
+            target?.serverConfig?.settings,
+            primarySettings,
+          ),
         },
       });
     }

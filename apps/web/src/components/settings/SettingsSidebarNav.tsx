@@ -8,13 +8,13 @@ import {
   useState,
   type ComponentType,
   type KeyboardEvent,
-  type ReactNode,
 } from "react";
 import {
   ArchiveIcon,
   BlocksIcon,
   BotIcon,
   FlaskConicalIcon,
+  createLucideIcon,
   GitBranchIcon,
   PanelsTopLeftIcon,
   KeyboardIcon,
@@ -28,10 +28,8 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { Button } from "../ui/button";
-import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
-import { cn } from "../../lib/utils";
 import {
   SidebarContent,
   SidebarFooter,
@@ -39,9 +37,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   useSidebar,
 } from "../ui/sidebar";
 import { GlidingHighlight } from "../beautiful/GlidingHighlight";
@@ -55,6 +50,18 @@ import {
   type SettingsSearchItem,
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
+
+const SnapShotIcon = createLucideIcon("snap-shot", [
+  [
+    "path",
+    {
+      d: "M8 3H6a3 3 0 0 0-3 3v2M16 3h2a3 3 0 0 1 3 3v2M21 16v2a3 3 0 0 1-3 3h-2M8 21H6a3 3 0 0 1-3-3v-2",
+      key: "capture-frame",
+    },
+  ],
+  ["rect", { width: "10", height: "8", x: "7", y: "8", rx: "2", key: "window" }],
+  ["circle", { cx: "12", cy: "12", r: "1.5", key: "lens" }],
+]);
 
 const T3ConnectSidebarSignIn = lazy(() =>
   import("../clerk/T3ConnectSidebarSignIn").then((module) => ({
@@ -75,6 +82,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/voice": MicIcon,
   "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
+  "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,
   "/settings/integrations": BlocksIcon,
   "/settings/source-control": GitBranchIcon,
@@ -96,22 +104,6 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   const Icon = SETTINGS_SECTION_ICONS[to];
   return <Icon className="mt-0.5 size-3.5 shrink-0 text-sidebar-muted-foreground/60" />;
-}
-
-function SettingsSubmenuCollapse({
-  open,
-  children,
-}: {
-  readonly open: boolean;
-  readonly children: ReactNode;
-}) {
-  return (
-    <Collapsible open={open}>
-      <CollapsiblePanel className="duration-150 ease-out motion-reduce:transition-none">
-        {children}
-      </CollapsiblePanel>
-    </Collapsible>
-  );
 }
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
@@ -185,24 +177,6 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       });
     },
     [isMobile, navigate, setOpenMobile],
-  );
-  const handlePageSectionClick = useCallback(
-    (to: SettingsPath, targetId: string) => {
-      if (isMobile) {
-        setOpenMobile(false);
-      }
-      if (pathname === to && scrollToSettingsTarget(targetId, { highlight: false })) {
-        return;
-      }
-      void navigate({
-        to,
-        hash: targetId,
-        replace: true,
-        hashScrollIntoView: false,
-        state: { settingsTargetHighlight: false },
-      });
-    },
-    [isMobile, navigate, pathname, setOpenMobile],
   );
   const clearSearch = useCallback(() => {
     setQuery("");

@@ -37,7 +37,7 @@ function getStoredEditor(): EditorId | null {
   return legacyEditor;
 }
 
-export class PreferredEditorEnvironmentRequiredError extends Schema.TaggedErrorClass<PreferredEditorEnvironmentRequiredError>()(
+export class PreferredEditorEnvironmentRequiredError extends Schema.TaggedError<PreferredEditorEnvironmentRequiredError>()(
   "PreferredEditorEnvironmentRequiredError",
   {
     targetPath: Schema.String,
@@ -48,7 +48,7 @@ export class PreferredEditorEnvironmentRequiredError extends Schema.TaggedErrorC
   }
 }
 
-export class PreferredEditorUnavailableError extends Schema.TaggedErrorClass<PreferredEditorUnavailableError>()(
+export class PreferredEditorUnavailableError extends Schema.TaggedError<PreferredEditorUnavailableError>()(
   "PreferredEditorUnavailableError",
   {
     environmentId: EnvironmentId,

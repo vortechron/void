@@ -174,6 +174,7 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.environmentThemes).toBe(true);
       expect(second.capabilities.threadPinning).toBe(true);
       expect(second.capabilities.threadPinReorder).toBe(true);
+      expect(second.capabilities.threadPullRequests).toBe(true);
       expect(second.capabilities.threadPullRequestLinking).toBe(true);
       expect(second.capabilities.agentActivityPublishing).toBe(false);
     }),
