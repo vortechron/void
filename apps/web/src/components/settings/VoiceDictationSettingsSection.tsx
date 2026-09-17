@@ -20,6 +20,7 @@ import { normalizeOpenAiApiKey } from "../../lib/voiceDictation/apiKey";
 import { canCaptureAudio } from "../../lib/voiceDictation/pcmCapture";
 import { resolveVoiceDictationAvailability } from "../../lib/voiceDictation/availability";
 import { DraftInput } from "../ui/draft-input";
+import { SecretDraftInput } from "../ui/secret-draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
@@ -90,14 +91,14 @@ export function VoiceDictationSettingsSection() {
         {...searchableSetting("voice-dictation-api-key")}
         description="Your own OpenAI key, used only for transcription. It is stored with this environment's settings and sent to the clients paired with it, because the browser is what opens the connection to OpenAI."
         control={
-          <DraftInput
-            type="password"
+          <SecretDraftInput
             autoComplete="off"
             spellCheck={false}
             disabled={isOff}
             className="w-full sm:w-64"
             placeholder="sk-..."
             aria-label="OpenAI API key"
+            secretLabel="OpenAI API key"
             value={voiceDictation.openaiApiKey}
             onCommit={(next) => patchVoiceDictation({ openaiApiKey: normalizeOpenAiApiKey(next) })}
           />
