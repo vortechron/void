@@ -219,7 +219,7 @@ export const sharedServerCommandFlags = {
   tailscaleServePort: tailscaleServePortFlag,
 } as const;
 
-export class BareWorkingDirectoryArgumentError extends Schema.TaggedErrorClass<BareWorkingDirectoryArgumentError>()(
+export class BareWorkingDirectoryArgumentError extends Schema.TaggedError<BareWorkingDirectoryArgumentError>()(
   "BareWorkingDirectoryArgumentError",
   {
     operation: Schema.Literal("resolveServerConfig"),
