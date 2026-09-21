@@ -1,5 +1,12 @@
 import type { ContextMenuItem, ScopedProjectRef } from "@t3tools/contracts";
-import { HistoryIcon, MessageSquareTextIcon, PlusIcon, RotateCcwIcon, XIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  HistoryIcon,
+  MessageSquareTextIcon,
+  PlusIcon,
+  RotateCcwIcon,
+  XIcon,
+} from "lucide-react";
 import {
   memo,
   useCallback,
@@ -19,6 +26,16 @@ import {
   type ThreadAttentionStatus,
 } from "~/components/sidebarWorkspaceStatus";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { Button } from "~/components/ui/button";
+import {
+  Dialog,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "~/components/ui/dialog";
+import { Input } from "~/components/ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { LONG_PRESS_TARGET_STYLE, useLongPressContextMenu } from "~/hooks/useLongPressContextMenu";
@@ -32,6 +49,8 @@ import {
   threadTabRef,
   useThreadTabsStore,
   type ThreadTab,
+  type ThreadTabGroup,
+  type ThreadTabGroupColor,
 } from "~/threadTabsStore";
 import {
   buildProjectWorkspaces,
@@ -41,8 +60,58 @@ import {
 import { ThreadTabStatusIcon } from "./ThreadTabStatusIcon";
 import { EMPTY_SESSION_STATUSES, resolveSessionStatusesByKey } from "./workspaceHistoryStatus";
 
-type TabContextMenuAction = "close" | "close-others" | "close-to-right" | "close-all";
+type TabContextMenuAction =
+  | "group:new"
+  | "group:add"
+  | `group:add:${string}`
+  | "group:remove"
+  | "close"
+  | "close-others"
+  | "close-to-right"
+  | "close-all";
+type TabGroupContextMenuAction = "rename" | "colors" | `color:${ThreadTabGroupColor}` | "ungroup";
+type TabGroupDialogState =
+  | { readonly mode: "create"; readonly tabKey: string }
+  | { readonly mode: "rename"; readonly groupId: string };
+
+const TAB_GROUP_COLOR_STYLES: Record<
+  ThreadTabGroupColor,
+  { readonly surface: string; readonly text: string; readonly dot: string }
+> = {
+  grey: {
+    surface: "bg-zinc-500/10 ring-zinc-500/25",
+    text: "text-zinc-700 dark:text-zinc-300",
+    dot: "bg-zinc-500",
+  },
+  blue: {
+    surface: "bg-blue-500/10 ring-blue-500/25",
+    text: "text-blue-700 dark:text-blue-300",
+    dot: "bg-blue-500",
+  },
+  green: {
+    surface: "bg-emerald-500/10 ring-emerald-500/25",
+    text: "text-emerald-700 dark:text-emerald-300",
+    dot: "bg-emerald-500",
+  },
+  yellow: {
+    surface: "bg-amber-500/10 ring-amber-500/25",
+    text: "text-amber-700 dark:text-amber-300",
+    dot: "bg-amber-500",
+  },
+  red: {
+    surface: "bg-rose-500/10 ring-rose-500/25",
+    text: "text-rose-700 dark:text-rose-300",
+    dot: "bg-rose-500",
+  },
+  purple: {
+    surface: "bg-violet-500/10 ring-violet-500/25",
+    text: "text-violet-700 dark:text-violet-300",
+    dot: "bg-violet-500",
+  },
+};
+const TAB_GROUP_COLOR_OPTIONS = Object.keys(TAB_GROUP_COLOR_STYLES) as ThreadTabGroupColor[];
 const WORKSPACE_HISTORY_PAGE_SIZE = 20;
+let nextThreadTabGroupId = 0;
 
 /**
  * Tab strip for the threads you have open, sitting directly under the
@@ -56,19 +125,28 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
   onNewThread: () => void;
   newThreadLabel: string;
 }) {
+  const { workspaceKey, projectRef, onNewThread, newThreadLabel } = props;
   const navigate = useNavigate();
-  const tabState = useThreadTabsStore((state) =>
-    selectWorkspaceThreadTabs(state, props.workspaceKey),
-  );
-  const { tabs, activeKey } = tabState;
+  const tabState = useThreadTabsStore((state) => selectWorkspaceThreadTabs(state, workspaceKey));
+  const { tabs, activeKey, groups } = tabState;
   const closeTab = useThreadTabsStore((state) => state.closeTab);
   const closeOthers = useThreadTabsStore((state) => state.closeOthers);
   const closeToRight = useThreadTabsStore((state) => state.closeToRight);
   const closeAll = useThreadTabsStore((state) => state.closeAll);
   const moveTab = useThreadTabsStore((state) => state.moveTab);
+  const createGroup = useThreadTabsStore((state) => state.createGroup);
+  const addToGroup = useThreadTabsStore((state) => state.addToGroup);
+  const removeFromGroup = useThreadTabsStore((state) => state.removeFromGroup);
+  const toggleGroup = useThreadTabsStore((state) => state.toggleGroup);
+  const updateGroup = useThreadTabsStore((state) => state.updateGroup);
+  const ungroup = useThreadTabsStore((state) => state.ungroup);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [groupDialog, setGroupDialog] = useState<TabGroupDialogState | null>(null);
+  const [groupName, setGroupName] = useState("");
+  const [groupColor, setGroupColor] = useState<ThreadTabGroupColor>("blue");
   const tabListRef = useRef<HTMLDivElement>(null);
   const openSessionKeys = useMemo(() => tabs.map((tab) => tab.key), [tabs]);
+  const tabStripChunks = useMemo(() => buildTabStripChunks(tabs, groups), [groups, tabs]);
 
   const activate = useCallback(
     (tab: ThreadTab | WorkspaceSession) => {
@@ -93,17 +171,17 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
   const close = useCallback(
     (tab: ThreadTab) => {
       const wasActive = tab.key === activeKey;
-      closeTab(props.workspaceKey, tab.key);
+      closeTab(workspaceKey, tab.key);
       if (!wasActive) return;
-      const next = selectWorkspaceThreadTabs(useThreadTabsStore.getState(), props.workspaceKey);
+      const next = selectWorkspaceThreadTabs(useThreadTabsStore.getState(), workspaceKey);
       const nextTab = next.tabs.find((entry) => entry.key === next.activeKey);
       if (nextTab) {
         activate(nextTab);
         return;
       }
-      props.onNewThread();
+      onNewThread();
     },
-    [activate, activeKey, closeTab, props.onNewThread, props.workspaceKey],
+    [activate, activeKey, closeTab, onNewThread, workspaceKey],
   );
 
   const openTabContextMenu = useCallback(
@@ -114,32 +192,62 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
       const index = tabs.findIndex((entry) => entry.key === tab.key);
       if (index < 0) return;
 
+      const groupItems: ContextMenuItem<TabContextMenuAction>[] = [
+        { id: "group:new", label: "Add tab to new group..." },
+        ...(groups.length > 0
+          ? [
+              {
+                id: "group:add" as const,
+                label: "Add tab to group",
+                children: groups.map((group) => ({
+                  id: `group:add:${group.id}` as const,
+                  label: tab.groupId === group.id ? `✓ ${group.name}` : group.name,
+                  disabled: tab.groupId === group.id,
+                })),
+              },
+            ]
+          : []),
+        ...(tab.groupId ? [{ id: "group:remove" as const, label: "Remove from group" }] : []),
+      ];
       const items: ContextMenuItem<TabContextMenuAction>[] = [
-        { id: "close", label: "Close" },
+        ...groupItems,
+        { id: "close", label: "Close", separatorBefore: true },
         { id: "close-others", label: "Close others", disabled: tabs.length <= 1 },
         { id: "close-to-right", label: "Close to the right", disabled: index >= tabs.length - 1 },
         { id: "close-all", label: "Close all" },
       ];
 
       const action = await api.contextMenu.show(items, { x: position.x, y: position.y });
+      if (action?.startsWith("group:add:")) {
+        addToGroup(workspaceKey, tab.key, action.slice("group:add:".length));
+        return;
+      }
       switch (action) {
+        case "group:new":
+          setGroupName("");
+          setGroupColor(TAB_GROUP_COLOR_OPTIONS[groups.length % TAB_GROUP_COLOR_OPTIONS.length]!);
+          setGroupDialog({ mode: "create", tabKey: tab.key });
+          break;
+        case "group:remove":
+          removeFromGroup(workspaceKey, tab.key);
+          break;
         case "close":
           close(tab);
           break;
         case "close-others":
-          closeOthers(props.workspaceKey, tab.key);
+          closeOthers(workspaceKey, tab.key);
           activate(tab);
           break;
         case "close-to-right":
           {
             const previousActiveKey = selectWorkspaceThreadTabs(
               useThreadTabsStore.getState(),
-              props.workspaceKey,
+              workspaceKey,
             ).activeKey;
-            closeToRight(props.workspaceKey, tab.key);
+            closeToRight(workspaceKey, tab.key);
             const nextState = selectWorkspaceThreadTabs(
               useThreadTabsStore.getState(),
-              props.workspaceKey,
+              workspaceKey,
             );
             if (nextState.activeKey !== previousActiveKey) {
               const nextTab = selectThreadTab(nextState, nextState.activeKey);
@@ -148,8 +256,8 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
           }
           break;
         case "close-all":
-          closeAll(props.workspaceKey);
-          props.onNewThread();
+          closeAll(workspaceKey);
+          onNewThread();
           break;
         case null:
           break;
@@ -157,14 +265,51 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
     },
     [
       activate,
+      addToGroup,
       close,
       closeAll,
       closeOthers,
       closeToRight,
-      props.onNewThread,
-      props.workspaceKey,
+      groups,
+      onNewThread,
+      removeFromGroup,
       tabs,
+      workspaceKey,
     ],
+  );
+
+  const openTabGroupContextMenu = useCallback(
+    async (position: { readonly x: number; readonly y: number }, group: ThreadTabGroup) => {
+      const api = readLocalApi();
+      if (!api) return;
+      const items: ContextMenuItem<TabGroupContextMenuAction>[] = [
+        { id: "rename", label: "Rename group..." },
+        {
+          id: "colors",
+          label: "Color",
+          children: TAB_GROUP_COLOR_OPTIONS.map((color) => ({
+            id: `color:${color}`,
+            label: group.color === color ? `✓ ${capitalize(color)}` : capitalize(color),
+          })),
+        },
+        { id: "ungroup", label: "Ungroup tabs", separatorBefore: true },
+      ];
+      const action = await api.contextMenu.show(items, position);
+      if (action?.startsWith("color:")) {
+        updateGroup(workspaceKey, group.id, {
+          color: action.slice("color:".length) as ThreadTabGroupColor,
+        });
+        return;
+      }
+      if (action === "rename") {
+        setGroupName(group.name);
+        setGroupColor(group.color);
+        setGroupDialog({ mode: "rename", groupId: group.id });
+      } else if (action === "ungroup") {
+        ungroup(workspaceKey, group.id);
+      }
+    },
+    [ungroup, updateGroup, workspaceKey],
   );
 
   const handleContextMenu = useCallback(
@@ -201,83 +346,307 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
       const draggedIndex = tabs.findIndex((entry) => entry.key === draggingKey);
       const targetOriginalIndex = tabs.findIndex((entry) => entry.key === targetKey);
       moveTab(
-        props.workspaceKey,
+        workspaceKey,
         draggingKey,
         draggedIndex < targetOriginalIndex ? targetIndex + 1 : targetIndex,
       );
     },
-    [draggingKey, moveTab, props.workspaceKey, tabs],
+    [draggingKey, moveTab, tabs, workspaceKey],
   );
 
+  const handleGroupDrop = useCallback(
+    (event: ReactMouseEvent, groupId: string) => {
+      event.preventDefault();
+      if (!draggingKey) return;
+      addToGroup(workspaceKey, draggingKey, groupId);
+      setDraggingKey(null);
+    },
+    [addToGroup, draggingKey, workspaceKey],
+  );
+
+  const closeGroupDialog = useCallback(() => {
+    setGroupDialog(null);
+    setGroupName("");
+  }, []);
+
+  const submitGroupDialog = useCallback(() => {
+    if (!groupDialog || !groupName.trim()) return;
+    if (groupDialog.mode === "create") {
+      createGroup(workspaceKey, groupDialog.tabKey, {
+        id: createThreadTabGroupId(),
+        name: groupName,
+        color: groupColor,
+      });
+    } else {
+      updateGroup(workspaceKey, groupDialog.groupId, {
+        name: groupName,
+        color: groupColor,
+      });
+    }
+    closeGroupDialog();
+  }, [
+    closeGroupDialog,
+    createGroup,
+    groupColor,
+    groupDialog,
+    groupName,
+    updateGroup,
+    workspaceKey,
+  ]);
+
   useEffect(() => {
+    if (activeKey === null) return;
     const active = tabListRef.current?.querySelector<HTMLElement>("[data-active-tab='true']");
     active?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey]);
 
+  const renderTab = (tab: ThreadTab) => (
+    <ThreadTabButton
+      key={tab.key}
+      tab={tab}
+      active={tab.key === activeKey}
+      dragging={tab.key === draggingKey}
+      onActivate={() => activate(tab)}
+      onClose={() => close(tab)}
+      onContextMenu={(event) => handleContextMenu(event, tab)}
+      onLongPress={(position) => void openTabContextMenu(position, tab)}
+      onMouseDown={handleMouseDown}
+      onAuxClick={(event) => handleAuxClick(event, tab)}
+      onDragStart={() => setDraggingKey(tab.key)}
+      onDragEnd={() => setDraggingKey(null)}
+      onDrop={(event) => handleDrop(event, tab.key)}
+    />
+  );
+
   if (tabs.length === 0) return null;
 
   return (
-    <div
-      className="flex h-9 shrink-0 items-center gap-1 border-b border-border/60 bg-background pl-2 pr-1"
-      data-thread-tabbar
-    >
-      <ScrollArea
-        ref={tabListRef}
-        hideScrollbars
-        scrollFade
-        className="min-w-0 flex-1 rounded-none"
-        data-thread-tab-list
+    <>
+      <div
+        className="flex h-9 shrink-0 items-center gap-1 border-b border-border/60 bg-background pl-2 pr-1"
+        data-thread-tabbar
       >
-        <div
-          role="tablist"
-          aria-label="Open threads"
-          className="flex h-full w-max min-w-full items-end"
+        <ScrollArea
+          ref={tabListRef}
+          hideScrollbars
+          scrollFade
+          className="h-full min-w-0 flex-1 rounded-none"
+          data-thread-tab-list
         >
-          {tabs.map((tab) => (
-            <ThreadTabButton
-              key={tab.key}
-              tab={tab}
-              active={tab.key === activeKey}
-              dragging={tab.key === draggingKey}
-              onActivate={() => activate(tab)}
-              onClose={() => close(tab)}
-              onContextMenu={(event) => handleContextMenu(event, tab)}
-              onLongPress={(position) => void openTabContextMenu(position, tab)}
-              onMouseDown={handleMouseDown}
-              onAuxClick={(event) => handleAuxClick(event, tab)}
-              onDragStart={() => setDraggingKey(tab.key)}
-              onDragEnd={() => setDraggingKey(null)}
-              onDrop={(event) => handleDrop(event, tab.key)}
-            />
-          ))}
-          {/* Inline rather than pinned right: the affordance belongs next to
-              the last tab, where the new tab will appear. */}
-          <div className="flex h-9 shrink-0 items-center pl-1">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={props.newThreadLabel}
-                    onClick={props.onNewThread}
-                    className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <PlusIcon className="size-4" />
-                  </button>
-                }
-              />
-              <TooltipPopup side="bottom">{props.newThreadLabel}</TooltipPopup>
-            </Tooltip>
+          <div
+            role="tablist"
+            aria-label="Open threads"
+            className="flex h-full w-max min-w-full items-center"
+          >
+            {tabStripChunks.map((chunk) =>
+              chunk.kind === "tab" ? (
+                renderTab(chunk.tab)
+              ) : (
+                <div
+                  key={chunk.group.id}
+                  className={cn(
+                    "flex h-full shrink-0 items-center rounded-lg px-0.5 ring-1 ring-inset",
+                    TAB_GROUP_COLOR_STYLES[chunk.group.color].surface,
+                  )}
+                  data-thread-tab-group={chunk.group.id}
+                >
+                  <ThreadTabGroupButton
+                    group={chunk.group}
+                    tabCount={chunk.tabs.length}
+                    active={chunk.tabs.some((tab) => tab.key === activeKey)}
+                    onToggle={() => toggleGroup(workspaceKey, chunk.group.id)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void openTabGroupContextMenu(
+                        { x: event.clientX, y: event.clientY },
+                        chunk.group,
+                      );
+                    }}
+                    onLongPress={(position) => void openTabGroupContextMenu(position, chunk.group)}
+                    onDrop={(event) => handleGroupDrop(event, chunk.group.id)}
+                  />
+                  {chunk.group.collapsed ? null : chunk.tabs.map(renderTab)}
+                </div>
+              ),
+            )}
+            {/* Inline rather than pinned right: the affordance belongs next to
+                the last tab, where the new tab will appear. */}
+            <div className="flex h-full shrink-0 items-center pl-1">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={newThreadLabel}
+                      onClick={onNewThread}
+                      className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <PlusIcon className="size-4" />
+                    </button>
+                  }
+                />
+                <TooltipPopup side="bottom">{newThreadLabel}</TooltipPopup>
+              </Tooltip>
+            </div>
           </div>
-        </div>
-      </ScrollArea>
-      <WorkspaceHistoryMenu
-        workspaceKey={props.workspaceKey}
-        projectRef={props.projectRef}
-        openSessionKeys={openSessionKeys}
-        onActivate={activate}
+        </ScrollArea>
+        <WorkspaceHistoryMenu
+          workspaceKey={workspaceKey}
+          projectRef={projectRef}
+          openSessionKeys={openSessionKeys}
+          onActivate={activate}
+        />
+      </div>
+
+      <Dialog
+        open={groupDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) closeGroupDialog();
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {groupDialog?.mode === "rename" ? "Rename tab group" : "New tab group"}
+            </DialogTitle>
+          </DialogHeader>
+          <DialogPanel className="space-y-4">
+            <div className="grid gap-1.5">
+              <span className="text-xs font-medium text-foreground">Group name</span>
+              <Input
+                autoFocus
+                aria-label="Tab group name"
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitGroupDialog();
+                  }
+                }}
+              />
+            </div>
+            <fieldset className="grid gap-2">
+              <legend className="text-xs font-medium text-foreground">Color</legend>
+              <div className="flex flex-wrap gap-2">
+                {TAB_GROUP_COLOR_OPTIONS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    aria-label={`${capitalize(color)} group color`}
+                    aria-pressed={groupColor === color}
+                    onClick={() => setGroupColor(color)}
+                    className={cn(
+                      "flex size-8 cursor-pointer items-center justify-center rounded-full ring-2 ring-transparent transition-shadow hover:ring-foreground/20 focus-visible:outline-hidden focus-visible:ring-ring",
+                      groupColor === color && "ring-foreground/50",
+                    )}
+                  >
+                    <span
+                      className={cn("size-4 rounded-full", TAB_GROUP_COLOR_STYLES[color].dot)}
+                    />
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          </DialogPanel>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeGroupDialog}>
+              Cancel
+            </Button>
+            <Button disabled={!groupName.trim()} onClick={submitGroupDialog}>
+              {groupDialog?.mode === "rename" ? "Save" : "Create group"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </>
+  );
+});
+
+type TabStripChunk =
+  | { readonly kind: "tab"; readonly tab: ThreadTab }
+  | {
+      readonly kind: "group";
+      readonly group: ThreadTabGroup;
+      readonly tabs: readonly ThreadTab[];
+    };
+
+function buildTabStripChunks(
+  tabs: readonly ThreadTab[],
+  groups: readonly ThreadTabGroup[],
+): readonly TabStripChunk[] {
+  const groupById = new Map(groups.map((group) => [group.id, group] as const));
+  const chunks: TabStripChunk[] = [];
+  for (let index = 0; index < tabs.length; index += 1) {
+    const tab = tabs[index]!;
+    const group = tab.groupId ? groupById.get(tab.groupId) : undefined;
+    if (!group) {
+      chunks.push({ kind: "tab", tab });
+      continue;
+    }
+    const groupTabs = [tab];
+    while (tabs[index + 1]?.groupId === group.id) {
+      index += 1;
+      groupTabs.push(tabs[index]!);
+    }
+    chunks.push({ kind: "group", group, tabs: groupTabs });
+  }
+  return chunks;
+}
+
+function createThreadTabGroupId(): string {
+  nextThreadTabGroupId += 1;
+  return `tab-group-${Date.now().toString(36)}-${nextThreadTabGroupId.toString(36)}`;
+}
+
+function capitalize(value: string): string {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
+
+const ThreadTabGroupButton = memo(function ThreadTabGroupButton(props: {
+  group: ThreadTabGroup;
+  tabCount: number;
+  active: boolean;
+  onToggle: () => void;
+  onContextMenu: (event: ReactMouseEvent) => void;
+  onLongPress: (position: { readonly x: number; readonly y: number }) => void;
+  onDrop: (event: ReactMouseEvent) => void;
+}) {
+  const longPressHandlers = useLongPressContextMenu(props.onLongPress);
+  const styles = TAB_GROUP_COLOR_STYLES[props.group.color];
+  const action = props.group.collapsed ? "Expand" : "Collapse";
+
+  return (
+    <button
+      type="button"
+      aria-expanded={!props.group.collapsed}
+      aria-label={`${action} ${props.group.name} group, ${props.tabCount} tabs`}
+      data-active-tab-group={props.active}
+      style={LONG_PRESS_TARGET_STYLE}
+      onClick={props.onToggle}
+      onContextMenu={props.onContextMenu}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={props.onDrop}
+      {...longPressHandlers}
+      className={cn(
+        "mx-0.5 flex h-7 max-w-32 shrink-0 cursor-pointer select-none items-center gap-1 rounded-md px-1.5 text-xs font-medium transition-colors hover:bg-background/60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+        styles.text,
+        props.active && props.group.collapsed && "bg-background/75 shadow-sm",
+      )}
+    >
+      <ChevronRightIcon
+        className={cn(
+          "size-3 shrink-0 transition-transform",
+          !props.group.collapsed && "rotate-90",
+        )}
       />
-    </div>
+      <span className={cn("size-2 shrink-0 rounded-full", styles.dot)} />
+      <span className="truncate">{props.group.name}</span>
+      {props.group.collapsed ? (
+        <span className="shrink-0 tabular-nums opacity-70">{props.tabCount}</span>
+      ) : null}
+    </button>
   );
 });
 
@@ -290,10 +659,7 @@ const WorkspaceHistoryMenu = memo(function WorkspaceHistoryMenu(props: {
   const project = useProject(props.projectRef);
   const [open, setOpen] = useState(false);
   const [visibleSessionCount, setVisibleSessionCount] = useState(WORKSPACE_HISTORY_PAGE_SIZE);
-  const projectRefs = useMemo(
-    () => [props.projectRef],
-    [props.projectRef.environmentId, props.projectRef.projectId],
-  );
+  const projectRefs = useMemo(() => [props.projectRef], [props.projectRef]);
   const threads = useThreadShellsForProjectRefs(projectRefs);
   const draftThreadsByThreadKey = useComposerDraftStore((state) => state.draftThreadsByThreadKey);
   const closedSessions = useMemo(() => {

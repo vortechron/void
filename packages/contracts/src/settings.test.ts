@@ -908,7 +908,11 @@ describe("ClientSettings workspace state", () => {
   it("defaults to nothing open and nothing labelled", () => {
     const settings = decodeClientSettings({});
 
-    expect(settings.workspaceThreadTabs).toEqual({ version: 0, byWorkspaceKey: {} });
+    expect(settings.workspaceThreadTabs).toEqual({
+      version: 0,
+      byWorkspaceKey: {},
+      groupsByWorkspaceKey: {},
+    });
     expect(settings.workspaceSidebar).toEqual({
       version: 0,
       namesByWorkspaceKey: {},
@@ -934,6 +938,30 @@ describe("ClientSettings workspace state", () => {
     expect(
       decoded.workspaceThreadTabs.byWorkspaceKey["env-1:project-1"]?.map((tab) => tab.threadId),
     ).toEqual(["thread-b", "thread-a"]);
+  });
+
+  it("keeps tab group names, colors, and membership", () => {
+    const decoded = decodeClientSettings({
+      workspaceThreadTabs: {
+        version: 4,
+        byWorkspaceKey: {
+          workspace: [
+            { environmentId: "env-1", threadId: "thread-a", groupId: "group-1" },
+            { environmentId: "env-1", threadId: "thread-b" },
+          ],
+        },
+        groupsByWorkspaceKey: {
+          workspace: [{ id: "group-1", name: "Research", color: "blue" }],
+        },
+      },
+    });
+
+    expect(decoded.workspaceThreadTabs.byWorkspaceKey.workspace?.map((tab) => tab.groupId)).toEqual(
+      ["group-1", null],
+    );
+    expect(decoded.workspaceThreadTabs.groupsByWorkspaceKey.workspace).toEqual([
+      { id: "group-1", name: "Research", color: "blue" },
+    ]);
   });
 
   it("rejects a tab with no thread behind it", () => {

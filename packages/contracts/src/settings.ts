@@ -418,8 +418,31 @@ export type VoiceDictationSettings = typeof VoiceDictationSettings.Type;
 export const WorkspaceThreadTab = Schema.Struct({
   environmentId: TrimmedNonEmptyString,
   threadId: TrimmedNonEmptyString,
+  groupId: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
 export type WorkspaceThreadTab = typeof WorkspaceThreadTab.Type;
+
+export const WORKSPACE_THREAD_TAB_GROUP_COLOR_VALUES = [
+  "grey",
+  "blue",
+  "green",
+  "yellow",
+  "red",
+  "purple",
+] as const;
+export const WorkspaceThreadTabGroupColor = Schema.Literals(
+  WORKSPACE_THREAD_TAB_GROUP_COLOR_VALUES,
+);
+export type WorkspaceThreadTabGroupColor = typeof WorkspaceThreadTabGroupColor.Type;
+
+export const WorkspaceThreadTabGroup = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  color: WorkspaceThreadTabGroupColor,
+});
+export type WorkspaceThreadTabGroup = typeof WorkspaceThreadTabGroup.Type;
 
 /**
  * Orders one device's edit against another's.
@@ -452,6 +475,10 @@ export const WorkspaceThreadTabsSettings = Schema.Struct({
   byWorkspaceKey: Schema.Record(TrimmedNonEmptyString, Schema.Array(WorkspaceThreadTab)).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  groupsByWorkspaceKey: Schema.Record(
+    TrimmedNonEmptyString,
+    Schema.Array(WorkspaceThreadTabGroup),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type WorkspaceThreadTabsSettings = typeof WorkspaceThreadTabsSettings.Type;
 
@@ -464,7 +491,9 @@ export type WorkspaceThreadTabsSettings = typeof WorkspaceThreadTabsSettings.Typ
  * `chatBackgroundEffect`.
  */
 const storedWorkspaceThreadTabs = WorkspaceThreadTabsSettings.pipe(
-  Schema.catchDecoding(() => Effect.succeed(Option.some({ version: 0, byWorkspaceKey: {} }))),
+  Schema.catchDecoding(() =>
+    Effect.succeed(Option.some({ version: 0, byWorkspaceKey: {}, groupsByWorkspaceKey: {} })),
+  ),
   Schema.withDecodingDefault(Effect.succeed({})),
 );
 

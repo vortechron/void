@@ -122,6 +122,12 @@ html:not([data-theme-id]) [data-app-sidebar] {
   gap: 0.25rem;
 }
 
+/* The strip only scrolls sideways. Allowing the shared viewport to scroll on
+   both axes lets its one-pixel rounding overflow move the whole row vertically. */
+[data-thread-tabbar] [data-slot="scroll-area-viewport"] {
+  overflow-y: hidden;
+}
+
 [data-thread-tabbar] [data-active-tab] {
   height: 2rem;
   border: 1px solid transparent;
