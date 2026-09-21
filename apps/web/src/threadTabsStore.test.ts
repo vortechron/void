@@ -7,17 +7,23 @@ import {
   EMPTY_THREAD_TABS_STATE,
   EMPTY_WORKSPACE_THREAD_TABS_STATE,
   MAX_THREAD_TABS,
+  addThreadTabToGroup,
   applyRemoteWorkspaceThreadTabs,
   closeOtherThreadTabs,
   closeThreadTab,
   closeThreadTabsToRight,
+  createThreadTabGroup,
   migratePersistedThreadTabs,
   moveThreadTab,
   openThreadTab,
   openWorkspaceThreadTab,
   reconcileThreadTabs,
+  removeThreadTabFromGroup,
   selectSyncableWorkspaceThreadTabs,
   threadTabKey,
+  toggleThreadTabGroup,
+  ungroupThreadTabs,
+  updateThreadTabGroup,
   type ThreadTabsState,
 } from "./threadTabsStore";
 
@@ -83,7 +89,11 @@ describe("closeThreadTab", () => {
   });
 
   it("empties the strip when the only tab closes", () => {
-    expect(closeThreadTab(openAll(["a"]), key("a"))).toEqual({ tabs: [], activeKey: null });
+    expect(closeThreadTab(openAll(["a"]), key("a"))).toEqual({
+      tabs: [],
+      activeKey: null,
+      groups: [],
+    });
   });
 });
 
@@ -119,6 +129,108 @@ describe("moveThreadTab", () => {
   it("clamps an out-of-range destination to the end", () => {
     const state = moveThreadTab(openAll(["a", "b", "c"]), key("a"), 99);
     expect(state.tabs.map((tab) => tab.threadId)).toEqual(["b", "c", "a"]);
+  });
+});
+
+describe("thread tab groups", () => {
+  const GROUP = { id: "group-1", name: "Research", color: "blue" as const };
+
+  it("creates a named group around one tab", () => {
+    const state = createThreadTabGroup(openAll(["a", "b"]), key("a"), GROUP);
+
+    expect(state.groups).toEqual([{ ...GROUP, collapsed: false }]);
+    expect(state.tabs.map((tab) => [tab.threadId, tab.groupId])).toEqual([
+      ["a", GROUP.id],
+      ["b", null],
+    ]);
+  });
+
+  it("moves another tab beside the group members", () => {
+    const grouped = createThreadTabGroup(openAll(["a", "b", "c"]), key("a"), GROUP);
+    const state = addThreadTabToGroup(grouped, key("c"), GROUP.id);
+
+    expect(state.tabs.map((tab) => [tab.threadId, tab.groupId])).toEqual([
+      ["a", GROUP.id],
+      ["c", GROUP.id],
+      ["b", null],
+    ]);
+  });
+
+  it("removes a tab without splitting the remaining group", () => {
+    const withA = createThreadTabGroup(openAll(["a", "b", "c"]), key("a"), GROUP);
+    const grouped = addThreadTabToGroup(
+      addThreadTabToGroup(withA, key("b"), GROUP.id),
+      key("c"),
+      GROUP.id,
+    );
+    const state = removeThreadTabFromGroup(grouped, key("b"));
+
+    expect(state.tabs.map((tab) => [tab.threadId, tab.groupId])).toEqual([
+      ["a", GROUP.id],
+      ["c", GROUP.id],
+      ["b", null],
+    ]);
+  });
+
+  it("collapses and expands the group without changing the active tab", () => {
+    const grouped = createThreadTabGroup(openAll(["a", "b"]), key("a"), GROUP);
+    const collapsed = toggleThreadTabGroup(grouped, GROUP.id);
+    const expanded = toggleThreadTabGroup(collapsed, GROUP.id);
+
+    expect(collapsed.groups[0]?.collapsed).toBe(true);
+    expect(collapsed.activeKey).toBe(grouped.activeKey);
+    expect(expanded.groups[0]?.collapsed).toBe(false);
+  });
+
+  it("expands a collapsed group when one of its tabs opens from another entry point", () => {
+    const grouped = createThreadTabGroup(openAll(["a", "b"]), key("a"), GROUP);
+    const collapsed = toggleThreadTabGroup(grouped, GROUP.id);
+    const reopened = openThreadTab(collapsed, ref("a"), null);
+
+    expect(reopened.groups[0]?.collapsed).toBe(false);
+    expect(reopened.activeKey).toBe(key("a"));
+  });
+
+  it("renames and recolors a group", () => {
+    const grouped = createThreadTabGroup(openAll(["a", "b"]), key("a"), GROUP);
+    const state = updateThreadTabGroup(grouped, GROUP.id, {
+      name: "  Build  ",
+      color: "green",
+    });
+
+    expect(state.groups[0]).toMatchObject({ name: "Build", color: "green" });
+  });
+
+  it("lets an ungrouped tab join a group when dragged between its tabs", () => {
+    const withA = createThreadTabGroup(openAll(["a", "b", "c"]), key("a"), GROUP);
+    const grouped = addThreadTabToGroup(withA, key("c"), GROUP.id);
+    const state = moveThreadTab(grouped, key("b"), 1);
+
+    expect(state.tabs.map((tab) => [tab.threadId, tab.groupId])).toEqual([
+      ["a", GROUP.id],
+      ["b", GROUP.id],
+      ["c", GROUP.id],
+    ]);
+  });
+
+  it("drops an empty group when its final tab closes", () => {
+    const grouped = createThreadTabGroup(openAll(["a", "b"]), key("a"), GROUP);
+    const state = closeThreadTab(grouped, key("a"));
+
+    expect(state.groups).toEqual([]);
+  });
+
+  it("ungroups every tab while keeping their order", () => {
+    const withA = createThreadTabGroup(openAll(["a", "b", "c"]), key("a"), GROUP);
+    const grouped = addThreadTabToGroup(withA, key("b"), GROUP.id);
+    const state = ungroupThreadTabs(grouped, GROUP.id);
+
+    expect(state.groups).toEqual([]);
+    expect(state.tabs.map((tab) => [tab.threadId, tab.groupId])).toEqual([
+      ["a", null],
+      ["b", null],
+      ["c", null],
+    ]);
   });
 });
 
@@ -189,6 +301,29 @@ describe("migratePersistedThreadTabs", () => {
     expect(state.byWorkspaceKey.feature?.tabs.map((tab) => tab.threadId)).toEqual(["b"]);
   });
 
+  it("restores valid groups and drops broken group links", () => {
+    const state = migratePersistedThreadTabs({
+      byWorkspaceKey: {
+        main: {
+          tabs: [
+            { environmentId: "env-1", threadId: "a", groupId: "group-1" },
+            { environmentId: "env-1", threadId: "b", groupId: "missing" },
+          ],
+          activeKey: key("a"),
+          groups: [
+            { id: "group-1", name: " Research ", color: "blue", collapsed: true },
+            { id: "bad-color", name: "Bad", color: "orange", collapsed: false },
+          ],
+        },
+      },
+    });
+
+    expect(state.byWorkspaceKey.main?.groups).toEqual([
+      { id: "group-1", name: "Research", color: "blue", collapsed: true },
+    ]);
+    expect(state.byWorkspaceKey.main?.tabs.map((tab) => tab.groupId)).toEqual(["group-1", null]);
+  });
+
   it("tolerates junk", () => {
     expect(migratePersistedThreadTabs(null)).toEqual(EMPTY_WORKSPACE_THREAD_TABS_STATE);
     expect(migratePersistedThreadTabs({})).toEqual(EMPTY_WORKSPACE_THREAD_TABS_STATE);
@@ -253,14 +388,74 @@ describe("cross-device tab sync", () => {
 
     expect(selectSyncableWorkspaceThreadTabs(draftsOnly)).toEqual({
       version: 0,
-      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a" }] },
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a", groupId: null }] },
+      groupsByWorkspaceKey: {},
     });
+  });
+
+  it("syncs group membership and appearance while collapse stays local", () => {
+    const opened = openWorkspaceThreadTab(
+      openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
+      BASE,
+      ref("b"),
+      null,
+    );
+    const grouped = createThreadTabGroup(opened.byWorkspaceKey[BASE]!, key("a"), {
+      id: "group-1",
+      name: "Research",
+      color: "blue",
+    });
+    const collapsed = toggleThreadTabGroup(grouped, "group-1");
+    const local = {
+      ...opened,
+      byWorkspaceKey: { ...opened.byWorkspaceKey, [BASE]: collapsed },
+    };
+
+    const published = selectSyncableWorkspaceThreadTabs(local);
+    expect(published.byWorkspaceKey[BASE]?.[0]?.groupId).toBe("group-1");
+    expect(published.groupsByWorkspaceKey[BASE]).toEqual([
+      { id: "group-1", name: "Research", color: "blue" },
+    ]);
+
+    const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, published);
+    expect(applied.byWorkspaceKey[BASE]?.tabs[0]?.groupId).toBe("group-1");
+    expect(applied.byWorkspaceKey[BASE]?.groups).toEqual([
+      { id: "group-1", name: "Research", color: "blue", collapsed: false },
+    ]);
+  });
+
+  it("applies remote group edits without changing this device's collapsed state", () => {
+    const opened = openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null);
+    const grouped = toggleThreadTabGroup(
+      createThreadTabGroup(opened.byWorkspaceKey[BASE]!, key("a"), {
+        id: "group-1",
+        name: "Research",
+        color: "blue",
+      }),
+      "group-1",
+    );
+    const local = { ...opened, byWorkspaceKey: { [BASE]: grouped } };
+
+    const applied = applyRemoteWorkspaceThreadTabs(local, {
+      version: 2,
+      byWorkspaceKey: {
+        [BASE]: [{ environmentId: ENV, threadId: "a", groupId: "group-1" }],
+      },
+      groupsByWorkspaceKey: {
+        [BASE]: [{ id: "group-1", name: "Build", color: "green" }],
+      },
+    });
+
+    expect(applied.byWorkspaceKey[BASE]?.groups).toEqual([
+      { id: "group-1", name: "Build", color: "green", collapsed: true },
+    ]);
   });
 
   it("opens a chat another device started", () => {
     const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, {
       version: 1,
-      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "remote" }] },
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "remote", groupId: null }] },
+      groupsByWorkspaceKey: {},
     });
 
     expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["remote"]);
@@ -278,6 +473,7 @@ describe("cross-device tab sync", () => {
     const applied = applyRemoteWorkspaceThreadTabs(seeded, {
       version: 1,
       byWorkspaceKey: { [BASE]: [] },
+      groupsByWorkspaceKey: {},
     });
 
     expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["draft-thread"]);
@@ -295,11 +491,12 @@ describe("cross-device tab sync", () => {
       version: 1,
       byWorkspaceKey: {
         [BASE]: [
-          { environmentId: ENV, threadId: "a" },
-          { environmentId: ENV, threadId: "b" },
-          { environmentId: ENV, threadId: "c" },
+          { environmentId: ENV, threadId: "a", groupId: null },
+          { environmentId: ENV, threadId: "b", groupId: null },
+          { environmentId: ENV, threadId: "c", groupId: null },
         ],
       },
+      groupsByWorkspaceKey: {},
     });
 
     expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("b"));
@@ -316,7 +513,8 @@ describe("cross-device tab sync", () => {
 
     const applied = applyRemoteWorkspaceThreadTabs(seeded, {
       version: 1,
-      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a" }] },
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a", groupId: null }] },
+      groupsByWorkspaceKey: {},
     });
 
     expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["a", "b"]);
@@ -327,7 +525,8 @@ describe("cross-device tab sync", () => {
     const seeded = openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null);
     const applied = applyRemoteWorkspaceThreadTabs(seeded, {
       version: 0,
-      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a" }] },
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a", groupId: null }] },
+      groupsByWorkspaceKey: {},
     });
 
     expect(applied).toBe(seeded);
@@ -337,6 +536,7 @@ describe("cross-device tab sync", () => {
     const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, {
       version: 0,
       byWorkspaceKey: { "unknown-workspace": [] },
+      groupsByWorkspaceKey: {},
     });
 
     expect(applied).toBe(EMPTY_WORKSPACE_THREAD_TABS_STATE);
@@ -345,7 +545,8 @@ describe("cross-device tab sync", () => {
   it("adopts the remote ordering so the next local change outranks it", () => {
     const applied = applyRemoteWorkspaceThreadTabs(EMPTY_WORKSPACE_THREAD_TABS_STATE, {
       version: 7,
-      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "remote" }] },
+      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "remote", groupId: null }] },
+      groupsByWorkspaceKey: {},
     });
 
     expect(applied.syncVersion).toBe(7);
