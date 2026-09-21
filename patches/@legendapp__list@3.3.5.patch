@@ -1362,7 +1362,7 @@ diff --git a/react-native.web.js b/react-native.web.js
 index 914d2da..a8e2395 100644
 --- a/react-native.web.js
 +++ b/react-native.web.js
-@@ -4948,6 +4948,18 @@ function updateOneItemSize(ctx, itemKey, sizeObj, resolvedMeasurementItem) {
+@@ -4948,6 +4948,27 @@ function updateOneItemSize(ctx, itemKey, sizeObj, resolvedMeasurementItem) {
  }
  
  // src/core/measureContainersInLayoutEffect.ts
@@ -1378,10 +1378,19 @@ index 914d2da..a8e2395 100644
 +  const measured = rect.height / layoutHeight;
 +  return Number.isFinite(measured) && measured > 0 ? measured : 1;
 +}
++function toCSSZoomLayoutRect(element, rect) {
++  const zoom = readContainerCSSZoom(element, rect);
++  return zoom === 1 ? rect : {
++    height: rect.height / zoom,
++    left: rect.left,
++    top: rect.top,
++    width: rect.width / zoom
++  };
++}
  function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
    const measurements = [];
    const containerIds = targetContainerIds != null ? targetContainerIds : ctx.viewRefs.keys();
-@@ -4957,11 +4969,19 @@ function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
+@@ -4957,11 +4978,19 @@ function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
      const element = viewRef == null ? void 0 : viewRef.current;
      if (itemKey !== void 0 && element) {
        const rect = element.getBoundingClientRect();
@@ -1403,11 +1412,19 @@ index 914d2da..a8e2395 100644
        });
      }
    }
+@@ -5343,6 +5372,6 @@ function useOnLayoutSync({
+     let prevRect;
+     if (measureInLayoutEffect) {
+-      const rect = element.getBoundingClientRect();
++      const rect = toCSSZoomLayoutRect(element, element.getBoundingClientRect());
+       emit(toLayout(rect), true);
+       prevRect = rect;
+     }
 diff --git a/react-native.web.mjs b/react-native.web.mjs
 index 95465f2..1859918 100644
 --- a/react-native.web.mjs
 +++ b/react-native.web.mjs
-@@ -4927,6 +4927,18 @@ function updateOneItemSize(ctx, itemKey, sizeObj, resolvedMeasurementItem) {
+@@ -4927,6 +4927,27 @@ function updateOneItemSize(ctx, itemKey, sizeObj, resolvedMeasurementItem) {
  }
  
  // src/core/measureContainersInLayoutEffect.ts
@@ -1423,10 +1440,19 @@ index 95465f2..1859918 100644
 +  const measured = rect.height / layoutHeight;
 +  return Number.isFinite(measured) && measured > 0 ? measured : 1;
 +}
++function toCSSZoomLayoutRect(element, rect) {
++  const zoom = readContainerCSSZoom(element, rect);
++  return zoom === 1 ? rect : {
++    height: rect.height / zoom,
++    left: rect.left,
++    top: rect.top,
++    width: rect.width / zoom
++  };
++}
  function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
    const measurements = [];
    const containerIds = targetContainerIds != null ? targetContainerIds : ctx.viewRefs.keys();
-@@ -4936,11 +4948,19 @@ function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
+@@ -4936,11 +4957,19 @@ function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
      const element = viewRef == null ? void 0 : viewRef.current;
      if (itemKey !== void 0 && element) {
        const rect = element.getBoundingClientRect();
@@ -1448,6 +1474,14 @@ index 95465f2..1859918 100644
        });
      }
    }
+@@ -5322,6 +5351,6 @@ function useOnLayoutSync({
+     let prevRect;
+     if (measureInLayoutEffect) {
+-      const rect = element.getBoundingClientRect();
++      const rect = toCSSZoomLayoutRect(element, element.getBoundingClientRect());
+       emit(toLayout(rect), true);
+       prevRect = rect;
+     }
 diff --git a/react.js b/react.js
 index 914d2da..c195fe9 100644
 --- a/react.js
@@ -1475,7 +1509,7 @@ index 914d2da..c195fe9 100644
    }
    return nextSize;
  }
-@@ -4948,6 +4955,18 @@ function updateOneItemSize(ctx, itemKey, sizeObj, resolvedMeasurementItem) {
+@@ -4948,6 +4955,27 @@ function updateOneItemSize(ctx, itemKey, sizeObj, resolvedMeasurementItem) {
  }
  
  // src/core/measureContainersInLayoutEffect.ts
@@ -1491,10 +1525,19 @@ index 914d2da..c195fe9 100644
 +  const measured = rect.height / layoutHeight;
 +  return Number.isFinite(measured) && measured > 0 ? measured : 1;
 +}
++function toCSSZoomLayoutRect(element, rect) {
++  const zoom = readContainerCSSZoom(element, rect);
++  return zoom === 1 ? rect : {
++    height: rect.height / zoom,
++    left: rect.left,
++    top: rect.top,
++    width: rect.width / zoom
++  };
++}
  function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
    const measurements = [];
    const containerIds = targetContainerIds != null ? targetContainerIds : ctx.viewRefs.keys();
-@@ -4957,11 +4976,19 @@ function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
+@@ -4957,11 +4985,19 @@ function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
      const element = viewRef == null ? void 0 : viewRef.current;
      if (itemKey !== void 0 && element) {
        const rect = element.getBoundingClientRect();
@@ -1516,7 +1559,15 @@ index 914d2da..c195fe9 100644
        });
      }
    }
-@@ -6446,8 +6473,8 @@ function ScrollAdjust() {
+@@ -5343,6 +5380,6 @@ function useOnLayoutSync({
+     let prevRect;
+     if (measureInLayoutEffect) {
+-      const rect = element.getBoundingClientRect();
++      const rect = toCSSZoomLayoutRect(element, element.getBoundingClientRect());
+       emit(toLayout(rect), true);
+       prevRect = rect;
+     }
+@@ -6446,8 +6482,8 @@ function ScrollAdjust() {
                window.getComputedStyle(contentNode)[axis.paddingEndProp]
              );
              const temporaryPaddingEnd = `${(currentPaddingEnd || 0) + pad}px`;
@@ -1553,7 +1604,7 @@ index 95465f2..0454e25 100644
    }
    return nextSize;
  }
-@@ -4927,6 +4934,18 @@ function updateOneItemSize(ctx, itemKey, sizeObj, resolvedMeasurementItem) {
+@@ -4927,6 +4934,27 @@ function updateOneItemSize(ctx, itemKey, sizeObj, resolvedMeasurementItem) {
  }
  
  // src/core/measureContainersInLayoutEffect.ts
@@ -1569,10 +1620,19 @@ index 95465f2..0454e25 100644
 +  const measured = rect.height / layoutHeight;
 +  return Number.isFinite(measured) && measured > 0 ? measured : 1;
 +}
++function toCSSZoomLayoutRect(element, rect) {
++  const zoom = readContainerCSSZoom(element, rect);
++  return zoom === 1 ? rect : {
++    height: rect.height / zoom,
++    left: rect.left,
++    top: rect.top,
++    width: rect.width / zoom
++  };
++}
  function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
    const measurements = [];
    const containerIds = targetContainerIds != null ? targetContainerIds : ctx.viewRefs.keys();
-@@ -4936,11 +4955,19 @@ function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
+@@ -4936,11 +4964,19 @@ function measureContainersInLayoutEffect(ctx, targetContainerIds = null) {
      const element = viewRef == null ? void 0 : viewRef.current;
      if (itemKey !== void 0 && element) {
        const rect = element.getBoundingClientRect();
@@ -1594,7 +1654,15 @@ index 95465f2..0454e25 100644
        });
      }
    }
-@@ -6425,8 +6452,8 @@ function ScrollAdjust() {
+@@ -5322,6 +5359,6 @@ function useOnLayoutSync({
+     let prevRect;
+     if (measureInLayoutEffect) {
+-      const rect = element.getBoundingClientRect();
++      const rect = toCSSZoomLayoutRect(element, element.getBoundingClientRect());
+       emit(toLayout(rect), true);
+       prevRect = rect;
+     }
+@@ -6425,8 +6461,8 @@ function ScrollAdjust() {
                window.getComputedStyle(contentNode)[axis.paddingEndProp]
              );
              const temporaryPaddingEnd = `${(currentPaddingEnd || 0) + pad}px`;
