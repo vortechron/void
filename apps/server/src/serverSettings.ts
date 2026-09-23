@@ -353,6 +353,9 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "providerHealthRefreshInterval",
   "sourceControlWriterModelSelection",
   "textGenerationModelSelection",
+  // Its stored schema requires every field, so trimming an empty
+  // `groupsByWorkspaceKey` made the file unwritable and dropped every tab sync.
+  "workspaceThreadTabs",
 ]);
 
 // Preserve both enabled states because provider history cannot recover a new opt-in.
