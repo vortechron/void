@@ -611,14 +611,14 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <span key={sendStopFlashKey} className="dictation-stop-ring" aria-hidden="true" />
       ) : null}
       {sendDictationStatus === "starting" ? (
-        <Spinner className="size-3.5" aria-hidden="true" />
+        <Spinner size="sm" aria-hidden="true" />
       ) : sendIsDictating ? (
         <MicIcon
           className={cn("size-3.5", sendIsListening ? "dictation-mic-live" : "opacity-70")}
           aria-hidden="true"
         />
       ) : isConnecting || isSendBusy ? (
-        <Spinner className="size-3.5" aria-hidden="true" />
+        <Spinner size="sm" aria-hidden="true" />
       ) : (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path

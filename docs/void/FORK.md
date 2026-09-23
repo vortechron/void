@@ -59,6 +59,34 @@ sqlite3 "file:$HOME/.t3/userdata/state.sqlite?mode=ro" \
 
 Never reuse an id the database has already applied under a different name.
 
+### The lockfile is not a "take theirs" file
+
+Take upstream's `pnpm-lock.yaml`, then put the fork's own entries back. Resolving
+it any other way costs an hour of confusing install failures:
+
+- **Fork patch hashes.** Void patches `@legendapp/list` beyond upstream's patch
+  (list measurements under interface zoom). The lockfile stores a hash of each
+  patch file, so upstream's lockfile points at a patch that does not exist here
+  and every install stops with `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`. Replace every
+  occurrence of upstream's hash with the one on `main` before installing.
+- **Fork-only dependencies.** `apps/web` adds `@fontsource-variable/dm-sans` and
+  `@fontsource/jetbrains-mono`, which upstream's lockfile has never resolved.
+  Only after the patch hashes are right is it safe to run
+  `pnpm install --no-frozen-lockfile`; run it before, and pnpm re-resolves peers
+  and silently upgrades unrelated packages.
+
+Install with the pinned pnpm from `packageManager`, not whatever is on `PATH`.
+`overrides` and `patchedDependencies` live in `pnpm-workspace.yaml`, which pnpm 9
+cannot read, so an older pnpm reports a config mismatch and deletes
+`node_modules`. `corepack enable` once fixes it for good.
+
+### Clean conflicts do not mean a clean merge
+
+Most of what a sync breaks never produces a conflict marker: both sides add the
+same import, or upstream deletes a declaration the fork still calls. Run
+`pnpm typecheck` across every package before trusting a sync, and expect to fix
+collisions in files git merged without complaint.
+
 ## Fork-owned features
 
 These are Void's own features. Upstream has no equivalent, or has a different
