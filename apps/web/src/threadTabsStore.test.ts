@@ -503,22 +503,28 @@ describe("cross-device tab sync", () => {
     expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["a", "b", "c"]);
   });
 
-  it("keeps the tab being viewed when another device omits it", () => {
-    const seeded = openWorkspaceThreadTab(
+  it("does not restore a tab another device closed while it was active here", () => {
+    const openedOnBothDevices = openWorkspaceThreadTab(
       openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
       BASE,
       ref("b"),
       null,
     );
+    const closedOnTablet = {
+      ...openedOnBothDevices,
+      byWorkspaceKey: {
+        ...openedOnBothDevices.byWorkspaceKey,
+        [BASE]: closeThreadTab(openedOnBothDevices.byWorkspaceKey[BASE]!, key("b")),
+      },
+      syncVersion: 1,
+    };
+    const publishedClose = selectSyncableWorkspaceThreadTabs(closedOnTablet);
 
-    const applied = applyRemoteWorkspaceThreadTabs(seeded, {
-      version: 1,
-      byWorkspaceKey: { [BASE]: [{ environmentId: ENV, threadId: "a", groupId: null }] },
-      groupsByWorkspaceKey: {},
-    });
+    const appliedOnMac = applyRemoteWorkspaceThreadTabs(openedOnBothDevices, publishedClose);
 
-    expect(applied.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["a", "b"]);
-    expect(applied.byWorkspaceKey[BASE]?.activeKey).toBe(key("b"));
+    expect(appliedOnMac.byWorkspaceKey[BASE]?.tabs.map((tab) => tab.threadId)).toEqual(["a"]);
+    expect(appliedOnMac.byWorkspaceKey[BASE]?.activeKey).toBe(key("a"));
+    expect(selectSyncableWorkspaceThreadTabs(appliedOnMac)).toEqual(publishedClose);
   });
 
   it("keeps tab identity so unchanged rows do not re-render", () => {
