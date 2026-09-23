@@ -168,21 +168,35 @@ export const ThreadTabs = memo(function ThreadTabs(props: {
   // Closing the active tab hands focus to a neighbour, so the route has to
   // follow the store rather than the click. Closing the last tab starts a blank
   // chat in the same workspace, keeping its closed-chat history reachable.
+  const followActiveTab = useCallback(() => {
+    const next = selectWorkspaceThreadTabs(useThreadTabsStore.getState(), workspaceKey);
+    const nextTab = next.tabs.find((entry) => entry.key === next.activeKey);
+    if (nextTab) {
+      activate(nextTab);
+      return;
+    }
+    onNewThread();
+  }, [activate, onNewThread, workspaceKey]);
+
   const close = useCallback(
     (tab: ThreadTab) => {
       const wasActive = tab.key === activeKey;
       closeTab(workspaceKey, tab.key);
-      if (!wasActive) return;
-      const next = selectWorkspaceThreadTabs(useThreadTabsStore.getState(), workspaceKey);
-      const nextTab = next.tabs.find((entry) => entry.key === next.activeKey);
-      if (nextTab) {
-        activate(nextTab);
-        return;
-      }
-      onNewThread();
+      if (wasActive) followActiveTab();
     },
-    [activate, activeKey, closeTab, onNewThread, workspaceKey],
+    [activeKey, closeTab, followActiveTab, workspaceKey],
   );
+
+  // A chat closed on another device leaves this one the same way. The signal
+  // present at mount is stale (it landed while another page was showing), so
+  // only one that arrives while this strip is up moves the view.
+  const remotelyClosed = useThreadTabsStore((state) => state.remotelyClosedActiveTab);
+  const handledRemotelyClosed = useRef(remotelyClosed);
+  useEffect(() => {
+    if (remotelyClosed === handledRemotelyClosed.current) return;
+    handledRemotelyClosed.current = remotelyClosed;
+    if (remotelyClosed?.workspaceKey === workspaceKey) followActiveTab();
+  }, [followActiveTab, remotelyClosed, workspaceKey]);
 
   const openTabContextMenu = useCallback(
     async (position: { readonly x: number; readonly y: number }, tab: ThreadTab) => {

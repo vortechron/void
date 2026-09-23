@@ -559,7 +559,35 @@ export function applyRemoteWorkspaceThreadTabs<State extends WorkspaceThreadTabs
   return changed ? { ...state, byWorkspaceKey: next, syncVersion: remote.version } : state;
 }
 
+export interface RemotelyClosedTab {
+  readonly workspaceKey: string;
+  readonly key: string;
+}
+
+/**
+ * The chat this device was showing, if a remote set just closed its tab.
+ *
+ * The strip moves the view off it the way a local close does. Left on screen,
+ * the chat's route would open its tab again on the next reload and undo the
+ * close on every device.
+ */
+export function findRemotelyClosedActiveTab(
+  before: WorkspaceThreadTabsState,
+  after: WorkspaceThreadTabsState,
+): RemotelyClosedTab | null {
+  const workspaceKey = before.activeWorkspaceKey;
+  if (workspaceKey === null) return null;
+  const key = selectWorkspaceThreadTabs(before, workspaceKey).activeKey;
+  if (key === null) return null;
+  const stillOpen = selectWorkspaceThreadTabs(after, workspaceKey).tabs.some(
+    (tab) => tab.key === key,
+  );
+  return stillOpen ? null : { workspaceKey, key };
+}
+
 interface ThreadTabsStore extends WorkspaceThreadTabsState {
+  /** Set by the latest remote apply; device-local, never persisted. */
+  remotelyClosedActiveTab: RemotelyClosedTab | null;
   openTab: (workspaceKey: string, ref: ScopedThreadRef, draftId: DraftId | null) => void;
   closeTab: (workspaceKey: string, key: string) => void;
   closeOthers: (workspaceKey: string, key: string) => void;
@@ -609,6 +637,7 @@ export const useThreadTabsStore = create<ThreadTabsStore>()(
       byWorkspaceKey: {},
       activeWorkspaceKey: null,
       syncVersion: 0,
+      remotelyClosedActiveTab: null,
       openTab: (workspaceKey, ref, draftId) =>
         set((state) => openWorkspaceThreadTab(state, workspaceKey, ref, draftId)),
       closeTab: (workspaceKey, key) =>
@@ -662,7 +691,12 @@ export const useThreadTabsStore = create<ThreadTabsStore>()(
         set((state) =>
           updateWorkspace(state, workspaceKey, (tabs) => reconcileThreadTabs(tabs, liveKeys)),
         ),
-      applyRemoteTabs: (remote) => set((state) => applyRemoteWorkspaceThreadTabs(state, remote)),
+      applyRemoteTabs: (remote) =>
+        set((state) => {
+          const next = applyRemoteWorkspaceThreadTabs(state, remote);
+          if (next === state) return state;
+          return { ...next, remotelyClosedActiveTab: findRemotelyClosedActiveTab(state, next) };
+        }),
       stampSyncVersion: (version) =>
         set((state) => (state.syncVersion === version ? state : { syncVersion: version })),
     }),
