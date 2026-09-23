@@ -253,7 +253,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           data-sidebar-version={
             voidSidebarEnabled ? "void" : legacySidebarEnabled ? "legacy" : "upstream"
           }
-          className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+          className="border-r border-sidebar-border"
           resizable={{
             maxWidth: sidebarMaximumWidth,
             minWidth: THREAD_SIDEBAR_MIN_WIDTH,

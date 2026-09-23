@@ -9,7 +9,9 @@ Named and imported themes keep their own colors with the same surface styling.
 ## Themes
 
 The interface theme can follow your system, use the standard Light or Dark palette, or use
-Catppuccin, Dracula, Nord, Tokyo Night, Gruvbox Dark, or Solarized Dark.
+Catppuccin, Dracula, Nord, Tokyo Night, Gruvbox Dark, or Solarized Dark. To use different themes
+for light and dark mode, select the corresponding preview within each theme. Appearance
+preferences are saved separately on each device or browser.
 
 Code highlighting has its own theme setting. **Default** follows the interface's light or dark
 mode. Choosing a named code theme applies it to chat code blocks, file previews, search results,
@@ -54,8 +56,8 @@ unchanged, so the sidebar and the header always agree.
 
 Nothing is renamed. Renaming a project, the **Settings → Projects** page, file paths, terminal
 output, and anything the agent writes still use the real name.
-Mobile has its own themes and text, code, and terminal preferences. It does not follow environment
-themes or defaults.
+On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
+code, and terminal preferences. It does not follow environment themes or defaults.
 
 
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
