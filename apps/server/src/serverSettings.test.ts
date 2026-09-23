@@ -303,6 +303,32 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     ).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  it.effect("persists synced workspace tabs that have no tab groups", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const workspaceThreadTabs = {
+          version: 3,
+          byWorkspaceKey: {
+            workspace: [{ environmentId: "environment", threadId: "thread", groupId: null }],
+          },
+          groupsByWorkspaceKey: {},
+        };
+
+        yield* serverSettings.updateSettings(
+          yield* decodeSettingsPatch({ clientSettings: { workspaceThreadTabs } }),
+        );
+        const persisted = yield* fileSystem
+          .readFileString(serverConfig.settingsPath)
+          .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings))));
+
+        assert.deepStrictEqual(persisted.clientSettings.workspaceThreadTabs, workspaceThreadTabs);
+      }),
+    ).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("persists and broadcasts thread settlement settings", () =>
     Effect.scoped(
       Effect.gen(function* () {

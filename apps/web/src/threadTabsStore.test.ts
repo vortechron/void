@@ -13,6 +13,7 @@ import {
   closeThreadTab,
   closeThreadTabsToRight,
   createThreadTabGroup,
+  findRemotelyClosedActiveTab,
   migratePersistedThreadTabs,
   moveThreadTab,
   openThreadTab,
@@ -574,5 +575,37 @@ describe("cross-device tab sync", () => {
     expect(selectSyncableWorkspaceThreadTabs(applied).byWorkspaceKey).toEqual(
       selectSyncableWorkspaceThreadTabs(seeded).byWorkspaceKey,
     );
+  });
+});
+
+describe("remote close of the chat on screen", () => {
+  const BASE = "workspace-base";
+  const showingB = openWorkspaceThreadTab(
+    openWorkspaceThreadTab(EMPTY_WORKSPACE_THREAD_TABS_STATE, BASE, ref("a"), null),
+    BASE,
+    ref("b"),
+    null,
+  );
+  const remoteOpenSet = (ids: readonly string[]) => ({
+    version: 1,
+    byWorkspaceKey: {
+      [BASE]: ids.map((id) => ({ environmentId: ENV, threadId: id, groupId: null })),
+    },
+    groupsByWorkspaceKey: {},
+  });
+
+  it("reports the chat this device was showing when another device closes it", () => {
+    const applied = applyRemoteWorkspaceThreadTabs(showingB, remoteOpenSet(["a"]));
+
+    expect(findRemotelyClosedActiveTab(showingB, applied)).toEqual({
+      workspaceKey: BASE,
+      key: key("b"),
+    });
+  });
+
+  it("reports nothing when another device closes a chat this device is not showing", () => {
+    const applied = applyRemoteWorkspaceThreadTabs(showingB, remoteOpenSet(["b"]));
+
+    expect(findRemotelyClosedActiveTab(showingB, applied)).toBeNull();
   });
 });

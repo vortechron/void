@@ -24,6 +24,7 @@ import {
   resolveSettingsSyncAction,
   serializeSyncedValue,
 } from "../lib/settingsSync";
+import { usePrimaryEnvironment } from "../state/environments";
 import { selectSyncableWorkspaceThreadTabs, useThreadTabsStore } from "../threadTabsStore";
 import { selectSyncableWorkspaceSidebar, useWorkspaceSidebarStore } from "../workspaceSidebarStore";
 import {
@@ -62,8 +63,14 @@ function serializeContent<Value extends VersionedValue>(value: Value): string {
 
 function useSettingsMirror<Value extends VersionedValue>(mirror: SettingsMirror<Value>): void {
   const hydrated = useClientSettingsHydrated();
+  // Settings hydrate from the cached config before the socket is up, and a
+  // write sent then fails with nothing to retry it. Publishing waits for a live
+  // connection; the exchange below runs again the moment one arrives.
+  const connected = usePrimaryEnvironment()?.connection.phase === "connected";
   const latest = useRef(mirror);
   latest.current = mirror;
+  const latestConnected = useRef(connected);
+  latestConnected.current = connected;
   /** Local content as of the last time this hook looked, to tell a real local
       change apart from a re-render or an echo of the server's own value. */
   const lastLocalContent = useRef<string | null>(null);
@@ -94,10 +101,15 @@ function useSettingsMirror<Value extends VersionedValue>(mirror: SettingsMirror<
         lastLocalContent.current = localContent;
         return;
       case "apply-remote":
-        applyRemote(remote);
+        // Recorded before applying: the store notifies synchronously, and the
+        // listener must see this change as the server's, not as a local edit.
+        // Taking it for a local edit claims a version that ties the other
+        // device's next change, and the tie publishes this stale set over it.
         lastLocalContent.current = serializeContent(remote);
+        applyRemote(remote);
         return;
       case "publish-local": {
+        if (!connected) return;
         const attempt = `${localContent}\u0000${remoteContent}`;
         if (attempt === lastPublishAttempt.current) return;
         lastPublishAttempt.current = attempt;
@@ -111,7 +123,7 @@ function useSettingsMirror<Value extends VersionedValue>(mirror: SettingsMirror<
         return;
       }
     }
-  }, [hydrated, mirror.remote]);
+  }, [connected, hydrated, mirror.remote]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -119,6 +131,7 @@ function useSettingsMirror<Value extends VersionedValue>(mirror: SettingsMirror<
 
     const publishLocal = () => {
       timer = null;
+      if (!latestConnected.current) return;
       const local = latest.current.readLocal();
       const remote = latest.current.remote;
       const localContent = serializeContent(local);
