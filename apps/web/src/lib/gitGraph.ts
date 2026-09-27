@@ -1,13 +1,17 @@
 /**
- * Lane assignment for the commit graph.
+ * Lane assignment for the commit graph, following the layout of the VS Code
+ * Git Graph extension (mhutchie/vscode-git-graph) so both draw the same shape.
  *
  * The input is the commit list exactly as `git log --date-order` returned it
- * (newest first). Each row gets a node lane plus the line segments that cross
- * it, so the renderer only has to map lane indices to x positions and draw.
+ * (newest first). Layout walks branches, not rows: from the first commit that
+ * still has an unplaced parent, it follows parents down the list and takes the
+ * leftmost free lane on every row it crosses. A line keeps that lane until the
+ * row of the commit it points at and only bends there, so a side branch never
+ * borrows the lane of the history it is about to merge into.
  *
- * Lanes are never compacted mid-list: a lane keeps its column for as long as it
- * is waiting for a commit, which is what keeps a branch reading as one straight
- * line instead of drifting sideways every few rows.
+ * Every segment runs from one row's node to the next row's node. The upper row
+ * lists it in `bottomEdges`, the lower row in `topEdges`, and each row draws
+ * only its own half.
  */
 
 export interface GitGraphInputCommit {
@@ -16,9 +20,9 @@ export interface GitGraphInputCommit {
 }
 
 export interface GitGraphEdge {
-  /** Lane index at the start of the segment. */
+  /** Lane at the upper row's node. */
   readonly fromLane: number;
-  /** Lane index at the end of the segment. */
+  /** Lane at the lower row's node. */
   readonly toLane: number;
   readonly color: number;
 }
@@ -27,9 +31,9 @@ export interface GitGraphRow {
   readonly sha: string;
   readonly nodeLane: number;
   readonly color: number;
-  /** Segments in the upper half of the row, ending at the node's y midpoint. */
+  /** Segments arriving from the row above; this row draws their lower half. */
   readonly topEdges: ReadonlyArray<GitGraphEdge>;
-  /** Segments in the lower half of the row, starting at the node's y midpoint. */
+  /** Segments leaving for the row below; this row draws their upper half. */
   readonly bottomEdges: ReadonlyArray<GitGraphEdge>;
   /** Lanes occupied anywhere in this row, used to size the graph column. */
   readonly laneCount: number;
@@ -40,93 +44,155 @@ export interface GitGraph {
   readonly laneCount: number;
 }
 
-interface Lane {
-  readonly sha: string;
+interface Branch {
   readonly color: number;
 }
 
-export const GIT_GRAPH_LANE_COLORS = 8;
+interface Vertex {
+  /** Row index of each parent, or `OUTSIDE` when it is past the loaded page. */
+  readonly parents: ReadonlyArray<number>;
+  nextParent: number;
+  branch: Branch | null;
+  lane: number;
+  /** Leftmost lane on this row that no line has claimed yet. */
+  nextLane: number;
+  /** For each claimed lane, the commit its line is heading to and on which branch. */
+  readonly connections: Array<{ readonly parent: number; readonly branch: Branch }>;
+}
+
+/** A parent that is not in the list; its line runs to the bottom of the graph. */
+const OUTSIDE = -1;
 
 const EMPTY_GRAPH: GitGraph = { rows: [], laneCount: 0 };
-
-function findFreeLane(lanes: ReadonlyArray<Lane | null>): number {
-  const free = lanes.indexOf(null);
-  return free === -1 ? lanes.length : free;
-}
-
-function placeLane(lanes: Array<Lane | null>, index: number, lane: Lane | null): void {
-  while (lanes.length <= index) lanes.push(null);
-  lanes[index] = lane;
-}
 
 export function buildGitGraph(commits: ReadonlyArray<GitGraphInputCommit>): GitGraph {
   if (commits.length === 0) return EMPTY_GRAPH;
 
-  const lanes: Array<Lane | null> = [];
-  const rows: Array<GitGraphRow> = [];
-  let nextColor = 0;
+  const rowBySha = new Map(commits.map((commit, row) => [commit.sha, row]));
+  const vertices: Array<Vertex> = commits.map((commit) => ({
+    parents: commit.parents.map((sha) => rowBySha.get(sha) ?? OUTSIDE),
+    nextParent: 0,
+    branch: null,
+    lane: 0,
+    nextLane: 0,
+    connections: [],
+  }));
+  const topEdges: Array<Array<GitGraphEdge>> = commits.map(() => []);
+  const bottomEdges: Array<Array<GitGraphEdge>> = commits.map(() => []);
+  /** Row where the last branch of each color stopped, so the color can be reused below it. */
+  const colorEnds: Array<number> = [];
+
+  const nextParentOf = (vertex: Vertex): number | null =>
+    vertex.nextParent < vertex.parents.length ? vertex.parents[vertex.nextParent]! : null;
+
+  const claimLane = (row: number, lane: number, parent: number, branch: Branch): void => {
+    const vertex = vertices[row]!;
+    if (lane !== vertex.nextLane) return;
+    vertex.connections[lane] = { parent, branch };
+    vertex.nextLane = lane + 1;
+  };
+
+  const addSegment = (lowerRow: number, fromLane: number, toLane: number, branch: Branch) => {
+    const edge = { fromLane, toLane, color: branch.color };
+    bottomEdges[lowerRow - 1]!.push(edge);
+    topEdges[lowerRow]!.push(edge);
+  };
+
+  const takeColor = (startRow: number): number => {
+    const free = colorEnds.findIndex((end) => startRow > end);
+    if (free !== -1) return free;
+    colorEnds.push(0);
+    return colorEnds.length - 1;
+  };
+
+  /** A merge whose parent is already drawn joins the first line already heading to it. */
+  const joinPlacedParent = (startRow: number, parent: number, parentBranch: Branch): void => {
+    const vertex = vertices[startRow]!;
+    let lastLane = vertex.lane;
+    for (let row = startRow + 1; row < vertices.length; row++) {
+      const current = vertices[row]!;
+      const joinLane = current.connections.findIndex(
+        (connection) => connection?.parent === parent && connection.branch === parentBranch,
+      );
+      const lane = joinLane === -1 ? current.nextLane : joinLane;
+      addSegment(row, lastLane, lane, parentBranch);
+      claimLane(row, lane, parent, parentBranch);
+      lastLane = lane;
+      if (joinLane !== -1) break;
+    }
+    vertex.nextParent++;
+  };
+
+  /** Starts a new branch at `startRow` and follows first parents until it meets drawn history. */
+  const drawBranch = (startRow: number): void => {
+    let vertex = vertices[startRow]!;
+    let parent = nextParentOf(vertex);
+    let lastLane = vertex.branch ? vertex.lane : vertex.nextLane;
+    const branch: Branch = { color: takeColor(startRow) };
+    if (!vertex.branch) {
+      vertex.branch = branch;
+      vertex.lane = lastLane;
+    }
+    claimLane(startRow, lastLane, startRow, branch);
+
+    let row = startRow + 1;
+    for (; parent !== null && row < vertices.length; row++) {
+      const current = vertices[row]!;
+      const lane = parent === row && current.branch ? current.lane : current.nextLane;
+      addSegment(row, lastLane, lane, branch);
+      claimLane(row, lane, parent, branch);
+      lastLane = lane;
+      if (parent !== row) continue;
+
+      vertex.nextParent++;
+      const parentWasPlaced = current.branch !== null;
+      if (!current.branch) {
+        current.branch = branch;
+        current.lane = lane;
+      }
+      vertex = current;
+      parent = nextParentOf(vertex);
+      if (parent === null || parentWasPlaced) break;
+    }
+    // The walk ran off the bottom without meeting its parent (it is past the page).
+    if (row === vertices.length && parent !== null) vertex.nextParent++;
+    colorEnds[branch.color] = row;
+  };
+
+  let startRow = 0;
+  while (startRow < vertices.length) {
+    const vertex = vertices[startRow]!;
+    const parent = nextParentOf(vertex);
+    if (vertex.branch && parent === null) {
+      startRow++;
+      continue;
+    }
+    const parentBranch = parent === null || parent === OUTSIDE ? null : vertices[parent]!.branch;
+    if (parent !== null && parentBranch && vertex.branch && vertex.parents.length > 1) {
+      joinPlacedParent(startRow, parent, parentBranch);
+    } else {
+      drawBranch(startRow);
+    }
+  }
+
   let maxLaneCount = 0;
-
-  for (const commit of commits) {
-    const matches: Array<number> = [];
-    for (const [index, lane] of lanes.entries()) {
-      if (lane?.sha === commit.sha) matches.push(index);
-    }
-
-    const nodeLane = matches[0] ?? findFreeLane(lanes);
-    const color =
-      matches[0] === undefined ? nextColor++ % GIT_GRAPH_LANE_COLORS : lanes[nodeLane]!.color;
-
-    const topEdges: Array<GitGraphEdge> = [];
-    for (const [index, lane] of lanes.entries()) {
-      if (!lane) continue;
-      if (lane.sha === commit.sha) {
-        topEdges.push({ fromLane: index, toLane: nodeLane, color: lane.color });
-      } else {
-        topEdges.push({ fromLane: index, toLane: index, color: lane.color });
-      }
-    }
-
-    // Every lane that was waiting for this commit is now resolved by it.
-    for (const index of matches) placeLane(lanes, index, null);
-    placeLane(lanes, nodeLane, null);
-
-    const bottomEdges: Array<GitGraphEdge> = [];
-    const openedLanes = new Set<number>();
-    for (const [index, parent] of commit.parents.entries()) {
-      const existing = lanes.findIndex((lane) => lane?.sha === parent);
-      if (existing !== -1) {
-        // Two branches reach the same parent: draw into the lane that already
-        // owns it instead of opening a duplicate column for the same history.
-        bottomEdges.push({ fromLane: nodeLane, toLane: existing, color: lanes[existing]!.color });
-        continue;
-      }
-      const targetLane = index === 0 && lanes[nodeLane] == null ? nodeLane : findFreeLane(lanes);
-      const targetColor = index === 0 ? color : nextColor++ % GIT_GRAPH_LANE_COLORS;
-      placeLane(lanes, targetLane, { sha: parent, color: targetColor });
-      openedLanes.add(targetLane);
-      bottomEdges.push({ fromLane: nodeLane, toLane: targetLane, color: targetColor });
-    }
-
-    // A lane this commit only joined was already running above the node, so it
-    // still needs its own straight segment down to the next row.
-    for (const [index, lane] of lanes.entries()) {
-      if (!lane || openedLanes.has(index)) continue;
-      bottomEdges.push({ fromLane: index, toLane: index, color: lane.color });
-    }
-
-    while (lanes.length > 0 && lanes.at(-1) == null) lanes.pop();
-
-    const laneCount = Math.max(
-      nodeLane + 1,
-      lanes.length,
-      ...topEdges.map((edge) => Math.max(edge.fromLane, edge.toLane) + 1),
-      ...bottomEdges.map((edge) => Math.max(edge.fromLane, edge.toLane) + 1),
+  const rows = commits.map<GitGraphRow>((commit, row) => {
+    const vertex = vertices[row]!;
+    const edges = [...topEdges[row]!, ...bottomEdges[row]!];
+    const laneCount = edges.reduce(
+      (count, edge) => Math.max(count, edge.fromLane + 1, edge.toLane + 1),
+      vertex.lane + 1,
     );
     maxLaneCount = Math.max(maxLaneCount, laneCount);
-
-    rows.push({ sha: commit.sha, nodeLane, color, topEdges, bottomEdges, laneCount });
-  }
+    return {
+      sha: commit.sha,
+      nodeLane: vertex.lane,
+      color: vertex.branch?.color ?? 0,
+      topEdges: topEdges[row]!,
+      bottomEdges: bottomEdges[row]!,
+      laneCount,
+    };
+  });
 
   return { rows, laneCount: maxLaneCount };
 }

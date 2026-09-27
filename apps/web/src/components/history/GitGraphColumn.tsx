@@ -36,15 +36,31 @@ function laneX(lane: number): number {
 }
 
 /**
- * A cubic curve with vertical control points, so a lane leaves and enters its
- * column straight up and down and only bends in the middle.
+ * How far the curve's control points reach from each node, as in Git Graph: a
+ * line leaves and enters a node straight up and down and bends across the row
+ * boundary.
  */
-function edgePath(fromLane: number, toLane: number, fromY: number, toY: number): string {
+const CURVE_DEPTH = GRAPH_ROW_HEIGHT * 0.8;
+
+/**
+ * One half of the node-to-node curve, split exactly at the row boundary so the
+ * halves drawn by neighbouring rows meet without a kink. `upper` is the half in
+ * the row that owns the segment's upper node.
+ */
+function edgePath(fromLane: number, toLane: number, half: "upper" | "lower"): string {
   const x1 = laneX(fromLane);
   const x2 = laneX(toLane);
-  if (x1 === x2) return `M ${x1} ${fromY} L ${x2} ${toY}`;
-  const midY = (fromY + toY) / 2;
-  return `M ${x1} ${fromY} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${toY}`;
+  const midY = GRAPH_ROW_HEIGHT / 2;
+  if (x1 === x2) {
+    return half === "upper"
+      ? `M ${x1} ${midY} L ${x1} ${GRAPH_ROW_HEIGHT}`
+      : `M ${x2} 0 L ${x2} ${midY}`;
+  }
+  const boundaryX = (x1 + x2) / 2;
+  if (half === "upper") {
+    return `M ${x1} ${midY} C ${x1} ${midY + CURVE_DEPTH / 2}, ${(3 * x1 + x2) / 4} ${midY + (CURVE_DEPTH + GRAPH_ROW_HEIGHT) / 4}, ${boundaryX} ${GRAPH_ROW_HEIGHT}`;
+  }
+  return `M ${boundaryX} 0 C ${(x1 + 3 * x2) / 4} ${(GRAPH_ROW_HEIGHT - CURVE_DEPTH) / 4}, ${x2} ${(GRAPH_ROW_HEIGHT - CURVE_DEPTH) / 2}, ${x2} ${midY}`;
 }
 
 export function GitGraphColumn({
@@ -72,7 +88,7 @@ export function GitGraphColumn({
       {row.topEdges.map((edge) => (
         <path
           key={`top:${edge.fromLane}:${edge.toLane}`}
-          d={edgePath(edge.fromLane, edge.toLane, 0, midY)}
+          d={edgePath(edge.fromLane, edge.toLane, "lower")}
           stroke={laneColor(edge.color)}
           strokeWidth={1.5}
           fill="none"
@@ -81,7 +97,7 @@ export function GitGraphColumn({
       {row.bottomEdges.map((edge) => (
         <path
           key={`bottom:${edge.fromLane}:${edge.toLane}`}
-          d={edgePath(edge.fromLane, edge.toLane, midY, GRAPH_ROW_HEIGHT)}
+          d={edgePath(edge.fromLane, edge.toLane, "upper")}
           stroke={laneColor(edge.color)}
           strokeWidth={1.5}
           fill="none"
