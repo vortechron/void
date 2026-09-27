@@ -92,6 +92,7 @@ export function buildGitGraph(commits: ReadonlyArray<GitGraphInputCommit>): GitG
     placeLane(lanes, nodeLane, null);
 
     const bottomEdges: Array<GitGraphEdge> = [];
+    const openedLanes = new Set<number>();
     for (const [index, parent] of commit.parents.entries()) {
       const existing = lanes.findIndex((lane) => lane?.sha === parent);
       if (existing !== -1) {
@@ -103,13 +104,15 @@ export function buildGitGraph(commits: ReadonlyArray<GitGraphInputCommit>): GitG
       const targetLane = index === 0 && lanes[nodeLane] == null ? nodeLane : findFreeLane(lanes);
       const targetColor = index === 0 ? color : nextColor++ % GIT_GRAPH_LANE_COLORS;
       placeLane(lanes, targetLane, { sha: parent, color: targetColor });
+      openedLanes.add(targetLane);
       bottomEdges.push({ fromLane: nodeLane, toLane: targetLane, color: targetColor });
     }
 
+    // A lane this commit only joined was already running above the node, so it
+    // still needs its own straight segment down to the next row.
     for (const [index, lane] of lanes.entries()) {
-      if (!lane) continue;
-      const claimed = bottomEdges.some((edge) => edge.toLane === index);
-      if (!claimed) bottomEdges.push({ fromLane: index, toLane: index, color: lane.color });
+      if (!lane || openedLanes.has(index)) continue;
+      bottomEdges.push({ fromLane: index, toLane: index, color: lane.color });
     }
 
     while (lanes.length > 0 && lanes.at(-1) == null) lanes.pop();

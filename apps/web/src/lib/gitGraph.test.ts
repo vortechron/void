@@ -49,9 +49,28 @@ describe("buildGitGraph", () => {
       { fromLane: 0, toLane: 1, color: graph.rows[2]!.color },
     ]);
 
-    // The side branch converges on the lane that already owns the root commit.
-    expect(graph.rows[2]?.bottomEdges).toEqual([{ fromLane: 1, toLane: 0, color: 0 }]);
+    // The side branch converges on the lane that already owns the root commit,
+    // and that lane keeps running through the row instead of stopping at it.
+    expect(graph.rows[2]?.bottomEdges).toEqual([
+      { fromLane: 1, toLane: 0, color: 0 },
+      { fromLane: 0, toLane: 0, color: 0 },
+    ]);
     expect(graph.rows[3]?.nodeLane).toBe(0);
+  });
+
+  it("keeps a lane unbroken through a row where another branch joins it", () => {
+    // s joins the trunk lane that is already waiting for a, two rows below.
+    const graph = buildGitGraph([
+      { sha: "t", parents: ["a"] },
+      { sha: "s", parents: ["a"] },
+      { sha: "a", parents: [] },
+    ]);
+
+    const joinRow = graph.rows[1]!;
+    expect(joinRow.nodeLane).toBe(1);
+    expect(joinRow.topEdges).toContainEqual({ fromLane: 0, toLane: 0, color: 0 });
+    expect(joinRow.bottomEdges).toContainEqual({ fromLane: 0, toLane: 0, color: 0 });
+    expect(joinRow.bottomEdges).toContainEqual({ fromLane: 1, toLane: 0, color: 0 });
   });
 
   it("reuses a freed lane for an unrelated tip but gives it a new color", () => {
