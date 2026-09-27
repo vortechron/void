@@ -3855,16 +3855,14 @@ export default function ChatView(props: ChatViewProps) {
     [keybindings, terminalShortcutLabelOptions],
   );
   const onToggleDiff = useCallback(() => {
-    if (!isServerThread) {
+    if (!activeThreadRef || !activeProject) {
       return;
     }
     if (!diffOpen) {
       onDiffPanelOpen?.();
     }
-    if (activeThreadRef) {
-      useRightPanelStore.getState().toggle(activeThreadRef, "diff");
-    }
-  }, [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen]);
+    useRightPanelStore.getState().toggle(activeThreadRef, "diff");
+  }, [activeProject, activeThreadRef, diffOpen, onDiffPanelOpen]);
 
   const needsLoadBalancing = automaticEnvironment && !draftThread?.loadBalancedEnvironmentId;
   const loadBalancingCandidates = useMemo(
@@ -4933,11 +4931,11 @@ export default function ChatView(props: ChatViewProps) {
     [activeThreadRef, openPreview],
   );
   const addDiffSurface = useCallback(() => {
-    if (!activeThreadRef || !isServerThread || !isGitRepo) return;
+    if (!activeThreadRef || !activeProject || !isGitRepo) return;
     useDiffPanelStore.getState().selectGitScope(activeThreadRef, "unstaged");
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
-  }, [activeThreadRef, isGitRepo, isServerThread, onDiffPanelOpen]);
+  }, [activeProject, activeThreadRef, isGitRepo, onDiffPanelOpen]);
   const addFilesSurface = useCallback(() => {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
@@ -9973,6 +9971,11 @@ export default function ChatView(props: ChatViewProps) {
           mode="embedded"
           composerDraftTarget={composerDraftTarget}
           workspaceMutationId={workspaceMutationId}
+          threadRef={activeThreadRef}
+          cwd={activeWorkspaceRoot}
+          repositoryRoot={
+            activeThreadWorktreePath ? undefined : activeProject?.repositoryIdentity?.rootPath
+          }
         />
       </Suspense>
     ) : renderedRightPanelSurface?.kind === "pull-request" && !pullRequestsCapabilityKnown ? (
@@ -10042,6 +10045,7 @@ export default function ChatView(props: ChatViewProps) {
           environmentId={activeProject.environmentId}
           cwd={activeWorkspaceRoot}
           onOpenCommit={openCommitSurface}
+          onOpenWorkingTree={addDiffSurface}
         />
       </Suspense>
     ) : renderedRightPanelSurface?.kind === "commit" && activeProject && activeWorkspaceRoot ? (
@@ -10757,7 +10761,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddDevice={addDeviceSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
-          diffAvailable={isServerThread && isGitRepo}
+          diffAvailable={activeProject !== null && isGitRepo}
           filesAvailable={activeProject !== null}
           historyAvailable={activeProject !== null && isGitRepo}
           pullRequestAvailable={pullRequestSurfaceAvailable}
@@ -10824,7 +10828,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddDevice={addDeviceSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
-            diffAvailable={isServerThread && isGitRepo}
+            diffAvailable={activeProject !== null && isGitRepo}
             filesAvailable={activeProject !== null}
             historyAvailable={activeProject !== null && isGitRepo}
             pullRequestAvailable={pullRequestSurfaceAvailable}

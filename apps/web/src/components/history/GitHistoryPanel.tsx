@@ -133,10 +133,13 @@ export function GitHistoryPanel({
   environmentId,
   cwd,
   onOpenCommit,
+  onOpenWorkingTree,
 }: {
   environmentId: EnvironmentId;
   cwd: string;
   onOpenCommit: (commit: GitHistoryCommitTarget) => void;
+  /** Opens the uncommitted changes, which have no commit to show. */
+  onOpenWorkingTree: () => void;
 }) {
   const { timestampFormat } = useClientSettings();
   const [refFilter, setRefFilter] = useState<string | null>(null);
@@ -334,12 +337,27 @@ export function GitHistoryPanel({
               const graphRow = view.graph.rows[index];
               if (!graphRow) return null;
               if (row.kind === "pending") {
+                const openWorkingTree = () => {
+                  setSelectedSha(row.sha);
+                  onOpenWorkingTree();
+                };
                 return (
                   <div
                     key={row.sha}
+                    role="button"
+                    tabIndex={0}
                     data-pending-row
-                    className="flex shrink-0 items-center gap-2 overflow-hidden px-2 text-xs"
+                    className={cn(
+                      "flex shrink-0 cursor-default items-center gap-2 overflow-hidden px-2 text-xs",
+                      selectedSha === row.sha ? "bg-accent text-foreground" : "hover:bg-accent/50",
+                    )}
                     style={{ height: GRAPH_ROW_HEIGHT }}
+                    onClick={openWorkingTree}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      openWorkingTree();
+                    }}
                   >
                     <span className={COLUMN.graph}>
                       <GitGraphColumn
