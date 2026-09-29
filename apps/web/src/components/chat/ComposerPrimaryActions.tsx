@@ -138,6 +138,11 @@ export const formatPendingPrimaryActionLabel = (input: {
   return input.questionIndex > 0 ? "Submit answers" : "Submit answer";
 };
 
+// The composer's labeled primary actions (Submit, Refine, Implement) share the send button's
+// message-action pill, so they are composer-owned buttons rather than restyled Buttons.
+const messageActionPillClassName =
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-message-action font-medium text-base text-message-action-foreground shadow-xs shadow-message-action/24 outline-none hover:bg-message-action-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none sm:text-sm";
+
 const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
   event.preventDefault();
 };
@@ -183,7 +188,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     <button
       type="button"
       className={cn(
-        "flex cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-[0_1px_--theme(--color-white/16%)] transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none",
+        "flex cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none",
         primaryIconButtonSizeClass(insidePendingAction),
       )}
       {...pointerFocusProps}
@@ -283,7 +288,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         "relative flex shrink-0 cursor-pointer touch-none select-none items-center justify-center rounded-full border shadow-xs transition-all duration-150 hover:scale-105 active:shadow-none",
         sizeClassName,
         isDictating
-          ? "border-destructive bg-destructive/90 text-white shadow-destructive/24 inset-shadow-[0_1px_--theme(--color-white/16%)] hover:bg-destructive active:inset-shadow-[0_1px_--theme(--color-black/8%)]"
+          ? "border-destructive bg-destructive/90 text-white shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 hover:bg-destructive active:inset-shadow-black/8"
           : "border-input bg-popover text-muted-foreground hover:bg-accent/50 hover:text-foreground dark:bg-input/32 dark:hover:bg-input/64",
       )}
       {...pointerFocusProps}
@@ -394,7 +399,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <Button
               size="icon-sm"
               variant="outline"
-              className="rounded-full"
               {...pointerFocusProps}
               onClick={onPreviousPendingQuestion}
               disabled={pendingAction.isResponding}
@@ -406,7 +410,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <Button
               size="sm"
               variant="outline"
-              className="rounded-full"
               {...pointerFocusProps}
               onClick={onPreviousPendingQuestion}
               disabled={pendingAction.isResponding}
@@ -415,13 +418,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             </Button>
           )
         ) : null}
-        <Button
+        <button
           type="submit"
-          size="sm"
-          className={cn(
-            "rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover",
-            compact ? "px-3" : "px-4",
-          )}
+          className={cn(messageActionPillClassName, "h-8 sm:h-7", compact ? "px-3" : "px-4")}
           {...pointerFocusProps}
           disabled={
             isEnvironmentUnavailable ||
@@ -435,7 +434,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             isResponding: pendingAction.isResponding,
             questionIndex: pendingAction.questionIndex,
           })}
-        </Button>
+        </button>
       </div>
     );
   }
@@ -445,18 +444,14 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       return (
         <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
           {dictationPlacement === "standalone" ? renderDictationButton("size-9 sm:size-8") : null}
-          <Button
+          <button
             type="submit"
-            size="sm"
-            className={cn(
-              "rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover",
-              compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8",
-            )}
+            className={cn(messageActionPillClassName, "h-9 sm:h-8", compact ? "px-3" : "px-4")}
             {...pointerFocusProps}
             disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
           >
             {isConnecting || isSendBusy ? "Sending..." : "Refine"}
-          </Button>
+          </button>
         </div>
       );
     }
@@ -465,22 +460,23 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
         {dictationPlacement === "standalone" ? renderDictationButton("size-9 sm:size-8") : null}
         <div data-chat-composer-implement-actions="true" className="flex items-center justify-end">
-          <Button
+          <button
             type="submit"
-            size="sm"
-            className="h-9 rounded-l-full rounded-r-none bg-message-action px-4 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
+            className={cn(messageActionPillClassName, "h-9 rounded-r-none px-4 sm:h-8")}
             {...pointerFocusProps}
             disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
           >
             {isConnecting || isSendBusy ? "Sending..." : "Implement"}
-          </Button>
+          </button>
           <Menu>
             <MenuTrigger
               render={
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="h-9 rounded-l-none rounded-r-full border-l-message-action-foreground/20 bg-message-action px-2 text-message-action-foreground hover:bg-message-action-hover sm:h-8"
+                <button
+                  type="button"
+                  className={cn(
+                    messageActionPillClassName,
+                    "h-9 rounded-l-none border-l border-message-action-foreground/20 px-2 sm:h-8",
+                  )}
                   aria-label="Implementation actions"
                   {...pointerFocusProps}
                   disabled={
@@ -527,7 +523,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       className={cn(
         // `select-none touch-none` keep a long press on a touch device a hold
         // rather than a text selection or the start of a scroll gesture.
-        "relative isolate flex h-9 w-9 touch-none select-none items-center justify-center rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-[0_1px_--theme(--color-white/16%)] hover:scale-105 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none disabled:pointer-events-none disabled:opacity-30 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
+        "relative isolate flex h-9 w-9 touch-none select-none items-center justify-center rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
         // Every dictation ring is drawn outside the button's own circle, so
         // the clip that keeps the backdrop artwork in bounds has to lift while
         // one is on screen.

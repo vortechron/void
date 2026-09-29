@@ -1,6 +1,6 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { MAX_FONT_FAMILY_NAME_LENGTH } from "@t3tools/contracts/settings";
-import { ChevronsUpDownIcon, SearchIcon } from "lucide-react";
+import { SearchIcon } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { loadInstalledFontFamilies, supportsInstalledFontAccess } from "../../installedFonts";
@@ -14,8 +14,7 @@ import {
   ComboboxStatus,
   ComboboxTrigger,
 } from "../ui/combobox";
-import { selectTriggerVariants } from "../ui/select";
-import { cn } from "../../lib/utils";
+import { SelectButton } from "../ui/select";
 
 interface FontOption {
   readonly label: string;
@@ -151,9 +150,8 @@ export function FontFamilyPicker({
       value={selectedOption}
       virtualized
     >
-      <ComboboxTrigger aria-label={label} className={cn(selectTriggerVariants(), "w-full sm:w-56")}>
-        <span className="min-w-0 flex-1 truncate">{selectedOption?.label ?? value}</span>
-        <ChevronsUpDownIcon className="-me-1 size-4 opacity-80" />
+      <ComboboxTrigger aria-label={label} render={<SelectButton className="w-full sm:w-56" />}>
+        {selectedOption?.label ?? value}
       </ComboboxTrigger>
       <ComboboxPopup align="end" className="flex w-72 max-w-[calc(100vw-1rem)] flex-col">
         <div className="shrink-0 px-3 pt-2.5">
@@ -165,7 +163,6 @@ export function FontFamilyPicker({
             <ComboboxInput
               aria-label={`Search ${label.toLowerCase()}`}
               className="[&_input]:h-6.5 [&_input]:ps-5 [&_input]:font-sans [&_input]:leading-6.5"
-              inputClassName="rounded-none bg-transparent text-sm"
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => event.stopPropagation()}
               placeholder="Search fonts…"

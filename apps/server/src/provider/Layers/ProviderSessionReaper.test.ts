@@ -251,6 +251,7 @@ describe("ProviderSessionReaper", () => {
           getSnapshot: () => Effect.die("unused"),
           getShellSnapshot: () => Effect.die("unused"),
           getDeletedWorktreeThreads: () => Effect.die("unused"),
+          listThreadsWithPullRequests: () => Effect.die("unused"),
           getArchivedShellSnapshot: () => Effect.die("unused"),
           getSnapshotSequence: () =>
             Effect.succeed({ snapshotSequence: input.readModel.snapshotSequence }),
@@ -628,9 +629,8 @@ describe("ProviderSessionReaper", () => {
     );
     expect(sweepComplete).toBeDefined();
     expect(sweepComplete![1]).toMatchObject({
-      totalBindings: 1,
+      liveBindings: 0,
       reapedCount: 0,
-      skippedStopped: 1,
     });
   });
 

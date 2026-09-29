@@ -35,26 +35,18 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     const sweepIntervalMs = Math.max(1, options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
 
     const sweep = Effect.gen(function* () {
-      const bindings = yield* directory.listBindings();
+      // Stopped rows stay for their resume cursors and far outnumber live
+      // ones, so the query skips them.
+      const bindings = yield* directory.listBindings({ excludeStopped: true });
       const now = yield* Clock.currentTimeMillis;
       let reapedCount = 0;
       let stopFailedCount = 0;
-      let skippedStopped = 0;
       let skippedInvalidLastSeen = 0;
       let skippedBelowThreshold = 0;
       let skippedActiveTurn = 0;
       let skippedBackgroundWork = 0;
 
       for (const binding of bindings) {
-        // A stopped binding has no adapter-held session, so `stopSession`
-        // could not reach a process even if we tried. Counted, not silent:
-        // a large number here next to live provider processes is the
-        // signature of sessions orphaned by an unclean server exit.
-        if (binding.status === "stopped") {
-          skippedStopped += 1;
-          continue;
-        }
-
         const lastSeenMs = Date.parse(binding.lastSeenAt);
         if (Number.isNaN(lastSeenMs)) {
           yield* Effect.logWarning("provider.session.reaper.invalid-last-seen", {
@@ -139,10 +131,9 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       // Logged every sweep, including empty ones: "the sweep ran and found
       // nothing" and "the sweep never ran" must not look the same.
       yield* Effect.logInfo("provider.session.reaper.sweep-complete", {
-        totalBindings: bindings.length,
+        liveBindings: bindings.length,
         reapedCount,
         stopFailedCount,
-        skippedStopped,
         skippedInvalidLastSeen,
         skippedBelowThreshold,
         skippedActiveTurn,

@@ -4,8 +4,6 @@ import { useResizableWidth } from "../hooks/useResizableWidth";
 import {
   getRightPanelSheetDefaultWidth,
   getRightPanelSheetMaxWidth,
-  RIGHT_PANEL_SHEET_CLASS_NAME,
-  RIGHT_PANEL_SHEET_LAYER_CLASS_NAME,
   RIGHT_PANEL_SHEET_MIN_WIDTH,
   RIGHT_PANEL_SHEET_WIDTH_STORAGE_KEY,
 } from "../rightPanelLayout";
@@ -53,7 +51,6 @@ export function RightPanelSheet(props: {
   children: ReactNode;
   maximized: boolean;
   open: boolean;
-  underFloatingPreview?: boolean;
   onClose: () => void;
 }) {
   const viewportWidth = useViewportWidth();
@@ -78,13 +75,10 @@ export function RightPanelSheet(props: {
         side="right"
         showCloseButton={false}
         keepMounted
-        {...(props.underFloatingPreview
-          ? {
-              backdropClassName: RIGHT_PANEL_SHEET_LAYER_CLASS_NAME,
-              viewportClassName: RIGHT_PANEL_SHEET_LAYER_CLASS_NAME,
-            }
-          : {})}
-        className={RIGHT_PANEL_SHEET_CLASS_NAME}
+        // Width is driven by `useResizableWidth` inline. `max-w-none` is load-bearing:
+        // it cancels the `max-w-md` every right-side sheet popup ships with, which
+        // would otherwise cap the inline width at 448px no matter how far you drag.
+        className="max-w-none wco:mt-[env(titlebar-area-height)] wco:h-[calc(100%-env(titlebar-area-height))] wco:max-h-[calc(100%-env(titlebar-area-height))]"
         style={{ width: props.maximized ? "100%" : `${width}px` }}
       >
         {props.maximized ? null : <RightPanelResizeHandle handlers={handlers} />}
