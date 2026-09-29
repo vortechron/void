@@ -95,7 +95,6 @@ export function DiffBaseRefPicker({
               />
               <ComboboxInput
                 className="[&_input]:h-6.5 [&_input]:ps-5 [&_input]:font-sans [&_input]:leading-6.5"
-                inputClassName="rounded-none bg-transparent text-sm"
                 placeholder="Search refs..."
                 showTrigger={false}
                 size="sm"
@@ -116,7 +115,6 @@ export function DiffBaseRefPicker({
           <ComboboxList className="max-h-64 min-w-0 overflow-x-hidden">
             <ComboboxItem
               className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
-              contentClassName="w-full min-w-0 overflow-hidden"
               value={AUTOMATIC_BASE_REF}
             >
               <span className="block min-w-0 truncate">Automatic</span>
@@ -129,7 +127,6 @@ export function DiffBaseRefPicker({
                 <ComboboxItem
                   key={choice.id}
                   className="h-8 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] py-0"
-                  contentClassName="w-full min-w-0 overflow-hidden"
                   value={item}
                 >
                   <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center overflow-hidden">

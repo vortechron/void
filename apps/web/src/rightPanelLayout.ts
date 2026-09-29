@@ -1,12 +1,4 @@
 export const RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 980px)";
-// Applied only while a floating preview overlaps the compact sheet.
-export const RIGHT_PANEL_SHEET_LAYER_CLASS_NAME = "z-[35]";
-// Width is driven by `useResizableWidth` inline. `max-w-none` is load-bearing:
-// it cancels the `max-w-md` every right-side sheet popup ships with, which
-// would otherwise cap the inline width at 448px no matter how far you drag.
-export const RIGHT_PANEL_SHEET_CLASS_NAME =
-  "max-w-none p-0 wco:mt-[env(titlebar-area-height)] wco:h-[calc(100%-env(titlebar-area-height))] wco:max-h-[calc(100%-env(titlebar-area-height))]";
-
 export const RIGHT_PANEL_SHEET_WIDTH_STORAGE_KEY = "t3code:right-panel-sheet-width";
 export const RIGHT_PANEL_SHEET_MIN_WIDTH = 320;
 /**
