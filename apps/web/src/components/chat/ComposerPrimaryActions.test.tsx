@@ -45,6 +45,7 @@ function renderPendingActions(
         isComplete: true,
       },
       isRunning,
+      canInterrupt: isRunning,
       showPlanFollowUpPrompt: false,
       promptHasText: false,
       isSendBusy: false,
@@ -71,6 +72,7 @@ function renderRunningActions(
       compact: true,
       pendingAction: null,
       isRunning: true,
+      canInterrupt: true,
       showPlanFollowUpPrompt: false,
       promptHasText: hasSendableContent,
       isSendBusy: false,
@@ -97,6 +99,7 @@ function renderSendButton(
       compact: true,
       pendingAction: null,
       isRunning: false,
+      canInterrupt: false,
       showPlanFollowUpPrompt: false,
       promptHasText: true,
       isSendBusy: false,
@@ -274,11 +277,11 @@ describe("ComposerPrimaryActions", () => {
     expect(markup).not.toContain("stage-nightly");
   });
 
-  it("renders a queue action alongside stop while running with a sendable draft", () => {
+  it("renders a steer action alongside stop while running with a sendable draft", () => {
     const markup = renderRunningActions(true, true);
 
     expect(markup).toContain('aria-label="Stop generation"');
-    expect(markup).toContain('aria-label="Queue message"');
+    expect(markup).toContain('aria-label="Steer message"');
     expect(markup).toContain('type="submit"');
   });
 
@@ -286,7 +289,7 @@ describe("ComposerPrimaryActions", () => {
     const markup = renderRunningActions(true, false);
 
     expect(markup).toContain('aria-label="Stop generation"');
-    expect(markup).not.toContain('aria-label="Queue message"');
+    expect(markup).not.toContain('aria-label="Steer message"');
   });
 
   it("offers a dictation button of its own beside stop while running", () => {
@@ -306,7 +309,7 @@ describe("ComposerPrimaryActions", () => {
     const markup = renderSendButton(null, availableDictation);
 
     expect(markup).not.toContain('aria-label="Dictate"');
-    expect(markup).toContain('aria-label="Send message, or hold to dictate"');
+    expect(markup).toContain('aria-label="Submit message, or hold to dictate"');
   });
 });
 

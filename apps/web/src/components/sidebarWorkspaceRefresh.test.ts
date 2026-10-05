@@ -4,6 +4,21 @@ import { describe, expect, it } from "vite-plus/test";
 import type { SidebarThreadSummary } from "../types";
 import { planWorkspaceStatusRefresh, workspaceStatusRefreshCount } from "./sidebarWorkspaceRefresh";
 
+/** Old session states on the V2 runtime: ready and stopped sessions hold no run. */
+function runtimeFor(
+  status: "error" | "ready" | "running" | "starting" | "stopped" | undefined,
+): SidebarThreadSummary["runtime"] {
+  if (status === undefined || status === "ready" || status === "stopped") return null;
+  return {
+    status: status === "error" ? "failed" : status,
+    activeRunId: null,
+    providerInstanceId: "codex",
+    providerName: null,
+    lastError: null,
+    updatedAt: "2026-08-05T10:00:00.000Z",
+  } as SidebarThreadSummary["runtime"];
+}
+
 type PlanInput = Parameters<typeof planWorkspaceStatusRefresh>[0];
 type ThreadInput = PlanInput["threadByKey"] extends ReadonlyMap<string, infer T> ? T : never;
 
@@ -27,19 +42,17 @@ function thread(input: {
     hasPendingApprovals: input.hasPendingApprovals ?? false,
     hasPendingUserInput: false,
     interactionMode: "default",
-    latestTurn: input.completedAt
+    latestRun: input.completedAt
       ? ({
-          turnId: "turn-1",
-          state: "completed",
+          runId: "turn-1",
+          status: "completed",
           assistantMessageId: null,
           requestedAt: input.completedAt,
           startedAt: input.completedAt,
           completedAt: input.completedAt,
-        } as SidebarThreadSummary["latestTurn"])
+        } as SidebarThreadSummary["latestRun"])
       : null,
-    session: input.status
-      ? ({ status: input.status, activeTurnId: null } as SidebarThreadSummary["session"])
-      : null,
+    runtime: runtimeFor(input.status),
   };
 }
 

@@ -59,6 +59,17 @@ sqlite3 "file:$HOME/.t3/userdata/state.sqlite?mode=ro" \
 
 Never reuse an id the database has already applied under a different name.
 
+Orchestration V2 arrived as upstream `055_OrchestrationV2` and
+`056_RemoveRedundantProjectionIndexes`, so they are Void's `056` and `057`.
+Upstream's `reconcileV2PreviewMigration` is deliberately absent here: it repairs
+databases from upstream's V2 previews, which recorded V2 at ids 53/54 — ids
+Void's ledger uses for other migrations, and no Void database ran those
+previews. If upstream edits that file, keep it deleted.
+
+V2 snapshots `state.sqlite` into `statev2.sqlite` on first launch and only the
+copy receives V2 migrations, so the daily driver's V1 database stays untouched
+and an older build can still open it.
+
 ### The lockfile is not a "take theirs" file
 
 Take upstream's `pnpm-lock.yaml`, then put the fork's own entries back. Resolving
@@ -189,6 +200,9 @@ Subscription limits read from a provider probe and shown in the sidebar. This is
 not upstream's Usage page; both exist.
 
 - Server: `apps/server/src/providerUsage/ProviderUsage.ts`, `normalize.ts`
+- Claude re-reads plan usage after each turn (`refreshPlanUsage` in
+  `orchestration-v2/Adapters/ClaudeAdapterV2.ts`), because the rate-limit
+  stream withholds utilization until a warning threshold
 - Contract: `packages/contracts/src/providerUsage.ts`
 - Web: `lib/providerUsageState.ts`, `components/settings/UsageMeterSettingsSection.tsx`
 
@@ -209,6 +223,15 @@ Saved prompts fired at a project, plus global ones.
 
 - `projectPromptActions.ts`, `projectActionScopes.ts`
 - Mobile: `apps/mobile/src/features/threads/projectPromptActions.ts`
+- Server (V2): `promptActions` rides the project path the same way `scripts` does —
+  `packages/contracts/src/project.ts` (schema, update payload),
+  `orchestrationProject.ts`, `applicationEvent.ts`, then
+  `orchestration-v2/ProjectCommands.ts`, `ProjectStore.ts`,
+  `project/ProjectService.ts`, `ProjectMutation.ts`, and the V1 baseline in
+  `persistence/Migrations/OrchestrationV2/ApplicationEventSource.ts`. Tests:
+  `orchestration-v2/ProjectPromptActions.test.ts`
+- The project actions menu lives in upstream's thread details panel; Void's
+  props reach it through `projectActionExtras` on `ThreadDetailsPanel.tsx`
 - Migration `036_ProjectionProjectPromptActions` — the reason every later
   migration is offset by one
 - Docs: `docs/user/actions.md`
@@ -255,6 +278,10 @@ Fork-only files cannot conflict. These upstream files carry the wiring and do:
 | `apps/web/src/hooks/useSettings.ts`                                | every fork setting key                       |
 | `packages/contracts/src/settings.ts`                               | every fork setting schema                    |
 | `apps/server/src/persistence/Migrations.ts`                        | migration list, offset by one                |
+| `apps/server/src/server.ts`, `ws.ts`                               | `ProviderUsage` layer, Void RPC handlers     |
+| `apps/server/src/review/ReviewService.ts`                          | review cwd inside any active project         |
+| `apps/web/src/components/chat/ThreadDetailsPanel.tsx`              | `projectActionExtras` (prompt actions)       |
+| `apps/web/src/routes/__root.tsx`                                   | Void appearance, zoom and workspace syncs    |
 | `apps/web/src/routeTree.gen.ts`                                    | generated — regenerate, never hand-merge     |
 
 A conflict in any of those means an upstream change landed next to fork wiring.

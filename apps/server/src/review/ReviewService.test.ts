@@ -6,10 +6,10 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 
-import { ProjectId, type OrchestrationProject } from "@t3tools/contracts";
+import { ProjectId } from "@t3tools/contracts";
 
-import { ServerConfig } from "../config.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ServerConfig from "../config.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ReviewService from "./ReviewService.ts";
@@ -22,23 +22,27 @@ function makeLayer(input: {
 }) {
   return ReviewService.layer.pipe(
     Layer.provide(
-      Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
-        getActiveProjectByWorkspaceRoot: (workspaceRoot) => {
+      Layer.mock(ProjectStore.ProjectStoreV2)({
+        findActiveByWorkspaceRoot: (workspaceRoot) => {
           if (!input.activeProjectRoots?.includes(workspaceRoot)) {
             return Effect.succeed(Option.none());
           }
           return Effect.succeed(
             Option.some({
-              id: ProjectId.make(`project-${workspaceRoot}`),
+              projectId: ProjectId.make(`project-${workspaceRoot}`),
               title: "Project",
               workspaceRoot,
               defaultModelSelection: null,
+              defaultThreadEnvMode: null,
+              autoPull: false,
+              faviconPath: null,
+              projectIcon: null,
               scripts: [],
               promptActions: [],
               createdAt: "2026-01-01T00:00:00.000Z",
               updatedAt: "2026-01-01T00:00:00.000Z",
               deletedAt: null,
-            } satisfies OrchestrationProject),
+            } satisfies ProjectStore.ProjectRow),
           );
         },
       }),

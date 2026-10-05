@@ -62,11 +62,19 @@ export function ThreadTabStatusIcon({ status }: { readonly status: ThreadAttenti
           className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-300"
         />
       );
-    case "monitoring":
+    case "limited":
+      return (
+        <TriangleAlertIcon
+          role="img"
+          aria-label="Usage limit reached"
+          className="size-3.5 shrink-0 text-amber-600 dark:text-amber-300"
+        />
+      );
+    case "waiting":
       return (
         <EyeIcon
           role="img"
-          aria-label="Monitoring"
+          aria-label="Waiting"
           className="size-3.5 shrink-0 text-sky-600 dark:text-sky-300"
         />
       );

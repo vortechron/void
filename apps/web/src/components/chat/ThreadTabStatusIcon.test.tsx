@@ -17,9 +17,10 @@ describe("ThreadTabStatusIcon", () => {
     ["approval", "Approval needed"],
     ["input", "Awaiting input"],
     ["failed", "Failed"],
+    ["limited", "Usage limit reached"],
     ["plan", "Plan ready"],
     ["completed", "Completed"],
-    ["monitoring", "Monitoring"],
+    ["waiting", "Waiting"],
   ] as const)("renders the %s state before the tab title", (status, label) => {
     const markup = renderToStaticMarkup(<ThreadTabStatusIcon status={status} />);
 

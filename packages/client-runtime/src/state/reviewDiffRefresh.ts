@@ -1,8 +1,9 @@
-import type { TurnId, VcsStatusResult } from "@t3tools/contracts";
+import type { VcsStatusResult } from "@t3tools/contracts";
 
 export interface GitDiffRefreshSnapshot {
   readonly threadKey: string | null;
-  readonly turnId: TurnId | null;
+  /** The latest ready checkpoint's run, so a finished turn refreshes the diff. */
+  readonly turnId: string | null;
   readonly gitRevision: string | null;
   readonly hasWorkingTreeChanges: boolean;
 }

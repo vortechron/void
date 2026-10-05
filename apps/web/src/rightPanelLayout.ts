@@ -33,3 +33,5 @@ export function getRightPanelSheetDefaultWidth(viewportWidth: number): number {
     Math.max(RIGHT_PANEL_SHEET_MIN_WIDTH, preferred),
   );
 }
+
+export type ThreadPanelPresentation = "inline" | "popover";

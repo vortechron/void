@@ -78,7 +78,7 @@ export function RightPanelSheet(props: {
         // Width is driven by `useResizableWidth` inline. `max-w-none` is load-bearing:
         // it cancels the `max-w-md` every right-side sheet popup ships with, which
         // would otherwise cap the inline width at 448px no matter how far you drag.
-        className="max-w-none wco:mt-[env(titlebar-area-height)] wco:h-[calc(100%-env(titlebar-area-height))] wco:max-h-[calc(100%-env(titlebar-area-height))]"
+        className="max-w-none wco:mt-(--workspace-topbar-height) wco:h-[calc(100%-var(--workspace-topbar-height))] wco:max-h-[calc(100%-var(--workspace-topbar-height))]"
         style={{ width: props.maximized ? "100%" : `${width}px` }}
       >
         {props.maximized ? null : <RightPanelResizeHandle handlers={handlers} />}

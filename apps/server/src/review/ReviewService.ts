@@ -17,7 +17,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
@@ -38,7 +38,7 @@ export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const projectStore = yield* ProjectStore.ProjectStoreV2;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
 
@@ -82,8 +82,8 @@ export const make = Effect.gen(function* () {
 
     let projectRootCandidate = path.resolve(cwd);
     while (true) {
-      const activeProject = yield* projectionSnapshotQuery
-        .getActiveProjectByWorkspaceRoot(projectRootCandidate)
+      const activeProject = yield* projectStore
+        .findActiveByWorkspaceRoot(projectRootCandidate)
         .pipe(
           Effect.mapError(
             (cause) =>

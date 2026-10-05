@@ -50,7 +50,8 @@ export function planWorkspaceStatusRefresh(input: {
       threadId: session.threadId,
     };
 
-    if (thread.session?.status === "error") {
+    // A usage-limited run stays: it can resume on its own once the limit resets.
+    if (thread.runtime?.status === "failed" && thread.runtime.lastErrorClass !== "usage_limit") {
       stopSession.push(target);
     }
 

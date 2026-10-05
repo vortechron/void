@@ -2,8 +2,8 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 
 interface TrackedTurn {
-  readonly turnId: string;
-  readonly state: "running" | "interrupted" | "completed" | "error";
+  readonly runId: string;
+  readonly status: NonNullable<EnvironmentThreadShell["latestRun"]>["status"];
 }
 
 export interface AgentCompletionTrackerState {
@@ -38,13 +38,13 @@ export function detectAgentCompletions(input: {
       environmentId: thread.environmentId,
       threadId: thread.id,
     });
-    const latestTurn = thread.latestTurn;
-    const nextTurn: TrackedTurn | null = latestTurn
-      ? { turnId: latestTurn.turnId, state: latestTurn.state }
+    const latestRun = thread.latestRun;
+    const nextTurn: TrackedTurn | null = latestRun
+      ? { runId: latestRun.runId, status: latestRun.status }
       : null;
     turnsByThread.set(key, nextTurn);
 
-    if (!input.state.initialized || nextTurn?.state !== "completed") {
+    if (!input.state.initialized || nextTurn?.status !== "completed") {
       continue;
     }
 
@@ -52,8 +52,8 @@ export function detectAgentCompletions(input: {
     if (
       previousTurn !== undefined &&
       (previousTurn === null ||
-        previousTurn.turnId !== nextTurn.turnId ||
-        previousTurn.state !== "completed")
+        previousTurn.runId !== nextTurn.runId ||
+        previousTurn.status !== "completed")
     ) {
       completions.push(thread);
     }

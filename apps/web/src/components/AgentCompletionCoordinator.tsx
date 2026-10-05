@@ -49,7 +49,7 @@ export function AgentCompletionCoordinator() {
     if (!notificationsEnabled) return;
 
     for (const thread of result.completions) {
-      const turnId = thread.latestTurn?.turnId;
+      const turnId = thread.latestRun?.runId;
       if (!turnId) continue;
       showAgentCompletionNotification({
         threadTitle: thread.title,

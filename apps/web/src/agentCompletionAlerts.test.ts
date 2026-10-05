@@ -1,56 +1,56 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import {
+  presentThreadShell,
+  type EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/models";
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createAgentCompletionTrackerState, detectAgentCompletions } from "./agentCompletionAlerts";
+
+const STARTED_AT = DateTime.makeUnsafe("2026-08-05T01:00:00.000Z");
 
 function thread(input: {
   readonly environmentId?: string;
   readonly threadId?: string;
   readonly turnId?: string | null;
-  readonly turnState?: "running" | "interrupted" | "completed" | "error" | null;
+  readonly turnState?: "running" | "interrupted" | "completed" | "failed" | null;
 }): EnvironmentThreadShell {
   const turnId = input.turnId === undefined ? "turn-1" : input.turnId;
   const turnState = input.turnState === undefined ? "running" : input.turnState;
+  const threadId = (input.threadId ?? "thread-1") as never;
 
-  return {
-    environmentId: (input.environmentId ?? "environment-1") as never,
-    id: (input.threadId ?? "thread-1") as never,
+  return presentThreadShell((input.environmentId ?? "environment-1") as never, {
+    id: threadId,
     projectId: "project-1" as never,
     title: "Notification work",
-    pullRequests: [],
-    modelSelection: {
-      instanceId: "codex" as never,
-      model: "gpt-5",
-      options: [],
-    },
+    providerInstanceId: "codex" as never,
+    modelSelection: { instanceId: "codex" as never, model: "gpt-5" },
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: null,
     worktreePath: null,
-    latestTurn:
-      turnId === null || turnState === null
-        ? null
-        : {
-            turnId: turnId as never,
-            state: turnState,
-            requestedAt: "2026-08-05T01:00:00.000Z" as never,
-            startedAt: "2026-08-05T01:00:01.000Z" as never,
-            completedAt: turnState === "completed" ? ("2026-08-05T01:00:05.000Z" as never) : null,
-            assistantMessageId: null,
-          },
-    createdAt: "2026-08-05T00:00:00.000Z" as never,
-    updatedAt: "2026-08-05T01:00:05.000Z" as never,
+    activeProviderThreadId: null,
+    lineage: { rootThreadId: threadId, parentThreadId: null, relationshipToParent: null },
+    forkedFrom: null,
+    createdBy: "user",
+    creationSource: "web",
+    latestRunId: turnId === null || turnState === null ? null : (turnId as never),
+    activeRunId: null,
+    status: turnState ?? "idle",
+    pendingRuntimeRequest: null,
+    latestVisibleMessage: null,
+    latestUserMessageAt: STARTED_AT,
+    hasActionableProposedPlan: false,
+    itemCount: 0,
+    visibleItemCount: 0,
+    createdAt: STARTED_AT,
+    updatedAt: STARTED_AT,
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
-    snoozedUntil: null,
-    snoozedAt: null,
-    session: null,
-    latestUserMessageAt: "2026-08-05T01:00:00.000Z" as never,
-    hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
-  };
+    lastVisitedAt: null,
+    deletedAt: null,
+  });
 }
 
 describe("detectAgentCompletions", () => {
@@ -101,7 +101,7 @@ describe("detectAgentCompletions", () => {
     });
     const failed = detectAgentCompletions({
       state: interrupted.state,
-      threads: [thread({ turnState: "error", turnId: "turn-2" })],
+      threads: [thread({ turnState: "failed", turnId: "turn-2" })],
       bootstrapped: true,
     });
 

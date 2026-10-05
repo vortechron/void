@@ -7,6 +7,21 @@ import {
 } from "./sidebarProjectGroupStatus";
 import type { resolveThreadAttentionStatus } from "./sidebarWorkspaceStatus";
 
+/** Old session states on the V2 runtime: ready and stopped sessions hold no run. */
+function runtimeFor(
+  status: "error" | "ready" | "running" | "starting" | "stopped" | undefined,
+): SidebarThreadSummary["runtime"] {
+  if (status === undefined || status === "ready" || status === "stopped") return null;
+  return {
+    status: status === "error" ? "failed" : status,
+    activeRunId: null,
+    providerInstanceId: "codex",
+    providerName: null,
+    lastError: null,
+    updatedAt: "2026-08-05T10:00:00.000Z",
+  } as SidebarThreadSummary["runtime"];
+}
+
 function thread(input: {
   status?: "error" | "ready" | "running" | "starting" | "stopped";
   hasPendingApprovals?: boolean;
@@ -16,28 +31,26 @@ function thread(input: {
   completedAt?: string | null;
   lastVisitedAt?: string;
 }): Parameters<typeof resolveThreadAttentionStatus>[0] {
-  const latestTurn =
+  const latestRun =
     input.completedAt === undefined
       ? null
       : ({
-          turnId: "turn-1",
-          state: "completed",
+          runId: "turn-1",
+          status: "completed",
           assistantMessageId: null,
           requestedAt: "2026-08-05T10:00:00.000Z",
           startedAt: "2026-08-05T10:00:00.000Z",
           completedAt: input.completedAt,
-        } as SidebarThreadSummary["latestTurn"]);
+        } as SidebarThreadSummary["latestRun"]);
 
   return {
     hasActionableProposedPlan: input.hasActionableProposedPlan ?? false,
     hasPendingApprovals: input.hasPendingApprovals ?? false,
     hasPendingUserInput: input.hasPendingUserInput ?? false,
     interactionMode: input.interactionMode ?? "default",
-    latestTurn,
+    latestRun,
     lastVisitedAt: input.lastVisitedAt,
-    session: input.status
-      ? ({ status: input.status, activeTurnId: null } as SidebarThreadSummary["session"])
-      : null,
+    runtime: runtimeFor(input.status),
   };
 }
 
