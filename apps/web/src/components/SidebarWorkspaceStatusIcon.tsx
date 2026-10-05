@@ -36,6 +36,11 @@ const STATUS_PRESENTATION: Record<
     Icon: TriangleAlertIcon,
     className: "text-red-600 dark:text-red-300",
   },
+  limited: {
+    label: "Usage limit reached",
+    Icon: TriangleAlertIcon,
+    className: "text-amber-600 dark:text-amber-300",
+  },
   plan: {
     label: "Plan ready",
     Icon: ClipboardCheckIcon,
@@ -46,10 +51,10 @@ const STATUS_PRESENTATION: Record<
     Icon: CircleCheckIcon,
     className: "text-emerald-600 dark:text-emerald-300",
   },
-  // Sky, matching the sidebar's Monitoring pill, but static: monitoring is
+  // Sky, matching the sidebar's Waiting pill, but static: an idle session is
   // background presence rather than active progress.
-  monitoring: {
-    label: "Monitoring",
+  waiting: {
+    label: "Waiting",
     Icon: EyeIcon,
     className: "text-sky-600 dark:text-sky-300",
   },

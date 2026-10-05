@@ -6,14 +6,22 @@ import {
   type MouseEventHandler,
   type PointerEventHandler,
 } from "react";
-import { ChevronDownIcon, ChevronLeftIcon, MicIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, MicIcon, PlayIcon } from "lucide-react";
+import { CornerUpRight, ListPlus } from "lucide";
+import { MorphIcon } from "~/components/MorphIcon";
 import type { VoiceDictationStatus } from "~/hooks/useVoiceDictation";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
+import { useShortcutModifierState } from "../../shortcutModifierState";
 import { cn } from "~/lib/utils";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import {
+  alternateComposerDispatchAction,
+  resolveComposerDispatchMode,
+} from "@t3tools/client-runtime/state/composer-dispatch";
 import { composerFloatingLayerProps } from "./composerEventScope";
 
 interface PendingActionState {
@@ -101,7 +109,12 @@ export function resolveDictationControlPlacement(input: {
 interface ComposerPrimaryActionsProps {
   compact: boolean;
   pendingAction: PendingActionState | null;
+  /** The turn is running: sending steers or queues instead of starting a turn. */
   isRunning: boolean;
+  /** Stop can reach a run, including one still preparing or starting. */
+  canInterrupt: boolean;
+  followUpBehavior?: "queue" | "steer";
+  alternateShortcutLabel?: string | null;
   showPlanFollowUpPrompt: boolean;
   promptHasText: boolean;
   isSendBusy: boolean;
@@ -110,7 +123,11 @@ interface ComposerPrimaryActionsProps {
   isEnvironmentUnavailable: boolean;
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
+  canResume?: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
+  isEditingQueuedMessage?: boolean;
+  onSubmitMessage?: MouseEventHandler<HTMLButtonElement>;
+  onResume?: () => void;
   dictation?: ComposerDictationControls | null;
   /** Enter-to-send is disabled on mobile viewports, where stop would otherwise
    * be the only primary action and a running turn could not be steered. */
@@ -151,6 +168,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compact,
   pendingAction,
   isRunning,
+  canInterrupt,
+  followUpBehavior = "steer",
+  alternateShortcutLabel = null,
   showPlanFollowUpPrompt,
   promptHasText,
   isSendBusy,
@@ -159,7 +179,11 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isEnvironmentUnavailable,
   isPreparingWorktree,
   hasSendableContent,
+  canResume = false,
   preserveComposerFocusOnPointerDown = false,
+  isEditingQueuedMessage = false,
+  onSubmitMessage,
+  onResume,
   dictation = null,
   showSendWhileRunning = false,
   onPreviousPendingQuestion,
@@ -174,6 +198,16 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const stageBackdropVariant = useSidebarStageBackdropVariant(
     environmentIdentificationMode === "artwork",
   );
+  const shortcutModifiers = useShortcutModifierState();
+  const isQueuing =
+    !isEditingQueuedMessage &&
+    resolveComposerDispatchMode({
+      running: isRunning,
+      activeTurnDefault: followUpBehavior,
+      alternateModifier: shortcutModifiers.metaKey || shortcutModifiers.ctrlKey,
+    }) === "queue";
+  const alternateAction = alternateComposerDispatchAction(followUpBehavior);
+  const showResume = canResume && !hasSendableContent && !isEditingQueuedMessage;
 
   // The microphone sits beside stop whenever a turn is running, so the two
   // size off one rule rather than drifting apart on a phone.
@@ -185,20 +219,27 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         : "size-8";
 
   const renderStopGenerationButton = (insidePendingAction: boolean) => (
-    <button
-      type="button"
-      className={cn(
-        "flex cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none",
-        primaryIconButtonSizeClass(insidePendingAction),
-      )}
-      {...pointerFocusProps}
-      onClick={onInterrupt}
-      aria-label="Stop generation"
-    >
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-        <rect x="2" y="2" width="8" height="8" rx="1.5" />
-      </svg>
-    </button>
+    <Tooltip key="interrupt">
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              "flex cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-control-highlight transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-control-pressed active:shadow-none [&_svg]:pointer-events-none",
+              primaryIconButtonSizeClass(insidePendingAction),
+            )}
+            {...pointerFocusProps}
+            onClick={onInterrupt}
+            aria-label="Stop generation"
+          />
+        }
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+          <rect x="2" y="2" width="8" height="8" rx="1.5" />
+        </svg>
+      </TooltipTrigger>
+      <TooltipPopup>Interrupt</TooltipPopup>
+    </Tooltip>
   );
 
   const holdTimerRef = useRef<number | null>(null);
@@ -225,7 +266,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const dictationPlacement = resolveDictationControlPlacement({
     isDictationAvailable: dictation?.available === true,
     hasPendingAction: pendingAction !== null,
-    isRunning,
+    isRunning: isRunning || canInterrupt,
     showPlanFollowUpPrompt,
   });
   // The send button only wears dictation state while it owns the toggle. Once
@@ -236,6 +277,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   // empty composer — that is the case dictation exists for.
   const canHoldToDictate =
     sendHostsDictation &&
+    !showResume &&
     !isSendBusy &&
     !isSendDisabled &&
     !isConnecting &&
@@ -288,7 +330,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         "relative flex shrink-0 cursor-pointer touch-none select-none items-center justify-center rounded-full border shadow-xs transition-all duration-150 hover:scale-105 active:shadow-none",
         sizeClassName,
         isDictating
-          ? "border-destructive bg-destructive/90 text-white shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 hover:bg-destructive active:inset-shadow-black/8"
+          ? "border-destructive bg-destructive/90 text-white shadow-destructive/24 inset-shadow-control-highlight hover:bg-destructive active:inset-shadow-control-pressed"
           : "border-input bg-popover text-muted-foreground hover:bg-accent/50 hover:text-foreground dark:bg-input/32 dark:hover:bg-input/64",
       )}
       {...pointerFocusProps}
@@ -383,8 +425,17 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       event.preventDefault();
       return;
     }
+    if (showResume) {
+      event.preventDefault();
+      onResume?.();
+      return;
+    }
     // Enabled only so the hold is reachable; a plain click has nothing to send.
-    if (!hasSendableContent) event.preventDefault();
+    if (!hasSendableContent) {
+      event.preventDefault();
+      return;
+    }
+    onSubmitMessage?.(event);
   };
 
   if (pendingAction) {
@@ -393,7 +444,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         {dictationPlacement === "standalone"
           ? renderDictationButton(primaryIconButtonSizeClass(true))
           : null}
-        {isRunning ? renderStopGenerationButton(true) : null}
+        {canInterrupt ? renderStopGenerationButton(true) : null}
         {pendingAction.questionIndex > 0 ? (
           compact ? (
             <Button
@@ -439,7 +490,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     );
   }
 
-  if (showPlanFollowUpPrompt) {
+  if (showPlanFollowUpPrompt && (promptHasText || !canResume)) {
     if (promptHasText) {
       return (
         <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
@@ -508,9 +559,36 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const sendIsListening = sendHostsDictation && isListening;
   const sendStopFlashKey = sendHostsDictation ? stopFlashKey : 0;
 
+  const submitLabel = showResume
+    ? "Resume thread"
+    : isEditingQueuedMessage
+      ? "Update queued message"
+      : isQueuing
+        ? "Queue message"
+        : isRunning
+          ? "Steer message"
+          : "Submit message";
+  const submitStatus = isEnvironmentUnavailable
+    ? "Environment disconnected"
+    : (sendDisabledReason ??
+      (isConnecting
+        ? "Connecting"
+        : isPreparingWorktree
+          ? "Preparing worktree"
+          : isSendBusy
+            ? isEditingQueuedMessage
+              ? "Updating queued message"
+              : "Submitting message"
+            : null));
+  const submitTooltip =
+    submitStatus ??
+    (isRunning && !isEditingQueuedMessage
+      ? `Click to ${followUpBehavior}, Ctrl/⌘-click${alternateShortcutLabel ? ` or ${alternateShortcutLabel}` : ""} to ${alternateAction}`
+      : submitLabel);
+
   const sendButton = (
     <button
-      type="submit"
+      type={showResume ? "button" : "submit"}
       data-slot="composer-submit"
       data-chat-composer-dictation-status={sendDictationStatus ?? undefined}
       // Only set when dictation is switched on but something in this session
@@ -523,7 +601,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       className={cn(
         // `select-none touch-none` keep a long press on a touch device a hold
         // rather than a text selection or the start of a scroll gesture.
-        "relative isolate flex h-9 w-9 touch-none select-none items-center justify-center rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8",
+        "relative isolate flex h-9 w-9 touch-none select-none items-center justify-center rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-control-highlight hover:scale-105 active:inset-shadow-control-pressed active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
         // Every dictation ring is drawn outside the button's own circle, so
         // the clip that keeps the backdrop artwork in bounds has to lift while
         // one is on screen.
@@ -553,7 +631,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           isSendDisabled ||
           isConnecting ||
           isEnvironmentUnavailable ||
-          (!hasSendableContent && !canHoldToDictate))
+          (!hasSendableContent && !canHoldToDictate && !showResume))
       }
       aria-label={
         // Dictation states come first: while one is open the button has stopped
@@ -564,27 +642,19 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             ? "Starting dictation"
             : sendDictationStatus === "finishing"
               ? "Finishing dictation"
-              : isEnvironmentUnavailable
-                ? "Environment disconnected"
-                : sendDisabledReason
-                  ? sendDisabledReason
-                  : isConnecting
-                    ? "Connecting"
-                    : isPreparingWorktree
-                      ? "Preparing worktree"
-                      : isSendBusy
-                        ? "Sending"
-                        : isRunning
-                          ? "Queue message"
-                          : canHoldToDictate
-                            ? hasSendableContent
-                              ? "Send message, or hold to dictate"
-                              : "Hold to dictate"
-                            : "Send message"
+              : (submitStatus ??
+                (canHoldToDictate && !isRunning && !isEditingQueuedMessage
+                  ? hasSendableContent
+                    ? `${submitLabel}, or hold to dictate`
+                    : "Hold to dictate"
+                  : submitLabel))
       }
     >
       {stageBackdropVariant && !sendIsDictating ? (
-        <span className="absolute inset-0 -z-10 overflow-hidden rounded-full" aria-hidden="true">
+        <span
+          className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-full"
+          aria-hidden="true"
+        >
           <StageBackdropButtonArt variant={stageBackdropVariant} />
         </span>
       ) : null}
@@ -615,6 +685,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         />
       ) : isConnecting || isSendBusy ? (
         <Spinner size="sm" aria-hidden="true" />
+      ) : showResume ? (
+        <PlayIcon className="size-4 fill-current" aria-hidden="true" />
+      ) : isEditingQueuedMessage ? (
+        <CheckIcon className="size-4" aria-hidden="true" />
+      ) : isRunning ? (
+        <MorphIcon className="size-4" icon={isQueuing ? ListPlus : CornerUpRight} />
       ) : (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path
@@ -629,19 +705,26 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     </button>
   );
 
-  if (!isRunning) {
-    return sendButton;
+  const submitControl = (
+    <Tooltip key="submit">
+      <TooltipTrigger render={<span className="inline-flex" />}>{sendButton}</TooltipTrigger>
+      <TooltipPopup>{submitTooltip}</TooltipPopup>
+    </Tooltip>
+  );
+
+  if (!canInterrupt) {
+    return submitControl;
   }
 
-  // While a turn runs, a sendable draft queues for the next tool boundary, so
-  // the send button stays next to Stop on every viewport.
+  // While a run can be stopped, a sendable draft steers or queues, so the send
+  // button stays next to Stop on every viewport.
   return (
     <>
       {dictationPlacement === "standalone"
         ? renderDictationButton(primaryIconButtonSizeClass(false))
         : null}
       {renderStopGenerationButton(false)}
-      {hasSendableContent ? sendButton : null}
+      {hasSendableContent || isEditingQueuedMessage ? submitControl : null}
     </>
   );
 });

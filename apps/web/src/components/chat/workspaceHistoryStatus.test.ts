@@ -19,11 +19,19 @@ function thread(input: {
     hasPendingApprovals: input.hasPendingApprovals ?? false,
     hasPendingUserInput: false,
     interactionMode: "default",
-    latestTurn: null,
-    session: input.status
-      ? ({ status: input.status, activeTurnId: null } as SidebarThreadSummary["session"])
-      : null,
-  } as SidebarThreadSummary;
+    latestRun: null,
+    runtime:
+      input.status === "running" || input.status === "error"
+        ? ({
+            status: input.status === "error" ? "failed" : "running",
+            activeRunId: null,
+            providerInstanceId: "codex",
+            providerName: null,
+            lastError: null,
+            updatedAt: "2026-09-16T10:00:00.000Z",
+          } as SidebarThreadSummary["runtime"])
+        : null,
+  } as unknown as SidebarThreadSummary;
 }
 
 const sessionKey = (threadId: string) =>
@@ -51,14 +59,14 @@ describe("resolveSessionStatusesByKey", () => {
   it("reports a completion the user has not seen since their last visit", () => {
     const completed = {
       ...thread({ id: "done", status: "ready" }),
-      latestTurn: {
-        turnId: "turn-1",
-        state: "completed",
+      latestRun: {
+        runId: "turn-1",
+        status: "completed",
         assistantMessageId: null,
         requestedAt: "2026-09-16T10:00:00.000Z",
         startedAt: "2026-09-16T10:00:00.000Z",
         completedAt: "2026-09-16T10:05:00.000Z",
-      } as SidebarThreadSummary["latestTurn"],
+      } as SidebarThreadSummary["latestRun"],
     };
 
     expect(

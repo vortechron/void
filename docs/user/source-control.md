@@ -47,7 +47,59 @@ glab auth login
 
 ### Bitbucket
 
-### Move Between Active Threads and Checkouts
+Open **Settings → Source Control**, expand **Bitbucket**, and choose how to sign in:
+
+- **Access token**: a token created for one repository, project, or workspace. It can only reach
+  what it was created for.
+- **API token**: an Atlassian API token for your account, used with your account email. It can
+  reach every repository you can. Give it read/write access to repositories and pull requests, plus
+  user read access (`read:user:bitbucket`).
+
+Choose **Save**; the change applies right away, and replaces any credential saved with the other
+method. Credentials are saved on the environment's server, so select a remote environment to
+configure it. Saved tokens can't be viewed again; enter a new one to replace it, or choose
+**Remove**.
+
+If no credentials are saved, T3 Code falls back to these variables in the server's environment.
+Restart the server after changing them:
+
+```bash
+export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
+# or
+export T3CODE_BITBUCKET_EMAIL="you@example.com"
+export T3CODE_BITBUCKET_API_TOKEN="your-token"
+```
+
+### Azure DevOps
+
+Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), add the DevOps extension, and sign in:
+
+```bash
+az extension add --name azure-devops
+az login
+```
+
+## Start, clone, or publish a project
+
+To start from nothing, choose **New project** in the command palette (`Cmd/Ctrl+K`), or
+**New project** under **Add Project** on any client, and type a name. T3 Code makes a Git
+repository in `~/.t3/projects` (the `projects` folder of your T3 data directory) with a README,
+an icon, and a first commit, then opens a new thread in it. The folder is named after the project,
+like `pinball-stats` for "Pinball Stats". Turn on **Create private repository on GitHub** to also
+publish it. If Git has no name or email on that machine, the project is created without the
+first commit.
+
+Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
+provider or paste a Git URL, then choose where to save it. The project opens right away while the
+clone runs in the background: you can write your first prompt, and sending waits until the files
+are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
+toast or from the banner above the composer.
+
+For a local Git repository without a remote, **Publish Repository** creates a hosted repository,
+adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
+make your first commit before pushing.
+
+## Move between threads and checkouts
 
 - The sidebar lists repositories and their physical workspaces. Each repository always has a
   workspace for its original checkout and can also have one workspace per linked worktree.
@@ -73,7 +125,7 @@ glab auth login
   thread's checkout. On wider screens, drag the edge of the file tree to resize it. T3 Code
   remembers the width for the next time you open Diff.
 
-### Read the Repository's History
+## Read the repository's history
 
 Open **History** in the right panel to see the commit graph for the current project:
 
@@ -88,121 +140,6 @@ Open **History** in the right panel to see the commit graph for the current proj
   History.
 
 History is available for any project in a Git repository.
-
-### Manage Code Reviews Without Context Switching
-
-**Create pull requests while you work**
-
-- Push a branch and create a pull request from the Git actions controls in the toolbar
-- T3 Code can suggest titles and descriptions based on your commits
-- With **Repository conventions** selected, generated source control text follows the project's
-  `AGENTS.md` along with recent commit subjects. Claude writers also follow `CLAUDE.md`
-- Supports GitHub Pull Requests, GitLab Merge Requests, Bitbucket Pull Requests, and Azure DevOps Pull Requests
-
-**Stay on top of open reviews**
-
-- See if your current branch already has an open PR/MR
-- Open several reviews from the **Pull requests** page as tabs in the right panel
-- Filter the list by author or labels, rank authors by merges in the loaded results, see label and
-  change-size context on each row, and sort the results currently shown by update time, creation
-  time, or change size
-- While working in a thread, open linked reviews in the same compact right-panel tabs without
-  leaving the conversation
-- Open the review directly in your browser with one click
-- If T3 Code cannot load a GitHub pull request, including when GitHub rate limits requests, use
-  **Open on GitHub** in the error view
-- Command-click (Control-click on Windows and Linux) a pull request number in the sidebar to open it in your browser instead of in T3 Code
-- Check out a teammate's branch to review code locally
-
-**Fix what you wrote, in place**
-
-- Rewrite a pull request's title and description from the review itself, in Markdown, with a
-  preview before you save
-- Rewrite your own comments the same way, wherever they are shown
-- Works on GitHub, GitLab, and Bitbucket. Azure DevOps takes a new title and description; its
-  comments stay read-only here, as they already were
-
-### Know Your Setup at a Glance
-
-The **Source Control settings** page shows you exactly what's connected:
-
-- ✅ Which providers are authenticated and ready
-- ⚠️ What's missing and how to fix it
-- 👤 Which account is signed in (when available)
-
-Run a quick **Rescan** after setting up a new machine or changing credentials.
-
-## Getting Started
-
-### For GitHub (Recommended for most users)
-
-1. Install the GitHub CLI (version 2.81.0 or newer) on the machine running T3 Code:
-   ```bash
-   brew install gh
-   ```
-2. Sign in:
-   ```bash
-   gh auth login
-   ```
-3. Open **Settings → Source Control** in T3 Code and verify GitHub shows as authenticated
-
-You can now clone, publish, and create pull requests.
-
-### For GitLab
-
-1. Install the GitLab CLI:
-   ```bash
-   brew install glab
-   ```
-2. Authenticate:
-   ```bash
-   glab auth login
-   ```
-3. Check **Settings → Source Control** to confirm the connection
-
-### For Bitbucket
-
-Bitbucket uses tokens instead of a CLI tool. Two options, both set as environment variables on the
-machine running T3 Code.
-
-Recommended, a Bitbucket access token:
-Set an access token in the server's environment:
-
-```bash
-export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
-```
-
-Or use an Atlassian account email and API token with read/write access to repositories and pull
-requests, plus user read access (`read:user:bitbucket`):
-
-```bash
-export T3CODE_BITBUCKET_EMAIL="you@example.com"
-export T3CODE_BITBUCKET_API_TOKEN="your-token"
-```
-
-The access token takes precedence if both are configured. Restart the server after changing these
-variables.
-
-### Azure DevOps
-
-Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), add the DevOps extension, and sign in:
-
-```bash
-az extension add --name azure-devops
-az login
-```
-
-## Clone or publish a project
-
-Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
-provider or paste a Git URL, then choose where to save it. The project opens right away while the
-clone runs in the background: you can write your first prompt, and sending waits until the files
-are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
-toast or from the banner above the composer.
-
-For a local Git repository without a remote, **Publish Repository** creates a hosted repository,
-adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
-make your first commit before pushing.
 
 ## Create a pull request
 
@@ -257,7 +194,8 @@ does not show its diff, so marks are made and read on web and desktop.
 ## Troubleshooting
 
 - **Not authenticated:** run the provider's login command on the server, then rescan. For Bitbucket,
-  confirm the running server received the environment variables.
+  check the credentials saved in Settings → Source Control, or confirm the running server received
+  the environment variables.
 - **GitHub sign-in cannot be verified:** update GitHub CLI to at least 2.81.0.
 - **Push fails despite a connected account:** check the Git remote's credentials. SSH and HTTPS
   remotes can require separate setup from the hosting provider's API access.
@@ -276,7 +214,7 @@ on the Pull Requests page, **Link to thread** lets you search for an active thre
 also lists the threads that link to it, including archived threads, so you can return to their context.
 
 Thread badges show a stack's layer count or the current review number with a count of additional
-links. On mobile, the Git overview lists linked reviews and their stacks; tap a review to open it.
+links. Clicking a badge with more than one review opens the **Linked pull requests** panel. On mobile, the Git overview lists linked reviews and their stacks; tap a review to open it.
 Linking and unlinking are available in the web and desktop clients.
 
 The **Linked pull requests** panel lists every review and groups stacks. Unlink a review from its
@@ -284,6 +222,13 @@ row menu. An unlinked stack layer stays out of later syncs. Open linked reviews 
 closed reviews refresh periodically so reopening one on the host is detected. Merged reviews refresh
 when requested. With **Auto-settle merged threads** enabled, a thread can settle after every linked
 review is terminal. An open or unsynced link keeps it active.
+
+Ask the agent to watch, monitor, or babysit a pull request and it calls `watch_pull_request`. While
+the thread is active, the server checks the pull request every minute and wakes the agent when a check
+fails, the required checks pass, someone else comments or reviews, or the branch starts to conflict.
+Comments from your own account do not wake it. Watching ends when the pull request merges or closes,
+after 10 wakes in a row that bring only comments, or when the server cannot read the pull request for
+15 minutes. To start or stop it yourself, use the row menu in the **Linked pull requests** panel.
 
 Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked
 out from the matching organization and repository.

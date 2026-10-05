@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 /* ─────────────────────────────────────────────────────────
  * COLLAPSE
@@ -10,6 +10,10 @@ import type { ReactNode } from "react";
  * measuring it first, so a body that is still streaming in
  * grows smoothly instead of jumping when its height changes.
  * The child must be able to overflow-clip, hence the wrapper.
+ *
+ * `lazy` mounts the children only while open, plus the close
+ * animation, so content that loads on mount (tool output, a
+ * diff) costs nothing while the row stays collapsed.
  * ───────────────────────────────────────────────────────── */
 
 export function Collapse({
@@ -17,12 +21,23 @@ export function Collapse({
   children,
   durationMs = 300,
   className = "",
+  lazy = false,
 }: {
   open: boolean;
   children: ReactNode;
   durationMs?: number;
   className?: string;
+  lazy?: boolean;
 }) {
+  const [mounted, setMounted] = useState(open);
+  if (open && !mounted) setMounted(true);
+
+  useEffect(() => {
+    if (!lazy || open || !mounted) return;
+    const timeout = window.setTimeout(() => setMounted(false), durationMs);
+    return () => window.clearTimeout(timeout);
+  }, [durationMs, lazy, mounted, open]);
+
   return (
     <div
       className={`grid transition-[grid-template-rows,opacity] motion-reduce:!transition-none ${className}`}
@@ -33,7 +48,7 @@ export function Collapse({
         transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
       }}
     >
-      <div className="min-h-0 overflow-hidden">{children}</div>
+      <div className="min-h-0 overflow-hidden">{!lazy || mounted ? children : null}</div>
     </div>
   );
 }

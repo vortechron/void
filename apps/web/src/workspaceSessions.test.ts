@@ -30,9 +30,9 @@ function thread(input: {
     updatedAt: input.updatedAt,
     createdAt: input.updatedAt,
     archivedAt: null,
-    latestTurn: null,
+    latestRun: null,
     latestUserMessageAt: null,
-    session: null,
+    runtime: null,
     modelSelection: { instanceId: "codex", model: "gpt-5" },
     runtimeMode: "full-access",
     interactionMode: "default",
@@ -41,7 +41,7 @@ function thread(input: {
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
-  } as SidebarThreadSummary;
+  } as unknown as SidebarThreadSummary;
 }
 
 function draft(input: {

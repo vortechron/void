@@ -7,16 +7,17 @@ import {
 export type ThreadAttentionStatus = SidebarThreadStatus | "plan" | "completed";
 type ThreadAttentionInput = Parameters<typeof resolveThreadStatusPill>[0]["thread"];
 
-// Monitoring sits just above `ready`: it is calm background presence, not
-// progress, so it must never hide a Plan Ready or Completed sibling.
+// Waiting (an idle session) sits just above `ready`: it is calm background
+// presence, not progress, so it must never hide a Plan Ready or Completed sibling.
 const WORKSPACE_STATUS_PRIORITY: Record<ThreadAttentionStatus, number> = {
   approval: 8,
   input: 7,
   failed: 6,
+  limited: 6,
   working: 5,
   plan: 4,
   completed: 3,
-  monitoring: 2,
+  waiting: 2,
   ready: 1,
 };
 

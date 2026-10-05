@@ -1,6 +1,6 @@
 import {
   PROVIDER_DISPLAY_NAMES,
-  type ProviderDriverKind,
+  ProviderDriverKind,
   type UsageMeterMode,
   type UsageMeterSettings,
 } from "@t3tools/contracts";
@@ -10,7 +10,16 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { useUsageMeterMode, useUsageMeterSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useProviderUsage, useProviderUsageAutoRefresh } from "../../lib/providerUsageState";
-import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
+import {
+  AntigravityIcon,
+  ClaudeAI,
+  CursorIcon,
+  GrokIcon,
+  type Icon,
+  OpenAI,
+  OpenCodeIcon,
+  PiAgentIcon,
+} from "../Icons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   appendUsageSamples,
@@ -67,6 +76,16 @@ function describeColumns(
     )
     .join("; ");
 }
+
+const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
+  [ProviderDriverKind.make("codex")]: OpenAI,
+  [ProviderDriverKind.make("claudeAgent")]: ClaudeAI,
+  [ProviderDriverKind.make("opencode")]: OpenCodeIcon,
+  [ProviderDriverKind.make("cursor")]: CursorIcon,
+  [ProviderDriverKind.make("grok")]: GrokIcon,
+  [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
+  [ProviderDriverKind.make("pi")]: PiAgentIcon,
+};
 
 function ProviderIcon({
   provider,

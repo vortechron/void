@@ -21,6 +21,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
   type EnvironmentId,
+  type ProviderInstanceMutation,
   ServerSettings,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
@@ -70,10 +71,7 @@ import {
   useEnvironments,
   usePrimaryEnvironment,
 } from "~/state/environments";
-import {
-  runAtomCommand,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
 
@@ -314,6 +312,21 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
   return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
+/** Atomically mutate one provider instance against the server's latest settings snapshot. */
+export function usePersistEnvironmentProviderInstanceMutation(environmentId: EnvironmentId) {
+  const mutateProviderInstance = useAtomCommand(serverEnvironment.mutateProviderInstance, {
+    reportFailure: false,
+  });
+  return useCallback(
+    (providerInstanceMutation: ProviderInstanceMutation, patch: ServerSettingsPatch = {}) =>
+      mutateProviderInstance({
+        environmentId,
+        input: { patch, providerInstanceMutation },
+      }),
+    [environmentId, mutateProviderInstance],
+  );
+}
+
 /** Primary-only settings access for the settings UI and other explicitly global surfaces. */
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
@@ -412,7 +425,6 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
 
   return updateSettings;
 }
-
 
 /**
  * Shared-settings sync targets whose values differ from the primary's,
