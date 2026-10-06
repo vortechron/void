@@ -444,7 +444,7 @@ const VoiceDictationSettingsValue = Schema.Struct({
   model: VoiceDictationModel.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_VOICE_DICTATION_MODEL)),
   ),
-  /** ISO-639-1 hint, e.g. `en` or `ms`. Empty lets the model detect it. */
+  /** Comma-separated language hints, e.g. `en, ms`. Empty enables detection. */
   language: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   style: VoiceDictationStyle.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_VOICE_DICTATION_STYLE)),

@@ -571,8 +571,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "voice-dictation-language",
-    title: "Dictation language",
+    title: "Dictation languages",
     to: "/settings/voice",
+    searchTerms: ["mixed languages multilingual English Malay automatic detection"],
   },
   {
     id: "voice-dictation-style",

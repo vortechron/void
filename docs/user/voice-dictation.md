@@ -69,8 +69,8 @@ work even with the cleanup style set to _Off_.
 
 - **Model** — _Live transcribe_ writes words as you say them. _Transcribe_ waits until you release
   the button, and is worth trying if live results come back wrong.
-- **Language** — a two-letter code such as `en` or `ms`. Leave it blank and the model works out
-  what it is hearing.
+- **Dictation languages** — language codes separated by commas. Use `en, ms` for English and
+  Malay, including when you mix them in one sentence. Leave it blank for automatic detection.
 
 ## When the button will not listen
 
