@@ -17,6 +17,7 @@ import { useCallback } from "react";
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { normalizeOpenAiApiKey } from "../../lib/voiceDictation/apiKey";
+import { parseDictationLanguages } from "../../lib/voiceDictation/languages";
 import { canCaptureAudio } from "../../lib/voiceDictation/pcmCapture";
 import { resolveVoiceDictationAvailability } from "../../lib/voiceDictation/availability";
 import { DraftInput } from "../ui/draft-input";
@@ -165,11 +166,11 @@ export function VoiceDictationSettingsSection() {
 
       <SettingsRow
         {...searchableSetting("voice-dictation-language")}
-        description="A two-letter language code such as en or ms. Leave it blank to let the model work out what it is hearing."
+        description="Language codes separated by commas, such as en, ms for English and Malay. Include each language you speak, even when you mix them. Leave it blank for automatic detection."
         resetAction={
           voiceDictation.language.length > 0 ? (
             <SettingResetButton
-              label="dictation language"
+              label="dictation languages"
               onClick={() => patchVoiceDictation({ language: "" })}
             />
           ) : null
@@ -177,12 +178,14 @@ export function VoiceDictationSettingsSection() {
         control={
           <DraftInput
             disabled={isOff}
-            className="w-full sm:w-24"
+            className="w-full sm:w-44"
             placeholder="Auto"
             spellCheck={false}
-            aria-label="Dictation language"
+            aria-label="Dictation languages"
             value={voiceDictation.language}
-            onCommit={(next) => patchVoiceDictation({ language: next.trim().toLowerCase() })}
+            onCommit={(next) =>
+              patchVoiceDictation({ language: parseDictationLanguages(next).join(", ") })
+            }
           />
         }
       />

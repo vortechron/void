@@ -16,6 +16,7 @@
  * attempt is rejected.
  */
 import { normalizeOpenAiApiKey } from "./apiKey";
+import { parseDictationLanguages } from "./languages";
 import {
   appendTranscriptDelta,
   completeTranscriptItem,
@@ -27,15 +28,13 @@ import {
 import { DICTATION_SAMPLE_RATE } from "./pcmCapture";
 
 const REALTIME_URL = "wss://api.openai.com/v1/realtime?intent=transcription";
-/** How long `finish()` waits for a transcript it has already started hearing. */
-const FINALIZE_TIMEOUT_MS = 4_000;
-/** The shorter wait when nothing has come back yet — a hold with no speech. */
-const FINALIZE_GRACE_MS = 1_200;
+/** A ceiling for setup and final transcription; completed turns finish immediately. */
+const FINALIZE_TIMEOUT_MS = 30_000;
 
 export interface TranscriptionSessionOptions {
   readonly apiKey: string;
   readonly model: string;
-  /** ISO-639-1 code, or empty to let the model detect the language. */
+  /** Comma-separated language hints, or empty for automatic detection. */
   readonly language: string;
   /** Names and jargon to bias the transcription towards. */
   readonly dictionary: ReadonlyArray<string>;
@@ -96,7 +95,7 @@ function dictionaryPrompt(dictionary: ReadonlyArray<string>): string {
 }
 
 function sessionUpdateEvent(options: TranscriptionSessionOptions) {
-  const language = options.language.trim();
+  const languages = parseDictationLanguages(options.language);
   const prompt = dictionaryPrompt(options.dictionary);
   return {
     type: "session.update",
@@ -107,7 +106,7 @@ function sessionUpdateEvent(options: TranscriptionSessionOptions) {
           format: { type: "audio/pcm", rate: DICTATION_SAMPLE_RATE },
           transcription: {
             model: options.model,
-            ...(language.length > 0 ? { languages: [language] } : {}),
+            ...(languages.length > 0 ? { languages } : {}),
             // Omitted when empty rather than sent blank: this field is the
             // newest part of the config shape, and a session that does not
             // need it should not be the one that discovers it is rejected.
@@ -124,7 +123,7 @@ function sessionUpdateEvent(options: TranscriptionSessionOptions) {
 
 /** The pre-GA shape, kept as a fallback for servers that reject the above. */
 function legacySessionUpdateEvent(options: TranscriptionSessionOptions) {
-  const language = options.language.trim();
+  const languages = parseDictationLanguages(options.language);
   const prompt = dictionaryPrompt(options.dictionary);
   return {
     type: "transcription_session.update",
@@ -132,7 +131,7 @@ function legacySessionUpdateEvent(options: TranscriptionSessionOptions) {
       input_audio_format: "pcm16",
       input_audio_transcription: {
         model: options.model,
-        ...(language.length > 0 ? { language } : {}),
+        ...(languages.length > 0 ? { languages } : {}),
         ...(prompt.length > 0 ? { prompt } : {}),
       },
       turn_detection: null,
@@ -187,6 +186,10 @@ export function openTranscriptionSession(
   let closed = false;
   let sessionAcknowledged = false;
   let audioSent = false;
+  let finishRequested = false;
+  let finishPromise: Promise<void> | null = null;
+  let commitSent = false;
+  let committedItemId: string | null = null;
   let transcript: TranscriptState = emptyTranscript;
   const pending: string[] = [];
   let onSettled: (() => void) | null = null;
@@ -195,21 +198,54 @@ export function openTranscriptionSession(
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(event));
   };
 
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    onSettled?.();
+    socket?.close();
+    socket = null;
+  };
+
   const flushPending = () => {
+    if (!sessionAcknowledged || socket?.readyState !== WebSocket.OPEN) return;
     while (pending.length > 0) {
       const audio = pending.shift();
       if (audio) send({ type: "input_audio_buffer.append", audio });
+    }
+    if (finishRequested && !commitSent) {
+      commitSent = true;
+      send({ type: "input_audio_buffer.commit" });
+    }
+  };
+
+  const settleCommittedTranscript = () => {
+    // Earlier completed items cannot prove that the newly committed tail is done.
+    if (
+      committedItemId !== null &&
+      transcript.segments.some(
+        (segment) => segment.itemId === committedItemId && segment.final !== null,
+      ) &&
+      isTranscriptSettled(transcript)
+    ) {
+      close();
     }
   };
 
   const publishTranscript = () => {
     options.onTranscript(renderTranscript(transcript));
-    if (isTranscriptSettled(transcript)) onSettled?.();
+    settleCommittedTranscript();
   };
 
   const handleEvent = (payload: Record<string, unknown>) => {
+    if (closed) return;
     const type = typeof payload["type"] === "string" ? (payload["type"] as string) : "";
     const itemId = typeof payload["item_id"] === "string" ? (payload["item_id"] as string) : "item";
+
+    if (type === "input_audio_buffer.committed" && commitSent) {
+      committedItemId = itemId;
+      settleCommittedTranscript();
+      return;
+    }
 
     if (type === "conversation.item.input_audio_transcription.delta") {
       const delta = typeof payload["delta"] === "string" ? (payload["delta"] as string) : "";
@@ -229,8 +265,15 @@ export function openTranscriptionSession(
     // Only `.updated` counts: `session.created` is the greeting the server
     // sends before it has even seen our config, so treating it as an
     // acknowledgement would disable the fallback below.
-    if (type.endsWith(".updated")) {
+    if (type === "session.updated" || type === "transcription_session.updated") {
       sessionAcknowledged = true;
+      flushPending();
+      return;
+    }
+
+    if (type === "conversation.item.input_audio_transcription.failed") {
+      options.onError(readErrorMessage(payload));
+      close();
       return;
     }
 
@@ -248,6 +291,7 @@ export function openTranscriptionSession(
         }
       }
       options.onError(readErrorMessage(payload));
+      close();
     }
   };
 
@@ -256,6 +300,7 @@ export function openTranscriptionSession(
     const protocols = candidates[candidateIndex];
     if (!protocols) {
       options.onError("Could not reach OpenAI. Check the API key in Settings.");
+      close();
       return;
     }
 
@@ -263,15 +308,17 @@ export function openTranscriptionSession(
     socket = next;
 
     next.addEventListener("open", () => {
+      if (closed || socket !== next) return;
       opened = true;
       // A reconnect starts the shape ladder over: the socket that rejected a
       // config is not the one being talked to any more.
       sessionConfigIndex = 0;
+      sessionAcknowledged = false;
       send(sessionConfigs[0]);
-      flushPending();
     });
 
     next.addEventListener("message", (event: MessageEvent<string>) => {
+      if (closed || socket !== next) return;
       if (typeof event.data !== "string") return;
       try {
         handleEvent(JSON.parse(event.data) as Record<string, unknown>);
@@ -283,7 +330,7 @@ export function openTranscriptionSession(
     // No `error` listener: a socket error is always followed by `close`, which
     // is where the decision to retry or give up already lives.
     next.addEventListener("close", () => {
-      if (closed) return;
+      if (closed || socket !== next) return;
       if (!opened) {
         // A handshake that never opened means the subprotocol set was
         // refused; the next candidate is the only thing worth changing.
@@ -291,7 +338,8 @@ export function openTranscriptionSession(
         connect();
         return;
       }
-      onSettled?.();
+      options.onError("The OpenAI connection closed before dictation finished.");
+      close();
     });
   };
 
@@ -299,48 +347,40 @@ export function openTranscriptionSession(
 
   return {
     sendAudio: (pcm) => {
-      if (closed) return;
+      if (closed || finishRequested) return;
       audioSent = true;
       const audio = encodeBase64(pcm);
-      if (socket?.readyState === WebSocket.OPEN) {
-        send({ type: "input_audio_buffer.append", audio });
-        return;
-      }
       pending.push(audio);
+      flushPending();
     },
 
-    finish: async () => {
-      if (closed) return;
-      flushPending();
+    finish: () => {
+      if (finishPromise) return finishPromise;
       // Nothing was captured, so there is no turn to commit and nothing to
       // wait for — a hold short enough to be a mis-tap lands here.
-      if (audioSent) {
-        send({ type: "input_audio_buffer.commit" });
-        const heardSomething = transcript.segments.length > 0;
-        if (!heardSomething || !isTranscriptSettled(transcript)) {
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(
-              resolve,
-              heardSomething ? FINALIZE_TIMEOUT_MS : FINALIZE_GRACE_MS,
-            );
-            onSettled = () => {
-              clearTimeout(timer);
-              resolve();
-            };
-          });
-        }
+      if (closed || !audioSent) {
+        close();
+        return Promise.resolve();
       }
-      closed = true;
-      onSettled = null;
-      socket?.close();
-      socket = null;
+
+      finishRequested = true;
+      finishPromise = new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          options.onError(
+            "OpenAI took too long to finish dictation. Any text received has been kept. Try again.",
+          );
+          close();
+        }, FINALIZE_TIMEOUT_MS);
+        onSettled = () => {
+          clearTimeout(timer);
+          onSettled = null;
+          resolve();
+        };
+      }).then(close);
+      flushPending();
+      return finishPromise;
     },
 
-    close: () => {
-      closed = true;
-      onSettled = null;
-      socket?.close();
-      socket = null;
-    },
+    close,
   };
 }
