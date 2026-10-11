@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it, vi } from "@effect/vitest";
 import { ProjectId, type ProjectScript } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -71,6 +72,7 @@ function makeHarness(scripts: ReadonlyArray<ProjectScript>) {
         }),
         Layer.mock(TerminalManager.TerminalManager)({ open, write, subscribe }),
         ServerSettings.layerTest({ globalScripts: [globalSetup] }),
+        NodeCrypto.layer,
       ),
     ),
   );

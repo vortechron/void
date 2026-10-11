@@ -1,17 +1,20 @@
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
-import type {
-  ModelSelection,
-  ProjectActionScope,
-  ProjectPromptAction,
-  ProjectScript,
-  ProjectScriptIcon,
-  ResolvedKeybindingsConfig,
-  ServerProvider,
-  T3ProjectFileScript,
+import {
+  AuthSettingsWriteScope,
+  type EnvironmentId,
+  type ModelSelection,
+  type ProjectActionScope,
+  type ProjectPromptAction,
+  type ProjectScript,
+  type ProjectScriptIcon,
+  type ServerProvider,
+  type T3ProjectFileScript,
 } from "@t3tools/contracts";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
+import { useAtomValue } from "@effect/atom-react";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { createModelSelection } from "@t3tools/shared/model";
-import { mergedActions } from "@t3tools/shared/projectScripts";
+import { mergedActions, projectScriptMenuLabel } from "@t3tools/shared/projectScripts";
 import type { ProjectActionScopeChange } from "~/projectActionScopes";
 import {
   isAtomCommandInterrupted,
@@ -53,6 +56,8 @@ import {
 import { ProviderModelPicker } from "./chat/ProviderModelPicker";
 import { TraitsPicker } from "./chat/TraitsPicker";
 import { shortcutLabelForCommand } from "~/keybindings";
+import { serverEnvironment } from "~/state/server";
+import { readEnvironmentScope } from "~/state/session";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -97,6 +102,7 @@ import { cn } from "~/lib/utils";
 import {
   THREAD_DETAILS_PANEL_CHEVRON_CLASS,
   THREAD_DETAILS_PANEL_ICON_CLASS,
+  THREAD_DETAILS_PANEL_LABEL_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./chat/threadDetailsPanelStyles";
@@ -148,6 +154,7 @@ interface ProjectScriptsControlProps {
   displayMode?: "toolbar" | "panel";
   presentation?: "toolbar" | "menu";
   onRequestMenuClose?: () => void;
+  environmentId: EnvironmentId;
   scripts: ReadonlyArray<ProjectScript>;
   promptActions?: ReadonlyArray<ProjectPromptAction>;
   promptActionsSupported?: boolean;
@@ -158,11 +165,10 @@ interface ProjectScriptsControlProps {
   globalActionsSupported?: boolean;
   /** Scripts declared in the project's checked-in t3.json, offered for import. */
   fileScripts?: ReadonlyArray<T3ProjectFileScript>;
-  keybindings: ResolvedKeybindingsConfig;
   providerStatuses?: ReadonlyArray<ServerProvider>;
   settings?: UnifiedSettings;
   preferredScriptId?: string | null;
-  onRunScript: (script: ProjectScript) => void;
+  onRunScript?: ((script: ProjectScript) => void) | undefined;
   onAddScript: (
     input: NewProjectScriptInput,
     scope: ProjectActionScope,
@@ -228,6 +234,7 @@ export default function ProjectScriptsControl({
   displayMode = "toolbar",
   presentation = "toolbar",
   onRequestMenuClose,
+  environmentId,
   scripts,
   promptActions = NO_PROMPT_ACTIONS,
   promptActionsSupported = false,
@@ -235,7 +242,6 @@ export default function ProjectScriptsControl({
   globalPromptActions = NO_PROMPT_ACTIONS,
   globalActionsSupported = false,
   fileScripts = NO_FILE_SCRIPTS,
-  keybindings,
   providerStatuses = [],
   settings,
   preferredScriptId = null,
@@ -253,6 +259,9 @@ export default function ProjectScriptsControl({
   const isPanel = displayMode === "panel";
   const ActionGroup = isPanel ? "div" : Group;
   const panelAnchorRef = React.useRef<HTMLDivElement | null>(null);
+  const keybindings =
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.keybindings ??
+    DEFAULT_RESOLVED_KEYBINDINGS;
   const addScriptFormId = React.useId();
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
   const [editingPromptActionId, setEditingPromptActionId] = useState<string | null>(null);
@@ -276,6 +285,7 @@ export default function ProjectScriptsControl({
   const [icon, setIcon] = useState<ProjectScriptIcon>("play");
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [runOnWorktreeCreate, setRunOnWorktreeCreate] = useState(false);
+  const [runOnSettle, setRunOnSettle] = useState(false);
   const [keybinding, setKeybinding] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [autoOpenPreview, setAutoOpenPreview] = useState(false);
@@ -421,7 +431,11 @@ export default function ProjectScriptsControl({
         icon,
         runOnWorktreeCreate,
         waitForSetup: runOnWorktreeCreate,
-        keybinding: keybindingRule?.key ?? null,
+        runOnSettle,
+        // Keybindings live in settings, so only a settings writer sends one.
+        ...(readEnvironmentScope(environmentId, AuthSettingsWriteScope)
+          ? { keybinding: keybindingRule?.key ?? null }
+          : {}),
         previewUrl: trimmedPreviewUrl.length > 0 ? trimmedPreviewUrl : null,
         autoOpenPreview: trimmedPreviewUrl.length > 0 ? autoOpenPreview : false,
       } satisfies NewProjectScriptInput;
@@ -457,6 +471,7 @@ export default function ProjectScriptsControl({
     setIcon("play");
     setIconPickerOpen(false);
     setRunOnWorktreeCreate(false);
+    setRunOnSettle(false);
     setKeybinding("");
     setPreviewUrl("");
     setAutoOpenPreview(false);
@@ -477,6 +492,7 @@ export default function ProjectScriptsControl({
     setIcon(script.icon);
     setIconPickerOpen(false);
     setRunOnWorktreeCreate(script.runOnWorktreeCreate);
+    setRunOnSettle(script.runOnSettle ?? false);
     setKeybinding(keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "");
     setPreviewUrl(script.previewUrl ?? "");
     setAutoOpenPreview(script.autoOpenPreview ?? false);
@@ -523,7 +539,8 @@ export default function ProjectScriptsControl({
       icon: fileScript.icon ?? "play",
       runOnWorktreeCreate: fileScript.runOnWorktreeCreate ?? false,
       waitForSetup: fileScript.runOnWorktreeCreate === true && fileScript.async === false,
-      keybinding: null,
+      runOnSettle: fileScript.runOnSettle ?? false,
+      ...(readEnvironmentScope(environmentId, AuthSettingsWriteScope) ? { keybinding: null } : {}),
       previewUrl: fileScript.previewUrl ?? null,
       autoOpenPreview: fileScript.previewUrl ? (fileScript.autoOpenPreview ?? false) : false,
     };
@@ -542,6 +559,7 @@ export default function ProjectScriptsControl({
       setIcon(payload.icon);
       setIconPickerOpen(false);
       setRunOnWorktreeCreate(payload.runOnWorktreeCreate);
+      setRunOnSettle(payload.runOnSettle);
       setKeybinding("");
       setPreviewUrl(payload.previewUrl ?? "");
       setAutoOpenPreview(payload.autoOpenPreview);
@@ -552,7 +570,7 @@ export default function ProjectScriptsControl({
 
   const importMenuItems = importableScripts.length > 0 && (
     <>
-      {(primaryScript || allPromptActions.length > 0) && <MenuSeparator />}
+      {(allScripts.length > 0 || allPromptActions.length > 0) && <MenuSeparator />}
       <MenuGroup>
         <MenuGroupLabel>From t3.json</MenuGroupLabel>
         {importableScripts.map((fileScript) => (
@@ -629,12 +647,11 @@ export default function ProjectScriptsControl({
         density={presentation === "menu" ? "touch" : "default"}
         key={`${scope}:${script.id}`}
         className="group"
-        onClick={() => onRunScript(script)}
+        disabled={!onRunScript}
+        onClick={() => onRunScript?.(script)}
       >
         <ScriptIcon icon={script.icon} className="size-4" />
-        <MenuItemLabel>
-          {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
-        </MenuItemLabel>
+        <MenuItemLabel>{projectScriptMenuLabel(script)}</MenuItemLabel>
         <span className="relative ms-auto flex h-6 min-w-6 items-center justify-end">
           {shortcutLabel &&
             (presentation === "menu" ? (
@@ -723,7 +740,8 @@ export default function ProjectScriptsControl({
           {primaryScript && (
             <MenuItem
               density={presentation === "menu" ? "touch" : "default"}
-              onClick={() => onRunScript(primaryScript)}
+              disabled={!onRunScript}
+              onClick={() => onRunScript?.(primaryScript)}
             >
               <ScriptIcon icon={primaryScript.icon} className="size-4" />
               <MenuItemLabel>Run {primaryScript.name}</MenuItemLabel>
@@ -732,7 +750,7 @@ export default function ProjectScriptsControl({
               </MenuShortcut>
             </MenuItem>
           )}
-          {primaryScript || importableScripts.length > 0 ? (
+          {allScripts.length > 0 || importableScripts.length > 0 ? (
             <MenuSub
               open={actionsMenuOpen.scripts}
               onOpenChange={(open) =>
@@ -776,7 +794,8 @@ export default function ProjectScriptsControl({
                   // The tooltip wrapper replaces data-slot="button", so themed
                   // toolbar styling needs its own hook.
                   data-toolbar-control=""
-                  onClick={() => onRunScript(primaryScript)}
+                  aria-disabled={!onRunScript || undefined}
+                  onClick={() => onRunScript?.(primaryScript)}
                 />
               }
             >
@@ -787,13 +806,17 @@ export default function ProjectScriptsControl({
               <span
                 className={cn(
                   "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                  isPanel && "not-sr-only ml-0 truncate",
+                  isPanel && cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
                 )}
               >
                 {primaryScript.name}
               </span>
             </TooltipTrigger>
-            <TooltipPopup side="top">Run {primaryScript.name}</TooltipPopup>
+            <TooltipPopup side="top">
+              {onRunScript
+                ? `Run ${primaryScript.name}`
+                : "Pair this client again with permission to run terminal commands."}
+            </TooltipPopup>
           </Tooltip>
           {isPanel ? (
             <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
@@ -830,7 +853,9 @@ export default function ProjectScriptsControl({
             </MenuPopup>
           </Menu>
         </ActionGroup>
-      ) : allPromptActions.length > 0 || importableScripts.length > 0 ? (
+      ) : allScripts.length > 0 || allPromptActions.length > 0 || importableScripts.length > 0 ? (
+        // No one-click action (only a settle action, prompts, or t3.json
+        // imports), so the saved actions stay reachable through this menu.
         isPanel ? (
           <div
             role="group"
@@ -850,7 +875,9 @@ export default function ProjectScriptsControl({
               ) : (
                 <WrenchIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} />
               )}
-              <span className="min-w-0 truncate">Actions</span>
+              <span className={cn("min-w-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
+                Actions
+              </span>
             </ThreadDetailsControl>
             <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
             <Menu
@@ -873,12 +900,7 @@ export default function ProjectScriptsControl({
                 <ChevronDownIcon className={THREAD_DETAILS_PANEL_CHEVRON_CLASS} />
               </MenuTrigger>
               <MenuPopup align="end" anchor={panelAnchorRef} className="w-(--anchor-width)">
-                {promptMenuItems}
-                {importMenuItems}
-                <MenuItem onClick={openAddDialog}>
-                  <PlusIcon className="size-4" />
-                  Add action
-                </MenuItem>
+                {scriptItems}
               </MenuPopup>
             </Menu>
           </div>
@@ -902,14 +924,7 @@ export default function ProjectScriptsControl({
               </span>
               <ChevronDownIcon className="size-3.5" />
             </MenuTrigger>
-            <MenuPopup align="end">
-              {promptMenuItems}
-              {importMenuItems}
-              <MenuItem onClick={openAddDialog}>
-                <PlusIcon className="size-4" />
-                Add action
-              </MenuItem>
-            </MenuPopup>
+            <MenuPopup align="end">{scriptItems}</MenuPopup>
           </Menu>
         )
       ) : (
@@ -934,7 +949,7 @@ export default function ProjectScriptsControl({
             <span
               className={cn(
                 "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                isPanel && "not-sr-only ml-0.5",
+                isPanel && cn("not-sr-only ml-0.5", THREAD_DETAILS_PANEL_LABEL_CLASS),
               )}
             >
               {isPanel ? "Add project script" : "Add action"}
@@ -964,6 +979,7 @@ export default function ProjectScriptsControl({
           setModelSelection(null);
           setIcon("play");
           setRunOnWorktreeCreate(false);
+          setRunOnSettle(false);
           setKeybinding("");
           setPreviewUrl("");
           setAutoOpenPreview(false);
@@ -1154,6 +1170,13 @@ export default function ProjectScriptsControl({
                       onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
                     />
                   </label>
+                  <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
+                    <span>Run in the thread's worktree when the thread settles</span>
+                    <Switch
+                      checked={runOnSettle}
+                      onCheckedChange={(checked) => setRunOnSettle(Boolean(checked))}
+                    />
+                  </label>
                   <label
                     className={`flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035] ${
                       previewUrl.trim().length === 0 ? "opacity-60" : ""
@@ -1184,6 +1207,7 @@ export default function ProjectScriptsControl({
                       <Label>Model and traits</Label>
                       <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-2 dark:border-transparent dark:bg-white/[0.035]">
                         <ProviderModelPicker
+                          environmentId={environmentId}
                           activeInstanceId={modelSelection.instanceId}
                           model={modelSelection.model}
                           lockedProvider={null}

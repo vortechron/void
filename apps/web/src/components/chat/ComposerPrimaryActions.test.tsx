@@ -37,6 +37,7 @@ function renderPendingActions(
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
+      canOperateThread: true,
       pendingAction: {
         questionIndex: 0,
         isLastQuestion: true,
@@ -70,6 +71,7 @@ function renderRunningActions(
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
+      canOperateThread: true,
       pendingAction: null,
       isRunning: true,
       canInterrupt: true,
@@ -97,6 +99,7 @@ function renderSendButton(
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
+      canOperateThread: true,
       pendingAction: null,
       isRunning: false,
       canInterrupt: false,

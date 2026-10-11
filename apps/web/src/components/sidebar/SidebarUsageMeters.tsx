@@ -10,16 +10,9 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { useUsageMeterMode, useUsageMeterSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useProviderUsage, useProviderUsageAutoRefresh } from "../../lib/providerUsageState";
-import {
-  AntigravityIcon,
-  ClaudeAI,
-  CursorIcon,
-  GrokIcon,
-  type Icon,
-  OpenAI,
-  OpenCodeIcon,
-  PiAgentIcon,
-} from "../Icons";
+import { AntigravityIcon, ClaudeAI, CursorIcon, type Icon, OpenAI } from "../Icons";
+import { ProviderPackageIcon } from "../chat/ProviderPackageIcon";
+import { providerClients } from "../settings/providerDriverMeta";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   appendUsageSamples,
@@ -80,11 +73,8 @@ function describeColumns(
 const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
   [ProviderDriverKind.make("codex")]: OpenAI,
   [ProviderDriverKind.make("claudeAgent")]: ClaudeAI,
-  [ProviderDriverKind.make("opencode")]: OpenCodeIcon,
   [ProviderDriverKind.make("cursor")]: CursorIcon,
-  [ProviderDriverKind.make("grok")]: GrokIcon,
   [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
-  [ProviderDriverKind.make("pi")]: PiAgentIcon,
 };
 
 function ProviderIcon({
@@ -95,7 +85,14 @@ function ProviderIcon({
   readonly className: string;
 }) {
   const Icon = PROVIDER_ICON_BY_PROVIDER[provider];
-  if (!Icon) return null;
+  if (!Icon) {
+    // Providers that live in their own package (Grok, OpenCode, Pi) ship a
+    // plain-data glyph that carries its own brand colors.
+    const packageIcon = providerClients.get(provider)?.icon;
+    return packageIcon ? (
+      <ProviderPackageIcon icon={packageIcon} className={className} aria-hidden />
+    ) : null;
+  }
   const accent = ACCENT_COLOR_BY_PROVIDER[provider];
   return (
     // Inline so the accent wins over each icon's own baked-in fill class.
