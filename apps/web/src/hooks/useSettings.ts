@@ -16,14 +16,18 @@
  * access is intentionally named as such so environment-sensitive consumers
  * cannot silently read the wrong server's settings.
  */
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { useAtomValue } from "@effect/atom-react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, use } from "react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
+  AuthSettingsWriteScope,
+  requiredScopesForServerSettingsPatch,
   type EnvironmentId,
   type ProviderInstanceMutation,
+  type ProviderInstanceId,
   ServerSettings,
   type ServerSettingsPatch,
+  sessionGrantsScope,
 } from "@t3tools/contracts";
 import {
   APP_THEME_VALUES,
@@ -43,6 +47,10 @@ import {
   readBrowserThemePreference,
 } from "~/clientPersistenceStorage";
 import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
+import {
   filterSharedServerPatch,
   findSharedSettingsMismatches,
   pickSharedServerSettings,
@@ -56,14 +64,19 @@ import {
   subscribeToThemePreview,
   themeAllowsSidebarArtwork,
 } from "~/themePalette";
+import {
+  modelPreferencesMigrationPatch,
+  resolveModelPreferences,
+} from "@t3tools/shared/serverSettings";
 import * as Struct from "effect/Struct";
-import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import {
   primaryServerConfigAtom,
   primaryServerSettingsAtom,
   serverEnvironment,
 } from "~/state/server";
+import * as Option from "effect/Option";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { toastManager } from "~/components/ui/toast";
 import { isHostedStaticApp } from "~/hostedPairing";
 import {
@@ -71,9 +84,11 @@ import {
   useEnvironments,
   usePrimaryEnvironment,
 } from "~/state/environments";
-import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
+import { environmentSession, readEnvironmentScope, useEnvironmentScope } from "~/state/session";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 
 type UnifiedSettingsPatch = ServerSettingsPatch & ClientSettingsPatch;
 
@@ -201,7 +216,38 @@ export function mergeEnvironmentSettings(
 ): UnifiedSettings {
   // Decode drops retired client keys, but older untyped persistence adapters
   // can still return them. Server-owned values must always win.
-  return { ...clientSettings, ...serverSettings };
+  return {
+    ...clientSettings,
+    ...serverSettings,
+    ...resolveModelPreferences(serverSettings, clientSettings),
+  };
+}
+
+const pendingModelPreferencesMigrations = new Set<EnvironmentId>();
+
+/** Seed saved client preferences once without overwriting another client's edits. */
+export function useMigrateModelPreferences(
+  environmentId: EnvironmentId | null,
+  settings: ServerSettings | null,
+) {
+  const clientSettings = useClientSettingsValue();
+  const hydrated = useClientSettingsHydrated();
+  const migrate = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
+  useEffect(() => {
+    if (
+      !environmentId ||
+      !settings ||
+      !hydrated ||
+      pendingModelPreferencesMigrations.has(environmentId)
+    )
+      return;
+    const patch = modelPreferencesMigrationPatch(settings, clientSettings);
+    if (!patch) return;
+    pendingModelPreferencesMigrations.add(environmentId);
+    void migrate({ environmentId, input: { patch } }).finally(() =>
+      pendingModelPreferencesMigrations.delete(environmentId),
+    );
+  }, [clientSettings, environmentId, hydrated, migrate, settings]);
 }
 
 function useMergedSettings<T>(
@@ -303,12 +349,135 @@ export function useUsageMeterMode(): UsageMeterMode {
   return settingsHydrated ? mode : "off";
 }
 
+/** Hydrate legacy preferences before a mutation can claim either server-owned list. */
+export async function prepareModelPreferencesPatch(
+  settings: ServerSettings,
+  patch: ServerSettingsPatch,
+): Promise<ServerSettingsPatch> {
+  if (settings.favorites === null || settings.providerModelPreferences === null) {
+    await ensureClientSettingsHydrated();
+  }
+  return { ...modelPreferencesMigrationPatch(settings, getClientSettings()), ...patch };
+}
+
+export function useUpdateEnvironmentModelPreferences(environmentId: EnvironmentId | null) {
+  const settings = useAtomValue(
+    environmentId ? serverEnvironment.settingsValueAtom(environmentId) : noEnvironmentSettingsAtom,
+  );
+  const save = useAtomCommand(serverEnvironment.updateSettings, "model preferences update");
+  return useCallback(
+    async (patch: ServerSettingsPatch) => {
+      if (!environmentId || !settings) return;
+      let prepared: ServerSettingsPatch;
+      try {
+        prepared = await prepareModelPreferencesPatch(settings, patch);
+      } catch {
+        toastManager.add({
+          type: "error",
+          title: "Model preferences not saved",
+          description: "Could not load saved model preferences. Try again.",
+        });
+        return;
+      }
+      return save({ environmentId, input: { patch: prepared } });
+    },
+    [environmentId, save, settings],
+  );
+}
+
+/** Send the desired state so two clients adding a favorite do not cancel each other. */
+export function useToggleEnvironmentModelFavorite(environmentId: EnvironmentId | null) {
+  const registry = use(RegistryContext);
+  const pendingFavorites = useRef(
+    new Map<string, { favorite: boolean; settings: ServerSettings; pending: boolean }>(),
+  );
+  const save = useUpdateEnvironmentModelPreferences(environmentId);
+  return useCallback(
+    async (provider: ProviderInstanceId, model: string) => {
+      if (!environmentId) return;
+      const settingsAtom = serverEnvironment.settingsValueAtom(environmentId);
+      const settings = registry.get(settingsAtom);
+      if (!settings) return;
+      if (settings.favorites === null) {
+        try {
+          await ensureClientSettingsHydrated();
+        } catch {
+          toastManager.add({
+            type: "error",
+            title: "Favorites not saved",
+            description: "Could not load saved model preferences. Try again.",
+          });
+          return;
+        }
+      }
+      const currentSettings = registry.get(settingsAtom) ?? settings;
+      const favorites = resolveModelPreferences(currentSettings, getClientSettings()).favorites;
+      const key = JSON.stringify([environmentId, provider, model]);
+      const previous = pendingFavorites.current.get(key);
+      // Keep the acknowledged choice until the config stream catches up with the RPC reply.
+      const previousFavorite =
+        previous && (previous.pending || previous.settings.favorites === currentSettings.favorites)
+          ? previous.favorite
+          : favorites.some(
+              (favorite) => favorite.provider === provider && favorite.model === model,
+            );
+      const pending = {
+        favorite: !previousFavorite,
+        settings: currentSettings,
+        pending: true,
+      };
+      pendingFavorites.current.set(key, pending);
+      try {
+        const result = await save({
+          setModelFavorites: [{ provider, model, favorite: pending.favorite }],
+        });
+        if (
+          result &&
+          AsyncResult.isSuccess(result) &&
+          registry.get(settingsAtom)?.favorites === currentSettings.favorites
+        ) {
+          pending.pending = false;
+        }
+      } finally {
+        if (pending.pending && pendingFavorites.current.get(key) === pending) {
+          if (
+            previous &&
+            !previous.pending &&
+            registry.get(settingsAtom)?.favorites === previous.settings.favorites
+          ) {
+            pendingFavorites.current.set(key, previous);
+          } else {
+            pendingFavorites.current.delete(key);
+          }
+        }
+      }
+    },
+    [environmentId, registry, save],
+  );
+}
+
+const noEnvironmentSettingsAtom = Atom.make<ServerSettings | null>(null);
+
+/** Model pickers may render before a settings target has been selected. */
+export function useEnvironmentModelPreferences(environmentId: EnvironmentId | null) {
+  const settings = useAtomValue(
+    environmentId ? serverEnvironment.settingsValueAtom(environmentId) : noEnvironmentSettingsAtom,
+  );
+  const legacy = useClientSettingsValue();
+  useMigrateModelPreferences(environmentId, settings);
+  return useMemo(
+    () => resolveModelPreferences(settings ?? DEFAULT_SERVER_SETTINGS, legacy),
+    [legacy, settings],
+  );
+}
+
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
   environmentId: EnvironmentId,
   selector?: (settings: UnifiedSettings) => T,
 ): T {
   const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  useMigrateModelPreferences(environmentId, serverSettings);
   return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
@@ -331,7 +500,13 @@ export function usePersistEnvironmentProviderInstanceMutation(environmentId: Env
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  return useMergedSettings(useAtomValue(primaryServerSettingsAtom), selector);
+  const environment = usePrimaryEnvironment();
+  const settings = useAtomValue(primaryServerSettingsAtom);
+  useMigrateModelPreferences(
+    environment?.environmentId ?? null,
+    environment?.serverConfig?.settings ?? null,
+  );
+  return useMergedSettings(settings, selector);
 }
 
 export const PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE =
@@ -348,28 +523,29 @@ export function usePrimarySettingsAvailable(): boolean {
   return primaryEnvironment !== null || !isHostedStaticApp();
 }
 
-/**
- * Whether an environment can hold every shared key right now. Gated on the
- * auto-settlement capability because it is the newest of the shared keys: a
- * server that has it has all of them. Older servers drop unknown keys on
- * write, so a mismatch against them could never clear, and their decoded
- * defaults must not be treated as real values.
- */
-function supportsSharedSettings(environment: EnvironmentPresentation): boolean {
-  return (
-    environment.connection.phase === "connected" &&
-    environment.serverConfig?.environment.capabilities.threadAutoSettlement === true
-  );
-}
-
-/** Environments that can receive a shared settings write right now. */
-function useConnectedEnvironmentIds(): ReadonlyArray<EnvironmentId> {
+/** Connected sync targets, excluding grants already known to forbid settings writes. */
+function useSharedSettingsSyncTargetIds(includePending = false): ReadonlyArray<EnvironmentId> {
   const { environments } = useEnvironments();
-  return useMemo(
+  const writableTargetsAtom = useMemo(
     () =>
-      environments.filter(supportsSharedSettings).map((environment) => environment.environmentId),
-    [environments],
+      Atom.make((get) =>
+        environments.filter(supportsSharedSettingsSync).flatMap((environment) => {
+          const result = get(environmentSession.sessionStateAtom(environment.environmentId));
+          // A cold grant must not drop a shared edit. The server authorizes the
+          // write; mismatch suggestions still wait for a confirmed grant.
+          if (includePending && result._tag === "Initial") {
+            return [environment.environmentId];
+          }
+          const session =
+            result._tag === "Failure" ? null : Option.getOrNull(AsyncResult.value(result));
+          return session !== null && sessionGrantsScope(session, AuthSettingsWriteScope)
+            ? [environment.environmentId]
+            : [];
+        }),
+      ),
+    [environments, includePending],
   );
+  return useAtomValue(writableTargetsAtom);
 }
 
 /**
@@ -380,11 +556,32 @@ function useConnectedEnvironmentIds(): ReadonlyArray<EnvironmentId> {
  * to every connected environment so they do not drift between machines.
  */
 function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
-  const persistServerSettings = useAtomCommand(
-    serverEnvironment.updateSettings,
-    "server settings update",
+  // Mount this session even on pages without a visible permission-gated control.
+  useEnvironmentScope(environmentId, AuthSettingsWriteScope);
+  const persist = useAtomCommand(serverEnvironment.updateSettings, {
+    label: "server settings update",
+    reportFailure: false,
+  });
+  const { environments } = useEnvironments();
+  const persistServerSettings = useCallback(
+    async (request: Parameters<typeof persist>[0]) => {
+      const result = await persist(request);
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const label =
+          environments.find((environment) => environment.environmentId === request.environmentId)
+            ?.label ?? request.environmentId;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Setting not saved",
+          description: `Could not save on ${label}: ${error instanceof Error ? error.message : "The save failed. Try reconnecting and saving again."}`,
+        });
+      }
+      return result;
+    },
+    [environments, persist],
   );
-  const connectedEnvironmentIds = useConnectedEnvironmentIds();
+  const sharedSettingsSyncTargetIds = useSharedSettingsSyncTargetIds(true);
   const updateSettings = useCallback(
     (patch: UnifiedSettingsPatch) => {
       const { serverPatch, clientPatch } = splitPatch(patch);
@@ -396,23 +593,36 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
               clientSettings: { ...readClientSettingsSnapshot(), ...clientPatch },
             }
           : localPatch;
-      const warnUnsaved = () =>
+      // Dropping the write silently leaves the control looking saved.
+      const warnUnsaved = (description = PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE) =>
         toastManager.add({
           type: "warning",
           title: "Setting not saved",
-          description: PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
+          description,
         });
 
       if (Object.keys(targetPatch).length > 0) {
-        if (environmentId) {
-          void persistServerSettings({ environmentId, input: { patch: targetPatch } });
-        } else {
+        if (!environmentId) {
           warnUnsaved();
+        } else if (
+          // A cold grant must not drop the write: UI preferences save on their
+          // own during startup. The server still authorizes it.
+          appAtomRegistry.get(environmentSession.sessionStateAtom(environmentId))._tag !==
+            "Initial" &&
+          !requiredScopesForServerSettingsPatch(targetPatch).every((scope) =>
+            readEnvironmentScope(environmentId, scope),
+          )
+        ) {
+          warnUnsaved(
+            `This connection lacks permission to change settings on ${environments.find((target) => target.environmentId === environmentId)?.label ?? "the selected environment"}.`,
+          );
+        } else {
+          void persistServerSettings({ environmentId, input: { patch: targetPatch } });
         }
       }
 
       if (Object.keys(sharedPatch).length > 0) {
-        const targets = new Set<EnvironmentId>(connectedEnvironmentIds);
+        const targets = new Set<EnvironmentId>(sharedSettingsSyncTargetIds);
         if (environmentId) targets.add(environmentId);
         if (targets.size === 0) warnUnsaved();
         for (const targetId of targets) {
@@ -420,7 +630,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
         }
       }
     },
-    [connectedEnvironmentIds, environmentId, persistServerSettings],
+    [environmentId, environments, persistServerSettings, sharedSettingsSyncTargetIds],
   );
 
   return updateSettings;
@@ -493,7 +703,7 @@ export function useSharedSettingsSync() {
   return { mismatches, applyToAll };
 }
 
-export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
+export function useUpdateEnvironmentSettings(environmentId: EnvironmentId | null) {
   return useUpdateSettingsTarget(environmentId);
 }
 

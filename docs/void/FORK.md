@@ -279,7 +279,10 @@ Fork-only files cannot conflict. These upstream files carry the wiring and do:
 | `packages/contracts/src/settings.ts`                               | every fork setting schema                    |
 | `apps/server/src/persistence/Migrations.ts`                        | migration list, offset by one                |
 | `apps/server/src/server.ts`, `ws.ts`                               | `ProviderUsage` layer, Void RPC handlers     |
-| `apps/server/src/review/ReviewService.ts`                          | review cwd inside any active project         |
+| `apps/server/src/auth/RpcAuthorization.ts`                         | read scopes for Void RPCs                    |
+| `apps/server/src/observability/RpcInstrumentation.ts`              | `rpc.aggregate` label for every Void RPC     |
+| `packages/contracts/src/clientRpcPermissions.ts`                   | write scope for `vcsRunHistoryAction`        |
+| `apps/web/src/reopenClosedView.ts`                                 | reopening a closed commit diff               |
 | `apps/web/src/components/chat/ThreadDetailsPanel.tsx`              | `projectActionExtras` (prompt actions)       |
 | `apps/web/src/routes/__root.tsx`                                   | Void appearance, zoom and workspace syncs    |
 | `apps/web/src/routeTree.gen.ts`                                    | generated — regenerate, never hand-merge     |

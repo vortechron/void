@@ -32,6 +32,8 @@ import { AnnotatableCodeView } from "~/components/diffs/AnnotatableCodeView";
 import { DiffFilePathCopyButton } from "~/components/DiffFilePathCopyButton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
+const noop = () => {};
+
 export function CommitDiffPanel({
   environmentId,
   cwd,
@@ -154,6 +156,8 @@ export function CommitDiffPanel({
           sectionId={`commit:${sha}`}
           sectionTitle={subject}
           composerDraftTarget={composerDraftTarget}
+          // Commit files never fold, so a find match is already visible.
+          onRevealSearchMatch={noop}
           renderHeaderFilenameSuffix={(fileDiff) => (
             <DiffFilePathCopyButton filePath={resolveFileDiffPath(fileDiff)} />
           )}

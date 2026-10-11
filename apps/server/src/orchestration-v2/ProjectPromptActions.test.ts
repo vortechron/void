@@ -12,7 +12,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { planProjectCommand } from "./ProjectCommands.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 
@@ -97,7 +97,7 @@ describe("project prompt actions", () => {
   });
 });
 
-it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistenceMemory)))(
+it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)))(
   "ProjectStoreV2 prompt actions",
   (it) => {
     it.effect("starts empty, stores an update, and keeps it across unrelated updates", () =>

@@ -3,48 +3,44 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
-
 import { ProjectId } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ReviewService from "./ReviewService.ts";
 
-function makeLayer(input: {
+function layer(input: {
   readonly workspaceRoot: string;
   readonly baseDir: string;
   readonly detectCalls?: Array<{ readonly cwd: string }>;
-  readonly activeProjectRoots?: ReadonlyArray<string>;
+  readonly worktreesDirectory?: string;
+  readonly previousWorktreesDirectories?: ReadonlyArray<string>;
+  readonly projectRoots?: ReadonlyArray<string> | "unavailable";
 }) {
+  const projectRoots = input.projectRoots ?? [];
   return ReviewService.layer.pipe(
     Layer.provide(
       Layer.mock(ProjectStore.ProjectStoreV2)({
-        findActiveByWorkspaceRoot: (workspaceRoot) => {
-          if (!input.activeProjectRoots?.includes(workspaceRoot)) {
-            return Effect.succeed(Option.none());
-          }
-          return Effect.succeed(
-            Option.some({
-              projectId: ProjectId.make(`project-${workspaceRoot}`),
-              title: "Project",
-              workspaceRoot,
-              defaultModelSelection: null,
-              defaultThreadEnvMode: null,
-              autoPull: false,
-              faviconPath: null,
-              projectIcon: null,
-              scripts: [],
-              promptActions: [],
-              createdAt: "2026-01-01T00:00:00.000Z",
-              updatedAt: "2026-01-01T00:00:00.000Z",
-              deletedAt: null,
-            } satisfies ProjectStore.ProjectRow),
-          );
-        },
+        listShells: () =>
+          projectRoots === "unavailable"
+            ? Effect.fail(
+                new ProjectStore.ProjectStoreV2Error({ operation: "list", cause: "offline" }),
+              )
+            : Effect.succeed(
+                projectRoots.map((workspaceRoot, index) => ({
+                  id: ProjectId.make(`project-${index}`),
+                  title: `Project ${index}`,
+                  workspaceRoot,
+                  defaultModelSelection: null,
+                  scripts: [],
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                })),
+              ),
       }),
     ),
     Layer.provide(
@@ -59,6 +55,12 @@ function makeLayer(input: {
       }),
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+    Layer.provide(
+      ServerSettings.ServerSettingsService.layerTest({
+        worktreesDirectory: input.worktreesDirectory ?? "",
+        previousWorktreesDirectories: [...(input.previousWorktreesDirectories ?? [])],
+      }),
+    ),
     Layer.provide(ServerConfig.layerTest(input.workspaceRoot, input.baseDir)),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -76,7 +78,7 @@ describe("ReviewService", () => {
       const error = yield* Effect.gen(function* () {
         const review = yield* ReviewService.ReviewService;
         return yield* review.getDiffPreview({ cwd: outsideRoot }).pipe(Effect.flip);
-      }).pipe(Effect.provide(makeLayer({ workspaceRoot, baseDir, detectCalls })));
+      }).pipe(Effect.provide(layer({ workspaceRoot, baseDir, detectCalls })));
 
       assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
       assert.strictEqual(error.operation, "ReviewService.getDiffPreview");
@@ -109,7 +111,7 @@ describe("ReviewService", () => {
             newPath: "file.ts",
           })
           .pipe(Effect.flip);
-      }).pipe(Effect.provide(makeLayer({ workspaceRoot, baseDir, detectCalls })));
+      }).pipe(Effect.provide(layer({ workspaceRoot, baseDir, detectCalls })));
 
       assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
       assert.strictEqual(error.operation, "ReviewService.getDiffFileContents");
@@ -118,6 +120,73 @@ describe("ReviewService", () => {
         /must stay within the configured workspace root/,
       );
       assert.deepStrictEqual(detectCalls, []);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows previous custom worktree locations but never a filesystem root", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const previous = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-old-worktrees-" });
+      const outsideRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-outside-" });
+
+      const result = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return yield* review.getDiffPreview({ cwd: previous });
+      }).pipe(
+        Effect.provide(
+          layer({
+            workspaceRoot,
+            baseDir,
+            worktreesDirectory: "/",
+            previousWorktreesDirectories: [previous],
+          }),
+        ),
+      );
+      assert.strictEqual(result.cwd, previous);
+
+      const rootLink = `${baseDir}/root-link`;
+      yield* fs.symlink("/", rootLink);
+      for (const worktreesDirectory of ["/", rootLink]) {
+        const error = yield* Effect.gen(function* () {
+          const review = yield* ReviewService.ReviewService;
+          return yield* review.getDiffPreview({ cwd: outsideRoot }).pipe(Effect.flip);
+        }).pipe(Effect.provide(layer({ workspaceRoot, baseDir, worktreesDirectory })));
+        assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows registered project roots outside the server cwd", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      // Stands in for a project on another drive than the server's home cwd.
+      const projectRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-project-" });
+      const projectChild = `${projectRoot}/packages/app`;
+      yield* fs.makeDirectory(projectChild, { recursive: true });
+      const sibling = `${projectRoot}-sibling`;
+      yield* fs.makeDirectory(sibling);
+      yield* Effect.addFinalizer(() => fs.remove(sibling, { recursive: true }).pipe(Effect.ignore));
+
+      const review = (cwd: string, projectRoots: ReadonlyArray<string> | "unavailable") =>
+        Effect.gen(function* () {
+          const service = yield* ReviewService.ReviewService;
+          return yield* service.getDiffPreview({ cwd });
+        }).pipe(Effect.provide(layer({ workspaceRoot, baseDir, projectRoots })));
+
+      assert.strictEqual((yield* review(projectRoot, [projectRoot])).cwd, projectRoot);
+      assert.strictEqual((yield* review(projectChild, [projectRoot])).cwd, projectChild);
+      for (const [cwd, projectRoots] of [
+        [sibling, [projectRoot]],
+        [projectRoot, []],
+        [projectRoot, "unavailable"],
+      ] as const) {
+        const error = yield* review(cwd, projectRoots).pipe(Effect.flip);
+        assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
+      }
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -131,102 +200,11 @@ describe("ReviewService", () => {
       const result = yield* Effect.gen(function* () {
         const review = yield* ReviewService.ReviewService;
         return yield* review.getDiffPreview({ cwd: workspaceRoot });
-      }).pipe(Effect.provide(makeLayer({ workspaceRoot, baseDir, detectCalls })));
+      }).pipe(Effect.provide(layer({ workspaceRoot, baseDir, detectCalls })));
 
       assert.strictEqual(result.cwd, workspaceRoot);
       assert.deepStrictEqual(result.sources, []);
       assert.deepStrictEqual(detectCalls, [{ cwd: workspaceRoot }]);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("allows diff preview cwd at an active project root", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
-      const projectRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-project-" });
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
-      const detectCalls: Array<{ readonly cwd: string }> = [];
-
-      const result = yield* Effect.gen(function* () {
-        const review = yield* ReviewService.ReviewService;
-        return yield* review.getDiffPreview({ cwd: projectRoot });
-      }).pipe(
-        Effect.provide(
-          makeLayer({
-            workspaceRoot,
-            baseDir,
-            detectCalls,
-            activeProjectRoots: [projectRoot],
-          }),
-        ),
-      );
-
-      assert.strictEqual(result.cwd, projectRoot);
-      assert.deepStrictEqual(result.sources, []);
-      assert.deepStrictEqual(detectCalls, [{ cwd: projectRoot }]);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("allows diff preview cwd inside an active project root", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
-      const projectRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-project-" });
-      const worktreeRoot = `${projectRoot}/.claude/worktrees/feature-workflow`;
-      yield* fs.makeDirectory(worktreeRoot, { recursive: true });
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
-      const detectCalls: Array<{ readonly cwd: string }> = [];
-
-      const result = yield* Effect.gen(function* () {
-        const review = yield* ReviewService.ReviewService;
-        return yield* review.getDiffPreview({ cwd: worktreeRoot });
-      }).pipe(
-        Effect.provide(
-          makeLayer({
-            workspaceRoot,
-            baseDir,
-            detectCalls,
-            activeProjectRoots: [projectRoot],
-          }),
-        ),
-      );
-
-      assert.strictEqual(result.cwd, worktreeRoot);
-      assert.deepStrictEqual(result.sources, []);
-      assert.deepStrictEqual(detectCalls, [{ cwd: worktreeRoot }]);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("rejects an active project path that escapes through a symlink", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
-      const projectRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-project-" });
-      const outsideRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-outside-" });
-      const outsideWorktree = `${outsideRoot}/feature-workflow`;
-      yield* fs.makeDirectory(outsideWorktree);
-      const linkedWorktreesRoot = `${projectRoot}/worktrees`;
-      yield* fs.symlink(outsideRoot, linkedWorktreesRoot);
-      const linkedWorktree = `${linkedWorktreesRoot}/feature-workflow`;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
-      const detectCalls: Array<{ readonly cwd: string }> = [];
-
-      const error = yield* Effect.gen(function* () {
-        const review = yield* ReviewService.ReviewService;
-        return yield* review.getDiffPreview({ cwd: linkedWorktree }).pipe(Effect.flip);
-      }).pipe(
-        Effect.provide(
-          makeLayer({
-            workspaceRoot,
-            baseDir,
-            detectCalls,
-            activeProjectRoots: [projectRoot],
-          }),
-        ),
-      );
-
-      assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
-      assert.deepStrictEqual(detectCalls, []);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -241,7 +219,7 @@ describe("ReviewService", () => {
       const error = yield* Effect.gen(function* () {
         const review = yield* ReviewService.ReviewService;
         return yield* review.getDiffPreview({ cwd: invalidCwd }).pipe(Effect.flip);
-      }).pipe(Effect.provide(makeLayer({ workspaceRoot, baseDir, detectCalls })));
+      }).pipe(Effect.provide(layer({ workspaceRoot, baseDir, detectCalls })));
 
       assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
       if (error._tag !== "VcsRepositoryDetectionError") return;
