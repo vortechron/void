@@ -6,10 +6,8 @@ import {
   type ThreadAttentionStatus,
 } from "../sidebarWorkspaceStatus";
 
-export const EMPTY_SESSION_STATUSES: ReadonlyMap<string, ThreadAttentionStatus> = new Map();
-
 /**
- * Attention status for every chat of a project, keyed the way the tab strip and
+ * Attention status for every chat of a project, keyed the way the sidebar tabs and
  * the chat history menu key their sessions. Closing a tab only hides the chat,
  * so a failed or blocked chat has to stay readable from the history menu —
  * otherwise the sidebar's workspace warning points at nothing the user can find.

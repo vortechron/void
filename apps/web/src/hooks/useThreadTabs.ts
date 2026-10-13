@@ -1,14 +1,76 @@
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useEffect, useMemo } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { useAllEnvironmentProjectSnapshotsReady, useThreadShells } from "../state/entities";
-import { useThreadTabsStore } from "../threadTabsStore";
+import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
+import {
+  selectThreadTab,
+  selectWorkspaceThreadTabs,
+  threadTabRef,
+  useThreadTabsStore,
+} from "../threadTabsStore";
 import { projectWorkspaceKey } from "../workspaceSessions";
 
+/** Anything that names one chat: an open tab or a closed session from history. */
+export interface ThreadTabTarget {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly draftId: DraftId | null;
+}
+
 /**
- * Keeps the tab strip in agreement with the route and with the threads that
+ * Shows a chat. The route sync below opens its tab, so this is the only step a
+ * tab click, a history reopen, or a close that hands focus on needs.
+ */
+export function useOpenThreadTab(): (target: ThreadTabTarget) => void {
+  const navigate = useNavigate();
+  return useCallback(
+    (target) => {
+      if (target.draftId) {
+        void navigate({
+          to: "/draft/$draftId",
+          params: buildDraftThreadRouteParams(target.draftId),
+        });
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(threadTabRef(target)),
+      });
+    },
+    [navigate],
+  );
+}
+
+/**
+ * A chat closed on another device leaves this one the same way a local close
+ * does. The signal present at mount is stale (it landed while another page was
+ * showing), so only one that arrives while this chat is up moves the view.
+ */
+export function useFollowRemotelyClosedThreadTab(input: {
+  workspaceKey: string | null;
+  onNewThread: () => void;
+}): void {
+  const { workspaceKey, onNewThread } = input;
+  const openThreadTab = useOpenThreadTab();
+  const remotelyClosed = useThreadTabsStore((state) => state.remotelyClosedActiveTab);
+  const handledRemotelyClosed = useRef(remotelyClosed);
+  useEffect(() => {
+    if (remotelyClosed === handledRemotelyClosed.current) return;
+    handledRemotelyClosed.current = remotelyClosed;
+    if (workspaceKey === null || remotelyClosed?.workspaceKey !== workspaceKey) return;
+    const next = selectWorkspaceThreadTabs(useThreadTabsStore.getState(), workspaceKey);
+    const nextTab = selectThreadTab(next, next.activeKey);
+    if (nextTab) openThreadTab(nextTab);
+    else onNewThread();
+  }, [onNewThread, openThreadTab, remotelyClosed, workspaceKey]);
+}
+
+/**
+ * Keeps the sidebar's open tabs in agreement with the route and with the threads that
  * actually exist.
  *
  * Syncing off the route rather than off click handlers is what makes every

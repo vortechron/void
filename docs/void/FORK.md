@@ -149,13 +149,19 @@ sidebars. They do not apply here.
 
 ### 2. Thread tabs
 
-Several threads open as tabs above one chat, scoped per project and workspace.
-Upstream has no equivalent.
+Each workspace row in the Void sidebar lists the chats open in that checkout,
+indented under the branch name. The row collapses the list, and carries "new
+chat" and "chat history" buttons for that checkout. Upstream has no equivalent.
+The route, not the click, opens a tab, so every way into a chat keeps the list
+right.
 
-- `apps/web/src/components/chat/ThreadTabs.tsx`
+- List: `components/sidebar/SidebarWorkspaceTabs.tsx`, `SidebarChatStatusIcon.tsx`
+- Row buttons and history menu: `components/sidebar/SidebarWorkspaceRowActions.tsx`
+- Wiring: `SidebarWorkspaceRow` and `SidebarRouteThreadKeyContext` in `SidebarVoid.tsx`
 - `apps/web/src/components/chat/ThreadTabStatusIcon.tsx`
-- `apps/web/src/hooks/useThreadTabs.ts`
-- `apps/web/src/threadTabsStore.ts`
+- `apps/web/src/hooks/useThreadTabs.ts` (route sync, opening a tab, remote closes)
+- `apps/web/src/threadTabsStore.ts` (open tabs, synced across devices)
+- `apps/web/src/workspaceTabListStore.ts` (which lists are expanded, this device only)
 
 ### 3. Voice dictation
 
@@ -266,26 +272,26 @@ Choose worktree or current checkout per project when starting a thread.
 
 Fork-only files cannot conflict. These upstream files carry the wiring and do:
 
-| File                                                               | What the fork put there                      |
-| ------------------------------------------------------------------ | -------------------------------------------- |
-| `apps/web/src/components/AppSidebarLayout.tsx`                     | sidebar fall-through                         |
-| `apps/web/src/components/sidebar/SidebarChrome.tsx`                | `VoidMark` logo                              |
-| `apps/web/src/components/ChatView.tsx`                             | thread tabs, background effects, focus rules |
-| `apps/web/src/components/chat/ChatComposer.tsx`                    | dictation button, pending contexts           |
-| `apps/web/src/components/RightPanelTabs.tsx`, `rightPanelStore.ts` | history surface                              |
-| `apps/web/src/components/DiffPanel.tsx`, `diffPanelStore.ts`       | Void diff tree                               |
-| `components/settings/SettingsPanels.tsx`, `SettingsSidebarNav.tsx` | Voice, Beta, Actions, Usage pages            |
-| `apps/web/src/hooks/useSettings.ts`                                | every fork setting key                       |
-| `packages/contracts/src/settings.ts`                               | every fork setting schema                    |
-| `apps/server/src/persistence/Migrations.ts`                        | migration list, offset by one                |
-| `apps/server/src/server.ts`, `ws.ts`                               | `ProviderUsage` layer, Void RPC handlers     |
-| `apps/server/src/auth/RpcAuthorization.ts`                         | read scopes for Void RPCs                    |
-| `apps/server/src/observability/RpcInstrumentation.ts`              | `rpc.aggregate` label for every Void RPC     |
-| `packages/contracts/src/clientRpcPermissions.ts`                   | write scope for `vcsRunHistoryAction`        |
-| `apps/web/src/reopenClosedView.ts`                                 | reopening a closed commit diff               |
-| `apps/web/src/components/chat/ThreadDetailsPanel.tsx`              | `projectActionExtras` (prompt actions)       |
-| `apps/web/src/routes/__root.tsx`                                   | Void appearance, zoom and workspace syncs    |
-| `apps/web/src/routeTree.gen.ts`                                    | generated — regenerate, never hand-merge     |
+| File                                                               | What the fork put there                   |
+| ------------------------------------------------------------------ | ----------------------------------------- |
+| `apps/web/src/components/AppSidebarLayout.tsx`                     | sidebar fall-through                      |
+| `apps/web/src/components/sidebar/SidebarChrome.tsx`                | `VoidMark` logo                           |
+| `apps/web/src/components/ChatView.tsx`                             | tab sync, background effects, focus rules |
+| `apps/web/src/components/chat/ChatComposer.tsx`                    | dictation button, pending contexts        |
+| `apps/web/src/components/RightPanelTabs.tsx`, `rightPanelStore.ts` | history surface                           |
+| `apps/web/src/components/DiffPanel.tsx`, `diffPanelStore.ts`       | Void diff tree                            |
+| `components/settings/SettingsPanels.tsx`, `SettingsSidebarNav.tsx` | Voice, Beta, Actions, Usage pages         |
+| `apps/web/src/hooks/useSettings.ts`                                | every fork setting key                    |
+| `packages/contracts/src/settings.ts`                               | every fork setting schema                 |
+| `apps/server/src/persistence/Migrations.ts`                        | migration list, offset by one             |
+| `apps/server/src/server.ts`, `ws.ts`                               | `ProviderUsage` layer, Void RPC handlers  |
+| `apps/server/src/auth/RpcAuthorization.ts`                         | read scopes for Void RPCs                 |
+| `apps/server/src/observability/RpcInstrumentation.ts`              | `rpc.aggregate` label for every Void RPC  |
+| `packages/contracts/src/clientRpcPermissions.ts`                   | write scope for `vcsRunHistoryAction`     |
+| `apps/web/src/reopenClosedView.ts`                                 | reopening a closed commit diff            |
+| `apps/web/src/components/chat/ThreadDetailsPanel.tsx`              | `projectActionExtras` (prompt actions)    |
+| `apps/web/src/routes/__root.tsx`                                   | Void appearance, zoom and workspace syncs |
+| `apps/web/src/routeTree.gen.ts`                                    | generated — regenerate, never hand-merge  |
 
 A conflict in any of those means an upstream change landed next to fork wiring.
 Keep both sides: take upstream's change, then put the fork's line back.

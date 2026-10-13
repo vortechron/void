@@ -139,9 +139,12 @@ make your first commit before pushing.
 
 - The sidebar lists repositories and their physical workspaces. Each repository always has a
   workspace for its original checkout and can also have one workspace per linked worktree.
-- Selecting a workspace restores its own chat tabs above the conversation. Tabs never mix chats
-  from different checkouts. Use **+** to start another chat in that same workspace, or use
-  **Chat history** to reopen a closed chat from that workspace.
+- Each workspace lists its open chats underneath it in the sidebar. The list never mixes chats
+  from different checkouts. Use the arrow beside the workspace to show or hide its chats. The list
+  of the workspace you are in opens by itself.
+- Point at a workspace (or, on a touch screen, select it) to show **+** and **Chat history**. Use
+  **+** to start another chat in that same workspace, or **Chat history** to reopen a closed chat
+  from it. Close a chat with its **×**, or right-click or long-press it for more options.
 - Tab and workspace indicators show when an agent is working, needs approval or input, has a plan
   ready, failed, or completed while you were elsewhere. Opening a completed chat clears only that
   chat; the workspace stays marked until every completed chat in it has been opened.
