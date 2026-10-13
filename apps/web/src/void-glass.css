@@ -110,42 +110,6 @@ html:not([data-theme-id]) [data-app-sidebar] {
   border-radius: var(--control-radius);
 }
 
-[data-thread-tabbar] {
-  height: 2.75rem;
-  padding-block: 0.375rem;
-  border-color: color-mix(in srgb, var(--foreground) 7%, transparent);
-  background: var(--app-chrome-background);
-}
-
-[data-thread-tabbar] [role="tablist"] {
-  align-items: center;
-  gap: 0.25rem;
-}
-
-/* The strip only scrolls sideways. Allowing the shared viewport to scroll on
-   both axes lets its one-pixel rounding overflow move the whole row vertically. */
-[data-thread-tabbar] [data-slot="scroll-area-viewport"] {
-  overflow-y: hidden;
-}
-
-[data-thread-tabbar] [data-active-tab] {
-  height: 2rem;
-  border: 1px solid transparent;
-  border-radius: var(--control-radius);
-}
-
-[data-thread-tabbar] [data-active-tab="true"] {
-  border-color: var(--void-edge);
-  background: color-mix(in srgb, var(--foreground) 7%, var(--background));
-  box-shadow: inset 0 1px var(--void-highlight);
-}
-
-[data-thread-tabbar] [role="tab"]:focus-visible {
-  border-radius: 0.25rem;
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
 /* The main panel owns the rim. The host also contains top attachments, so a
    shadow on that wrapper would frame the empty space beside those tabs. */
 html [data-slot="composer-shell"] {

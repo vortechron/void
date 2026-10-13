@@ -20,6 +20,7 @@ import {
   openWorkspaceThreadTab,
   reconcileThreadTabs,
   removeThreadTabFromGroup,
+  resolveThreadTabCloseFollow,
   selectSyncableWorkspaceThreadTabs,
   threadTabKey,
   toggleThreadTabGroup,
@@ -607,5 +608,52 @@ describe("remote close of the chat on screen", () => {
     const applied = applyRemoteWorkspaceThreadTabs(showingB, remoteOpenSet(["b"]));
 
     expect(findRemotelyClosedActiveTab(showingB, applied)).toBeNull();
+  });
+});
+
+describe("resolveThreadTabCloseFollow", () => {
+  const before = { ...openAll(["a", "b", "c"]), activeKey: key("b") };
+
+  it("stays put when the chat on screen is still open", () => {
+    const after = closeThreadTab(before, key("a"));
+
+    expect(resolveThreadTabCloseFollow({ routeThreadKey: key("b"), before, after })).toEqual({
+      kind: "stay",
+    });
+  });
+
+  it("stays put when the chat on screen belongs to another workspace", () => {
+    const after = closeThreadTab(before, key("b"));
+
+    expect(resolveThreadTabCloseFollow({ routeThreadKey: key("z"), before, after })).toEqual({
+      kind: "stay",
+    });
+    expect(resolveThreadTabCloseFollow({ routeThreadKey: null, before, after })).toEqual({
+      kind: "stay",
+    });
+  });
+
+  it("opens the tab that took over when the chat on screen closes", () => {
+    const after = closeThreadTab(before, key("b"));
+    const follow = resolveThreadTabCloseFollow({ routeThreadKey: key("b"), before, after });
+
+    expect(follow.kind === "open" ? follow.tab.key : null).toBe(key("c"));
+  });
+
+  it("opens the kept tab when closing the others takes the chat on screen away", () => {
+    const after = closeOtherThreadTabs(before, key("a"));
+    const follow = resolveThreadTabCloseFollow({ routeThreadKey: key("b"), before, after });
+
+    expect(follow.kind === "open" ? follow.tab.key : null).toBe(key("a"));
+  });
+
+  it("starts a new chat when nothing is left open in the workspace", () => {
+    expect(
+      resolveThreadTabCloseFollow({
+        routeThreadKey: key("b"),
+        before,
+        after: EMPTY_THREAD_TABS_STATE,
+      }),
+    ).toEqual({ kind: "new" });
   });
 });

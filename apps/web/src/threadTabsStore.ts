@@ -1,4 +1,4 @@
-/** Workspace-scoped chat tabs for the Conductor-style workspace header. */
+/** Workspace-scoped chat tabs, listed under each workspace row in the sidebar. */
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { ScopedThreadRef } from "@t3tools/contracts";
@@ -18,7 +18,7 @@ import { resolveStorage } from "./lib/storage";
 const THREAD_TABS_STORAGE_KEY = "t3code:workspace-thread-tabs:v2";
 const THREAD_TABS_STORAGE_VERSION = 3;
 
-/** Beyond this the strip is unreadable, so the oldest inactive tab drops off. */
+/** Beyond this the list is unreadable, so the oldest inactive tab drops off. */
 export const MAX_THREAD_TABS = 12;
 
 export const THREAD_TAB_GROUP_COLORS = WORKSPACE_THREAD_TAB_GROUP_COLOR_VALUES;
@@ -333,6 +333,30 @@ export function reconcileThreadTabs(
     activeKey: resolveNextActiveKey(tabs, Math.max(0, closedIndex)),
     groups: state.groups,
   });
+}
+
+export type ThreadTabCloseFollow =
+  | { readonly kind: "stay" }
+  | { readonly kind: "open"; readonly tab: ThreadTab }
+  | { readonly kind: "new" };
+
+/**
+ * Where the view goes after tabs close in one workspace. Only a close that took
+ * away the chat on screen moves it: to the tab that took over, or to a fresh
+ * chat in the same checkout when nothing there is left open. Left on screen,
+ * the closed chat's route would open its tab again on the next reload.
+ */
+export function resolveThreadTabCloseFollow(input: {
+  readonly routeThreadKey: string | null;
+  readonly before: ThreadTabsState;
+  readonly after: ThreadTabsState;
+}): ThreadTabCloseFollow {
+  const { routeThreadKey, before, after } = input;
+  if (routeThreadKey === null) return { kind: "stay" };
+  if (!before.tabs.some((tab) => tab.key === routeThreadKey)) return { kind: "stay" };
+  if (after.tabs.some((tab) => tab.key === routeThreadKey)) return { kind: "stay" };
+  const next = selectThreadTab(after, after.activeKey);
+  return next ? { kind: "open", tab: next } : { kind: "new" };
 }
 
 export function selectThreadTab(state: ThreadTabsState, key: string | null): ThreadTab | null {

@@ -110,6 +110,7 @@ import { useShortcutModifierState } from "../shortcutModifierState";
 import { readLocalApi } from "../localApi";
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useOpenThreadTab } from "../hooks/useThreadTabs";
 import { useDesktopUpdateState } from "../state/desktopUpdate";
 
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -120,7 +121,6 @@ import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
-  buildDraftThreadRouteParams,
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
   resolveThreadRouteTarget,
@@ -237,6 +237,15 @@ import {
 } from "../workspaceSessions";
 import { selectWorkspaceThreadTabs, useThreadTabsStore } from "../threadTabsStore";
 import { buildWorkspaceContextMenuItems, useWorkspaceSidebarStore } from "../workspaceSidebarStore";
+import {
+  resolveWorkspaceTabListExpanded,
+  useWorkspaceTabListStore,
+} from "../workspaceTabListStore";
+import { SidebarWorkspaceRowActions } from "./sidebar/SidebarWorkspaceRowActions";
+import {
+  SidebarRouteThreadKeyContext,
+  SidebarWorkspaceTabList,
+} from "./sidebar/SidebarWorkspaceTabs";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -252,6 +261,33 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
   repository_path: "Group by repository path",
   separate: "Keep separate",
 };
+// A workspace row reveals its actions on hover, keyboard focus, or while its
+// history menu is open; on touch screens, where nothing hovers, the active row
+// keeps them out. Revealed actions take the place of the diff stat, so a row at
+// rest gives its label the full width. Every class is spelled out in full
+// because Tailwind only generates classes it finds written in the source.
+function workspaceRowRevealClass(input: {
+  readonly isActive: boolean;
+  readonly revealed: "flex" | "block" | "hidden";
+}): string {
+  switch (input.revealed) {
+    case "flex":
+      return cn(
+        "hidden group-hover/workspace-row:flex group-has-focus-visible/workspace-row:flex group-has-data-popup-open/workspace-row:flex",
+        input.isActive && "pointer-coarse:flex",
+      );
+    case "block":
+      return cn(
+        "hidden group-hover/workspace-row:block group-has-focus-visible/workspace-row:block group-has-data-popup-open/workspace-row:block",
+        input.isActive && "pointer-coarse:block",
+      );
+    case "hidden":
+      return cn(
+        "group-hover/workspace-row:hidden group-has-focus-visible/workspace-row:hidden group-has-data-popup-open/workspace-row:hidden",
+        input.isActive && "pointer-coarse:hidden",
+      );
+  }
+}
 const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
   "inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
 
@@ -1122,6 +1158,8 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
   refreshStatus: (workspace: ProjectWorkspace) => void;
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
   showProjectIcon?: boolean;
+  /** False where the same workspace is listed again, so its tabs appear once. */
+  showTabs?: boolean;
 }) {
   const {
     workspace,
@@ -1130,8 +1168,9 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     refreshStatus,
     handleNewThread,
     showProjectIcon = false,
+    showTabs = true,
   } = props;
-  const navigate = useNavigate();
+  const openThreadTab = useOpenThreadTab();
   const { isMobile, setOpenMobile } = useSidebar();
   const {
     customName,
@@ -1169,7 +1208,31 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     workingTree: gitStatus.data?.workingTree,
   });
   const isActive = useThreadTabsStore((state) => state.activeWorkspaceKey === workspace.key);
+  const openTabCount = useThreadTabsStore(
+    (state) => selectWorkspaceThreadTabs(state, workspace.key).tabs.length,
+  );
+  const tabListOverride = useWorkspaceTabListStore(
+    (state) => state.expandedByWorkspaceKey[workspace.key],
+  );
+  const setTabListExpanded = useWorkspaceTabListStore((state) => state.setTabListExpanded);
+  const hasTabList = showTabs && openTabCount > 0;
+  const tabListExpanded = hasTabList && resolveWorkspaceTabListExpanded(tabListOverride, isActive);
   const rowButtonRender = useMemo(() => <button type="button" />, []);
+
+  const startNewThread = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void handleNewThread(workspace.projectRef, {
+      branch: gitStatus.data?.refName ?? workspace.branch,
+      worktreePath: workspace.worktreePath,
+      envMode: workspace.worktreePath === null ? "local" : "worktree",
+      startFromOrigin: false,
+      forceNew: true,
+    });
+  }, [gitStatus.data?.refName, handleNewThread, isMobile, setOpenMobile, workspace]);
+
+  const toggleTabList = useCallback(() => {
+    setTabListExpanded(workspace.key, !tabListExpanded);
+  }, [setTabListExpanded, tabListExpanded, workspace.key]);
 
   const handleClick = useCallback(() => {
     const tabs = selectWorkspaceThreadTabs(useThreadTabsStore.getState(), workspace.key);
@@ -1179,31 +1242,12 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     });
     if (session) {
       if (isMobile) setOpenMobile(false);
-      if (session.draftId) {
-        void navigate({
-          to: "/draft/$draftId",
-          params: buildDraftThreadRouteParams(session.draftId),
-        });
-      } else {
-        void navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams({
-            environmentId: session.environmentId,
-            threadId: session.threadId,
-          }),
-        });
-      }
+      openThreadTab(session);
       return;
     }
 
-    void handleNewThread(workspace.projectRef, {
-      branch: gitStatus.data?.refName ?? workspace.branch,
-      worktreePath: workspace.worktreePath,
-      envMode: workspace.worktreePath === null ? "local" : "worktree",
-      startFromOrigin: false,
-      forceNew: true,
-    });
-  }, [gitStatus.data?.refName, handleNewThread, isMobile, navigate, setOpenMobile, workspace]);
+    startNewThread();
+  }, [isMobile, openThreadTab, setOpenMobile, startNewThread, workspace]);
 
   const openRenameDialog = useCallback(() => {
     setRenameDraft(label);
@@ -1265,53 +1309,106 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
         className="w-full"
         data-workspace-kind={workspace.worktreePath ? "worktree" : "base"}
       >
-        <SidebarMenuSubButton
-          render={rowButtonRender}
-          size="sm"
-          isActive={isActive}
-          data-testid="workspace-row"
-          data-workspace-key={workspace.key}
-          className="h-8 w-full translate-x-0 select-none gap-1.5 px-2 text-left"
-          style={LONG_PRESS_TARGET_STYLE}
-          onClick={handleClick}
-          onContextMenu={handleContextMenu}
-          {...workspaceLongPressHandlers}
-        >
-          {showProjectIcon ? (
-            <ProjectFavicon
-              project={{
-                environmentId: workspace.projectRef.environmentId,
-                workspaceRoot: workspace.projectRoot,
-                title: workspace.projectRoot.split("/").pop() ?? "",
-              }}
+        {/* The row's own actions sit beside the row button rather than inside
+            it, since a button cannot hold other buttons. They show on the
+            workspace you are in, and on hover or focus for the rest. */}
+        <div className="group/workspace-row relative">
+          <SidebarMenuSubButton
+            render={rowButtonRender}
+            size="sm"
+            // An open tab list highlights the chat itself, so the row steps back.
+            isActive={isActive && !tabListExpanded}
+            data-testid="workspace-row"
+            data-workspace-key={workspace.key}
+            className="h-8 w-full translate-x-0 select-none gap-1.5 px-2 text-left"
+            style={LONG_PRESS_TARGET_STYLE}
+            onClick={handleClick}
+            onContextMenu={handleContextMenu}
+            {...workspaceLongPressHandlers}
+          >
+            {/* Room for the tab-list toggle laid over the row's leading edge. */}
+            <span aria-hidden className="w-3.5 shrink-0" />
+            {showProjectIcon ? (
+              <ProjectFavicon
+                project={{
+                  environmentId: workspace.projectRef.environmentId,
+                  workspaceRoot: workspace.projectRoot,
+                  title: workspace.projectRoot.split("/").pop() ?? "",
+                }}
+              />
+            ) : null}
+            <SidebarWorkspaceStatusIcon status={status} />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`min-w-0 flex-1 truncate text-xs ${
+                      isActive ? "text-sidebar-foreground/85" : "text-sidebar-foreground/55"
+                    }`}
+                  >
+                    {label}
+                  </span>
+                }
+              />
+              <TooltipPopup side="top" className="max-w-96 break-all">
+                {workspace.cwd}
+              </TooltipPopup>
+            </Tooltip>
+            {diffStat ? (
+              <DiffStatLabel
+                layout="inline"
+                additions={diffStat.additions}
+                deletions={diffStat.deletions}
+                className={cn(
+                  "ml-auto gap-0.5 text-3xs",
+                  workspaceRowRevealClass({ isActive, revealed: "hidden" }),
+                )}
+              />
+            ) : null}
+            {/* Room for the row actions laid over the trailing edge. */}
+            <span
+              aria-hidden
+              className={cn(
+                "w-12 shrink-0 sm:w-10",
+                workspaceRowRevealClass({ isActive, revealed: "block" }),
+              )}
             />
+          </SidebarMenuSubButton>
+          {hasTabList ? (
+            <button
+              type="button"
+              aria-expanded={tabListExpanded}
+              aria-label={`Open chats in ${label}`}
+              data-testid="workspace-tab-list-toggle"
+              className="absolute top-1/2 left-1 inline-flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-sidebar-row-active hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              onClick={toggleTabList}
+            >
+              <ChevronRightIcon
+                className={cn(
+                  "size-3.5 transition-transform duration-150",
+                  tabListExpanded && "rotate-90",
+                )}
+              />
+            </button>
           ) : null}
-          <SidebarWorkspaceStatusIcon status={status} />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span
-                  className={`min-w-0 flex-1 truncate text-xs ${
-                    isActive ? "text-sidebar-foreground/85" : "text-sidebar-foreground/55"
-                  }`}
-                >
-                  {label}
-                </span>
-              }
-            />
-            <TooltipPopup side="top" className="max-w-96 break-all">
-              {workspace.cwd}
-            </TooltipPopup>
-          </Tooltip>
-          {diffStat ? (
-            <DiffStatLabel
-              layout="inline"
-              additions={diffStat.additions}
-              deletions={diffStat.deletions}
-              className="ml-auto gap-0.5 text-[10px]"
-            />
-          ) : null}
-        </SidebarMenuSubButton>
+          <SidebarWorkspaceRowActions
+            workspaceKey={workspace.key}
+            projectRef={workspace.projectRef}
+            workspaceLabel={label}
+            onNewThread={startNewThread}
+            className={cn(
+              "absolute top-1/2 right-1 -translate-y-1/2",
+              workspaceRowRevealClass({ isActive, revealed: "flex" }),
+            )}
+          />
+        </div>
+        {tabListExpanded ? (
+          <SidebarWorkspaceTabList
+            workspaceKey={workspace.key}
+            workspaceLabel={label}
+            onNewThread={startNewThread}
+          />
+        ) : null}
       </SidebarMenuSubItem>
 
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
@@ -1355,6 +1452,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
 ) {
   const { workspaces, workspaceThreadByKey, projectExpanded, handleNewThread } = props;
   const archivedWorkspaceKeys = useWorkspaceSidebarStore((state) => state.archivedWorkspaceKeys);
+  const pinnedWorkspaceKeys = useWorkspaceSidebarStore((state) => state.pinnedWorkspaceKeys);
   const visibleWorkspaces = useMemo(
     () => workspaces.filter((workspace) => !archivedWorkspaceKeys.includes(workspace.key)),
     [archivedWorkspaceKeys, workspaces],
@@ -1376,6 +1474,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
               refreshCount={refreshCountByKey.get(workspace.key) ?? 0}
               refreshStatus={refreshWorkspaceStatus}
               handleNewThread={handleNewThread}
+              showTabs={!pinnedWorkspaceKeys.includes(workspace.key)}
             />
           ))
         : null}
@@ -1388,8 +1487,15 @@ const SidebarWorkspaceList = memo(function SidebarWorkspaceList(props: {
   workspaceThreadByKey: ReadonlyMap<string, SidebarThreadSummary>;
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
   showProjectIcon?: boolean;
+  showTabs?: boolean;
 }) {
-  const { workspaces, workspaceThreadByKey, handleNewThread, showProjectIcon = false } = props;
+  const {
+    workspaces,
+    workspaceThreadByKey,
+    handleNewThread,
+    showProjectIcon = false,
+    showTabs = true,
+  } = props;
   const { statusByKey, refreshCountByKey } = useWorkspaceStatusByKey(
     workspaces,
     workspaceThreadByKey,
@@ -1407,6 +1513,7 @@ const SidebarWorkspaceList = memo(function SidebarWorkspaceList(props: {
           refreshStatus={refreshWorkspaceStatus}
           handleNewThread={handleNewThread}
           showProjectIcon={showProjectIcon}
+          showTabs={showTabs}
         />
       ))}
     </SidebarMenuSub>
@@ -3533,6 +3640,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 workspaceThreadByKey={workspaceThreadByKey}
                 handleNewThread={handleNewThread}
                 showProjectIcon
+                showTabs={false}
               />
             ) : null}
           </div>
@@ -3587,6 +3695,13 @@ export default function SidebarVoid() {
     [routeDraftThread, routeTarget],
   );
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  // An unsent draft has no server thread yet, but it already holds a tab under
+  // its reserved thread id, so the tab lists match on that.
+  const routeTabKey =
+    routeThreadKey ??
+    (routeDraftThread
+      ? scopedThreadKey(scopeThreadRef(routeDraftThread.environmentId, routeDraftThread.threadId))
+      : null);
   const routeTerminalOpen = useTerminalUiStateStore((state) =>
     routeThreadRef
       ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
@@ -4300,7 +4415,7 @@ export default function SidebarVoid() {
       {isOnSettings ? (
         <SettingsSidebarNav pathname={pathname} />
       ) : (
-        <>
+        <SidebarRouteThreadKeyContext.Provider value={routeTabKey}>
           <SidebarProjectsContent
             showArm64IntelBuildWarning={showArm64IntelBuildWarning}
             arm64IntelBuildWarningDescription={arm64IntelBuildWarningDescription}
@@ -4345,7 +4460,7 @@ export default function SidebarVoid() {
             projectGroupStatusById={projectGroupStatusById}
           />
           <SidebarChromeFooter />
-        </>
+        </SidebarRouteThreadKeyContext.Provider>
       )}
     </>
   );

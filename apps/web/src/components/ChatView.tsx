@@ -472,8 +472,7 @@ import {
   resolveScrollToEndClearance,
 } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
-import { ThreadTabs } from "./chat/ThreadTabs";
-import { useThreadTabRouteSync } from "../hooks/useThreadTabs";
+import { useFollowRemotelyClosedThreadTab, useThreadTabRouteSync } from "../hooks/useThreadTabs";
 import { projectWorkspaceKey } from "../workspaceSessions";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -4196,6 +4195,12 @@ export default function ChatView(props: ChatViewProps) {
       forceNew: true,
     });
   }, [activeProjectRef, activeThread, gitStatusQuery.data?.refName, handleNewThread]);
+  // The open tabs live in the Void sidebar; this view only follows a close
+  // made on another device.
+  useFollowRemotelyClosedThreadTab({
+    workspaceKey: activeWorkspaceKey,
+    onNewThread: handleNewThreadInActiveWorkspace,
+  });
   useWorkspaceMutationRefresh({
     enabled: gitStatusCwd !== null,
     mutationId: workspaceMutationId,
@@ -11700,19 +11705,6 @@ export default function ChatView(props: ChatViewProps) {
               : {})}
           />
         </header>
-
-        {activeWorkspaceKey && activeProjectRef ? (
-          <ThreadTabs
-            workspaceKey={activeWorkspaceKey}
-            projectRef={activeProjectRef}
-            onNewThread={handleNewThreadInActiveWorkspace}
-            newThreadLabel={
-              activeThread.worktreePath
-                ? `New chat in ${gitStatusQuery.data?.refName ?? activeThread.branch ?? "worktree"}`
-                : `New chat in ${gitStatusQuery.data?.refName ?? "current checkout"}`
-            }
-          />
-        ) : null}
 
         <ThreadErrorBanner
           error={visibleThreadError}
