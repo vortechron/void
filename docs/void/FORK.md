@@ -66,6 +66,10 @@ databases from upstream's V2 previews, which recorded V2 at ids 53/54 — ids
 Void's ledger uses for other migrations, and no Void database ran those
 previews. If upstream edits that file, keep it deleted.
 
+Upstream's `assertV2MigrationsCanRun` in `Migrations.ts` refuses to start when a
+recorded name differs at or above `FIRST_V2_MIGRATION_ID`. The constant names
+the first V2 migration: upstream's `55`, Void's `56`. Keep Void's number.
+
 V2 snapshots `state.sqlite` into `statev2.sqlite` on first launch and only the
 copy receives V2 migrations, so the daily driver's V1 database stays untouched
 and an older build can still open it.
@@ -295,6 +299,14 @@ Fork-only files cannot conflict. These upstream files carry the wiring and do:
 
 A conflict in any of those means an upstream change landed next to fork wiring.
 Keep both sides: take upstream's change, then put the fork's line back.
+
+`ChatView.tsx` and `ChatComposer.tsx` follow upstream's handler rule
+([Web UI](../internals/web-ui.md#handlers-in-large-components)): plain
+functions, wrapped in `useStableCallback` only where they leave the component.
+Fork code there must do the same. A `useCallback` brings back the old-render
+memory leak upstream removed. A function a child calls while rendering, like
+the prompt-action disabled reason, comes from a module-level factory
+(`makeProjectPromptActionDisabledReason`) memoized on its inputs.
 
 ## Branding is deliberately minimal
 

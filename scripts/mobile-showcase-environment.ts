@@ -220,10 +220,6 @@ export const SHOWCASE_THREADS = [
       "Delayed work now carries a concise reason through the trace, so the wait is legible without changing scheduling behavior.",
     snoozeMinutes: 8 * 60,
   },
-  // Finished work, settled by hand: the list keeps it as a receded tail so
-  // the active block above reads as everything still in flight. The active
-  // block stays small enough that the settled tail begins above the fold —
-  // a store screenshot has to show that history exists, not just imply it.
   {
     id: "handoff-haptics",
     projectId: "t3code",
@@ -619,9 +615,7 @@ function seedDatabase(
     // replace the one that actually explains the failure.
     try {
       database.exec("ROLLBACK");
-    } catch {
-      // Nothing to roll back.
-    }
+    } catch {}
     throw error;
   } finally {
     database.close();
