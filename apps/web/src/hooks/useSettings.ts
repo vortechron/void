@@ -115,8 +115,6 @@ function readClientSettingsSnapshot(): ClientSettings {
   }
 }
 
-// ── Key sets for routing patches ─────────────────────────────────────
-
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
 
 function splitPatch(patch: UnifiedSettingsPatch): {
@@ -138,13 +136,6 @@ function splitPatch(patch: UnifiedSettingsPatch): {
   };
 }
 
-// ── Hooks ────────────────────────────────────────────────────────────
-
-/**
- * Non-hook accessor for the current merged client settings snapshot.
- * Used by non-React code paths (e.g. runtime services) that need the latest
- * settings without subscribing.
- */
 export function getClientSettings(): ClientSettings {
   return readClientSettingsSnapshot();
 }
@@ -225,7 +216,6 @@ export function mergeEnvironmentSettings(
 
 const pendingModelPreferencesMigrations = new Set<EnvironmentId>();
 
-/** Seed saved client preferences once without overwriting another client's edits. */
 export function useMigrateModelPreferences(
   environmentId: EnvironmentId | null,
   settings: ServerSettings | null,
@@ -277,10 +267,7 @@ export function resolveEnvironmentIdentificationMode(input: {
   paletteThemeActive?: boolean;
   paletteThemeAllowsArtwork?: boolean;
 }): EnvironmentIdentificationMode {
-  // Avoid briefly rendering the default artwork before a persisted pill/none choice loads.
   if (!input.settingsHydrated) return "none";
-  // Artwork palettes are maintained for built-ins only. Keep an explicit
-  // "none", but use the theme-aware pill for user-controlled palettes.
   return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && input.mode === "artwork"
     ? "pill"
     : input.mode;
@@ -349,7 +336,6 @@ export function useUsageMeterMode(): UsageMeterMode {
   return settingsHydrated ? mode : "off";
 }
 
-/** Hydrate legacy preferences before a mutation can claim either server-owned list. */
 export async function prepareModelPreferencesPatch(
   settings: ServerSettings,
   patch: ServerSettingsPatch,
@@ -458,7 +444,6 @@ export function useToggleEnvironmentModelFavorite(environmentId: EnvironmentId |
 
 const noEnvironmentSettingsAtom = Atom.make<ServerSettings | null>(null);
 
-/** Model pickers may render before a settings target has been selected. */
 export function useEnvironmentModelPreferences(environmentId: EnvironmentId | null) {
   const settings = useAtomValue(
     environmentId ? serverEnvironment.settingsValueAtom(environmentId) : noEnvironmentSettingsAtom,
@@ -471,7 +456,6 @@ export function useEnvironmentModelPreferences(environmentId: EnvironmentId | nu
   );
 }
 
-/** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
   environmentId: EnvironmentId,
   selector?: (settings: UnifiedSettings) => T,
@@ -481,7 +465,6 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
   return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
-/** Atomically mutate one provider instance against the server's latest settings snapshot. */
 export function usePersistEnvironmentProviderInstanceMutation(environmentId: EnvironmentId) {
   const mutateProviderInstance = useAtomCommand(serverEnvironment.mutateProviderInstance, {
     reportFailure: false,
@@ -496,7 +479,6 @@ export function usePersistEnvironmentProviderInstanceMutation(environmentId: Env
   );
 }
 
-/** Primary-only settings access for the settings UI and other explicitly global surfaces. */
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
@@ -513,17 +495,15 @@ export const PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE =
   "This setting is saved on a server, and the hosted app is not anchored to one. Change it from the desktop app or from the server's own address.";
 
 /**
- * Whether primary-scoped server settings have a server to live on. The
- * hosted app connects to every environment as a remote, so it has no primary:
- * `usePrimarySettings` reads schema defaults there and writes have nowhere
- * to go. Desktop and server-served web always have one.
+ * The hosted app connects to every environment as a remote, so it has no
+ * primary: `usePrimarySettings` reads schema defaults there and writes have
+ * nowhere to go.
  */
 export function usePrimarySettingsAvailable(): boolean {
   const primaryEnvironment = usePrimaryEnvironment();
   return primaryEnvironment !== null || !isHostedStaticApp();
 }
 
-/** Connected sync targets, excluding grants already known to forbid settings writes. */
 function useSharedSettingsSyncTargetIds(includePending = false): ReadonlyArray<EnvironmentId> {
   const { environments } = useEnvironments();
   const writableTargetsAtom = useMemo(
@@ -556,7 +536,6 @@ function useSharedSettingsSyncTargetIds(includePending = false): ReadonlyArray<E
  * to every connected environment so they do not drift between machines.
  */
 function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
-  // Mount this session even on pages without a visible permission-gated control.
   useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const persist = useAtomCommand(serverEnvironment.updateSettings, {
     label: "server settings update",

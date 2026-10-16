@@ -163,7 +163,6 @@ interface ProjectScriptsControlProps {
   globalPromptActions?: ReadonlyArray<ProjectPromptAction>;
   /** Hides the scope selector when the server cannot persist global actions. */
   globalActionsSupported?: boolean;
-  /** Scripts declared in the project's checked-in t3.json, offered for import. */
   fileScripts?: ReadonlyArray<T3ProjectFileScript>;
   providerStatuses?: ReadonlyArray<ServerProvider>;
   settings?: UnifiedSettings;
@@ -296,9 +295,12 @@ export default function ProjectScriptsControl({
     () =>
       settings
         ? sortProviderInstanceEntries(
+            // Global actions run in any project, so the editor offers the
+            // server-wide provider list; ChatView re-checks the project on use.
             applyProviderInstanceSettings(
               deriveProviderInstanceEntries(providerStatuses),
               settings,
+              null,
             ),
           )
         : [],
@@ -548,8 +550,6 @@ export default function ProjectScriptsControl({
     // land on the project.
     const result = await onAddScript(payload, "project");
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      // Surface the failure through the regular add dialog, prefilled so the
-      // user can adjust and retry.
       const error = squashAtomCommandFailure(result);
       setEditingScriptId(null);
       setActionScope("project");
@@ -938,8 +938,6 @@ export default function ProjectScriptsControl({
                 panel={isPanel}
                 className={isPanel ? undefined : "w-7 sm:w-6 @3xl/header-actions:w-auto!"}
                 aria-label={isPanel ? "Add project script" : "Add action"}
-                // The tooltip wrapper replaces data-slot="button", so themed
-                // toolbar styling needs its own hook.
                 data-toolbar-control=""
                 onClick={openAddDialog}
               />
