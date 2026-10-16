@@ -4,15 +4,21 @@ import {
   type UsageMeterMode,
   type UsageMeterSettings,
 } from "@t3tools/contracts";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
-import { useUsageMeterMode, useUsageMeterSettings } from "../../hooks/useSettings";
+import {
+  useUpdateClientSettings,
+  useUsageMeterMode,
+  useUsageMeterSettings,
+} from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useProviderUsage, useProviderUsageAutoRefresh } from "../../lib/providerUsageState";
 import { AntigravityIcon, ClaudeAI, CursorIcon, type Icon, OpenAI } from "../Icons";
 import { ProviderPackageIcon } from "../chat/ProviderPackageIcon";
 import { providerClients } from "../settings/providerDriverMeta";
+import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   appendUsageSamples,
@@ -97,6 +103,40 @@ function ProviderIcon({
   return (
     // Inline so the accent wins over each icon's own baked-in fill class.
     <Icon aria-hidden className={className} style={accent ? { fill: accent } : undefined} />
+  );
+}
+
+/**
+ * Flips between the two visible modes in place. It writes the same setting as
+ * Settings → Usage, so the choice survives a reload and the two never disagree.
+ */
+function ModeToggle({ settings }: { readonly settings: UsageMeterSettings }) {
+  const updateSettings = useUpdateClientSettings();
+  const expanded = settings.mode === "expanded";
+  const label = expanded ? "Minimize usage meter" : "Expand usage meter";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-expanded={expanded}
+            aria-label={label}
+            size="icon-micro"
+            variant="ghost-muted"
+            onClick={() =>
+              // The blob is replaced whole, so the write carries every field.
+              updateSettings({
+                usageMeter: { ...settings, mode: expanded ? "minimized" : "expanded" },
+              })
+            }
+          />
+        }
+      >
+        {expanded ? <ChevronsDownUpIcon /> : <ChevronsUpDownIcon />}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -215,12 +255,17 @@ function ExpandedMeters({
       {columns.map((column) => (
         <ExpandedProvider column={column} history={history} key={column.id} settings={settings} />
       ))}
-      {syncedLabel ? (
-        <div className="flex items-center justify-start gap-1 px-0.5 text-[8px] text-muted-foreground">
-          <span aria-hidden className="size-1 shrink-0 rounded-full bg-emerald-500" />
-          <span className="truncate">{syncedLabel}</span>
+      <div className="flex items-center gap-1 pl-0.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1 text-4xs text-muted-foreground">
+          {syncedLabel ? (
+            <>
+              <span aria-hidden className="size-1 shrink-0 rounded-full bg-emerald-500" />
+              <span className="truncate">{syncedLabel}</span>
+            </>
+          ) : null}
         </div>
-      ) : null}
+        <ModeToggle settings={settings} />
+      </div>
     </section>
   );
 }
@@ -295,11 +340,17 @@ function MinimizedMeters({
   return (
     <section
       aria-label={`Provider usage. ${describeColumns(columns, settings)}`}
-      className="flex flex-col gap-1"
+      className="flex items-end gap-1"
     >
-      {columns.map((column) => (
-        <MinimizedPill column={column} key={column.id} settings={settings} />
-      ))}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {columns.map((column) => (
+          <MinimizedPill column={column} key={column.id} settings={settings} />
+        ))}
+      </div>
+      {/* Pill height, so the toggle sits level with the last pill. */}
+      <div className="flex h-6 shrink-0 items-center">
+        <ModeToggle settings={settings} />
+      </div>
     </section>
   );
 }
