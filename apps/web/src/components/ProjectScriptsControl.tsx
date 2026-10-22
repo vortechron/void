@@ -54,7 +54,7 @@ import {
   sortProviderInstanceEntries,
 } from "~/providerInstances";
 import { ProviderModelPicker } from "./chat/ProviderModelPicker";
-import { TraitsPicker } from "./chat/TraitsPicker";
+import { readPromptUltrathink, TraitsPicker } from "./chat/TraitsPicker";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { serverEnvironment } from "~/state/server";
 import { readEnvironmentScope } from "~/state/session";
@@ -1223,8 +1223,8 @@ export default function ProjectScriptsControl({
                             models={selectedPromptProvider.models}
                             model={modelSelection.model}
                             modelOptions={modelSelection.options}
-                            prompt={prompt}
-                            onPromptChange={setPrompt}
+                            promptUltrathink={readPromptUltrathink(prompt)}
+                            onPromptEdit={(edit) => setPrompt(edit)}
                             planModeEnabled={settings?.planModeEnabled ?? false}
                             onModelOptionsChange={(options) =>
                               setModelSelection(

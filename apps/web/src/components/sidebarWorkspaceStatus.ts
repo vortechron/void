@@ -22,7 +22,12 @@ const WORKSPACE_STATUS_PRIORITY: Record<ThreadAttentionStatus, number> = {
 };
 
 export function resolveThreadAttentionStatus(thread: ThreadAttentionInput): ThreadAttentionStatus {
-  const liveStatus = resolveSidebarThreadStatus(thread);
+  // The pill input marks this field optional-or-undefined; the live status
+  // input only accepts it present or absent.
+  const { blockedOnThreadWait, ...rest } = thread;
+  const liveStatus = resolveSidebarThreadStatus(
+    blockedOnThreadWait === undefined ? rest : { ...rest, blockedOnThreadWait },
+  );
   if (liveStatus !== "ready") return liveStatus;
 
   switch (resolveThreadStatusPill({ thread })?.label) {

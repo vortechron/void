@@ -65,8 +65,13 @@ import Migration0060 from "./Migrations/060_McpAppModelContext.ts";
 import Migration0061 from "./Migrations/061_ThreadSnapshotWindowIndexes.ts";
 import Migration0062 from "./Migrations/062_PullRequestReviewGuides.ts";
 import Migration0063 from "./Migrations/063_ThreadFailureLookupIndex.ts";
+import Migration0064 from "./Migrations/064_DropUnusedV1Projections.ts";
+import Migration0065 from "./Migrations/065_CanonicalizeThreadPullRequestLinks.ts";
+import Migration0066 from "./Migrations/066_CodexUsageNativeTurnIndex.ts";
+import Migration0067 from "./Migrations/067_RepairClientSettlementTimestamps.ts";
+import Migration0068 from "./Migrations/068_WebhookDedupe.ts";
 
-export const migrationEntries = [
+const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
   [2, "OrchestrationCommandReceipts", Migration0002],
   [3, "CheckpointDiffBlobs", Migration0003],
@@ -131,6 +136,11 @@ export const migrationEntries = [
   [61, "ThreadSnapshotWindowIndexes", Migration0061],
   [62, "PullRequestReviewGuides", Migration0062],
   [63, "ThreadFailureLookupIndex", Migration0063],
+  [64, "DropUnusedV1Projections", Migration0064],
+  [65, "CanonicalizeThreadPullRequestLinks", Migration0065],
+  [66, "CodexUsageNativeTurnIndex", Migration0066],
+  [67, "RepairClientSettlementTimestamps", Migration0067],
+  [68, "WebhookDedupe", Migration0068],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -1,6 +1,14 @@
+import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
+import { useNewTaskFlow } from "./new-task-flow-provider";
 import * as Dialog from "../../components/ui/Dialog";
-import { useNavigation, usePreventRemove, type StaticScreenProps } from "@react-navigation/native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useNavigation,
+  useRoute,
+  usePreventRemove,
+  usePreventRemoveContext,
+  type StaticScreenProps,
+} from "@react-navigation/native";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import {
   isAtomCommandInterrupted,
@@ -12,28 +20,26 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { useWorkspaceState } from "../../state/workspace";
 import { vcsEnvironment } from "../../state/vcs";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
+import { resolveNewTaskBranchWorktreePath } from "./new-task-context-presentation";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 
+import { ThreadScreenFallback } from "./ThreadScreenHost";
 import { NewTaskDraftScreen } from "./NewTaskDraftScreen";
 import { resolveProjectPromptActionWorkspaceSelection } from "./projectPromptActions";
 
-type NewTaskDraftRouteParams = {
-  readonly environmentId?: string | string[];
-  readonly projectId?: string | string[];
-  readonly branch?: string | null;
-  readonly worktreePath?: string | null;
-  readonly title?: string | string[];
-  readonly cloning?: string | string[];
-  readonly pendingTaskId?: string | string[];
-  readonly draftId?: string | string[];
-  readonly incomingShareId?: string | string[];
-  readonly promptActionId?: string | string[];
-  readonly promptActionDraftKey?: string | string[];
-  readonly workspaceMode?: string | string[];
-};
+import type { NewTaskDraftRouteParams } from "./thread-route-state";
+export type { NewTaskDraftRouteParams } from "./thread-route-state";
 
 export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraftRouteParams>) {
+  const currentRoute = useRoute();
   const params = useMemo(() => route.params ?? {}, [route.params]);
+  const { reset } = useNewTaskFlow();
+  const { deferThreadSelectionUntil } = useAdaptiveWorkspaceLayout();
+  const [initialized, setInitialized] = useState(false);
+  useLayoutEffect(() => {
+    reset();
+    setInitialized(true);
+  }, [reset]);
   const pendingTaskId = Array.isArray(params.pendingTaskId)
     ? params.pendingTaskId[0]
     : params.pendingTaskId;
@@ -41,6 +47,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
   const projects = useProjects();
   const { state: catalogState } = useWorkspaceState();
   const navigation = useNavigation();
+  const readRefs = useAtomCommand(vcsEnvironment.readRefs, { reportFailure: false });
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
 
   const initialProjectRef = useMemo(
@@ -54,10 +61,6 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
       cloning: (Array.isArray(params.cloning) ? params.cloning[0] : params.cloning) === "1",
     }),
     [params],
-  );
-  const initialWorkspaceSelection = useMemo(
-    () => resolveProjectPromptActionWorkspaceSelection(params),
-    [route.params],
   );
 
   const [preparation, setPreparation] = useState<{
@@ -76,6 +79,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
 
   const [pendingCheckouts, setPendingCheckouts] = useState(0);
   const checkoutTail = useRef(Promise.resolve());
+  const committedCheckoutReleases = useRef(new Set<() => void>());
   const waitingForProject =
     !project &&
     (catalogState.isLoadingConnections ||
@@ -95,8 +99,6 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
         return;
       }
       const result = await checkoutNewTaskBranch({
-        // A thread's branch is historical; only switchRef can establish that
-        // the shared project checkout now matches it.
         branch: {
           name: branchName,
           current: false,
@@ -105,19 +107,25 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
         },
         project: environmentId && workspaceRoot ? { environmentId, workspaceRoot } : null,
         workspaceMode: "local",
+        readRefs,
         switchRef,
       });
       setPendingCheckouts((count) => count - 1);
       if (active) setPreparation({ request: initialProjectRef, result, workspaceRoot });
     });
+    const committed = Promise.withResolvers<void>();
+    committedCheckoutReleases.current.add(committed.resolve);
+    deferThreadSelectionUntil(Promise.allSettled([checkoutTail.current, committed.promise]));
     return () => {
       active = false;
     };
   }, [
+    deferThreadSelectionUntil,
     environmentId,
     workspaceRoot,
     initialProjectRef,
     needsPreparation,
+    readRefs,
     switchRef,
     waitingForProject,
   ]);
@@ -130,6 +138,21 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
   // A replaced request must settle too before the shared checkout is left behind.
   const checkoutPending = pendingCheckouts > 0 || (needsPreparation && result === null);
   usePreventRemove(checkoutPending, () => undefined);
+  const { preventedRoutes } = usePreventRemoveContext();
+  const removalBlocked = preventedRoutes[currentRoute.key]?.preventRemove === true;
+  useEffect(() => {
+    if (checkoutPending || removalBlocked) return;
+    // Native-stack reads the provider state, which commits after the hook updates its registry.
+    for (const release of committedCheckoutReleases.current) release();
+    committedCheckoutReleases.current.clear();
+  }, [checkoutPending, removalBlocked]);
+  useEffect(() => {
+    const releases = committedCheckoutReleases.current;
+    return () => {
+      for (const release of releases) release();
+      releases.clear();
+    };
+  }, []);
   useEffect(() => {
     if (checkoutPending || result?._tag !== "Failure") return;
     if (!isAtomCommandInterrupted(result)) {
@@ -144,24 +167,42 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
 
   const preparedProjectRef = useMemo(
     () =>
-      result?._tag === "Success"
-        ? { ...initialProjectRef, branch: result.value.name }
+      result?._tag === "Success" && workspaceRoot
+        ? {
+            ...initialProjectRef,
+            branch: result.value.name,
+            worktreePath: resolveNewTaskBranchWorktreePath({
+              workspaceMode: "local",
+              projectCwd: workspaceRoot,
+              branchWorktreePath: result.value.worktreePath,
+            }),
+          }
         : initialProjectRef,
-    [initialProjectRef, result],
+    [initialProjectRef, result, workspaceRoot],
+  );
+  // Seed the prompt draft with the checkout the route resolved, so an untouched
+  // draft still reads as unedited after the branch preparation rewrites it.
+  const initialWorkspaceSelection = useMemo(
+    () =>
+      resolveProjectPromptActionWorkspaceSelection({
+        workspaceMode: params.workspaceMode,
+        branch: preparedProjectRef.branch,
+        worktreePath: preparedProjectRef.worktreePath,
+      }),
+    [params.workspaceMode, preparedProjectRef.branch, preparedProjectRef.worktreePath],
   );
   const preparingBranch = checkoutPending || (needsPreparation && result?._tag !== "Success");
 
+  if (!initialized) return null;
   return (
     <>
-      <NativeStackScreenOptions
-        options={{
-          title: Array.isArray(params.title) ? params.title[0] : (params.title ?? "New task"),
-        }}
-      />
       {preparingBranch ? (
-        <View className="flex-1 items-center justify-center bg-screen">
-          <Text className="text-foreground">Switching branch...</Text>
-        </View>
+        <ThreadScreenFallback>
+          <NativeStackScreenOptions options={{ title: "New thread" }} />
+          <View className="flex-1 items-center justify-center bg-screen">
+            <Text className="text-foreground">Switching branch...</Text>
+          </View>
+        </ThreadScreenFallback>
       ) : (
         <NewTaskDraftScreen
           initialProjectRef={preparedProjectRef}

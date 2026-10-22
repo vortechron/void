@@ -20,14 +20,16 @@ const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 
 export function getSyntaxHighlighterPromise(
   language: string,
-  theme: DiffsThemeNames = resolveDiffThemeName("dark"),
+  theme?: DiffsThemeNames,
 ): Promise<DiffsHighlighter> {
-  const cacheKey = `${language}:${theme}`;
+  const cacheKey = `${language}:${theme ?? "light-and-dark"}`;
   const cached = highlighterPromiseCache.get(cacheKey);
   if (cached) return cached;
 
   const promise = getSharedHighlighter({
-    themes: [theme],
+    // Void: a caller that names the synced code theme loads only that one.
+    // Upstream callers pick light or dark per render, so they get both.
+    themes: theme ? [theme] : [resolveDiffThemeName("dark"), resolveDiffThemeName("light")],
     langs: [language as SupportedLanguages],
     preferredHighlighter: PREFERRED_HIGHLIGHTER,
   }).catch((error) => {
