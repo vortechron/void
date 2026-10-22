@@ -204,6 +204,10 @@ A resizable file tree beside the diff, with a base-ref picker.
 Upstream's diff-tree work targets its own tree. Decide per change whether it is
 worth porting; do not let it overwrite `DiffFileTreeVoid.tsx`.
 
+Not wired in at the moment: `DiffPanel.tsx` has rendered upstream's
+`DiffFileTree` since the 2026-09-07 sync, and nothing imports the three files
+above. Restoring them is a deliberate change, not a merge fix.
+
 ### 6. Provider usage meters
 
 Subscription limits read from a provider probe and shown in the sidebar. This is
@@ -242,6 +246,9 @@ Saved prompts fired at a project, plus global ones.
   `orchestration-v2/ProjectPromptActions.test.ts`
 - The project actions menu lives in upstream's thread details panel; Void's
   props reach it through `projectActionExtras` on `ThreadDetailsPanel.tsx`
+- Saving, moving and deleting actions in either scope:
+  `components/chat/useProjectActionEditing.ts`. ChatView calls it instead of
+  upstream's `useProjectScriptEditing.ts`, which only knows project scripts
 - Migration `036_ProjectionProjectPromptActions` — the reason every later
   migration is offset by one
 - Docs: `docs/user/actions.md`
@@ -265,7 +272,16 @@ Choose worktree or current checkout per project when starting a thread.
 ### 11. Smaller fork-owned behaviour
 
 - **The composer never steals focus.** It focuses only on a direct user action.
-  Upstream keeps reintroducing autofocus on thread open; remove it again.
+  On a phone every stray focus raises the touch keyboard. Upstream keeps
+  adding focus back, so check these after every sync: the thread-open,
+  window-refocus and terminal-close effects in `ChatView.tsx`, the
+  `usePasteToFocusComposer` call there, type-to-focus in
+  `chat/useChatShortcuts.ts`, `focusAt` in `ComposerPromptEditorTiptap.tsx`
+  (moves the caret only while focused), and `finalFocus` in `CommandPalette.tsx`.
+- **The phone attach picker outlives a collapse.** Opening the system picker
+  blurs the editor, which collapses the phone composer and unmounts its footer.
+  `ComposerAttachInput` therefore sits at the composer's form root, apart from
+  `ComposerAttachButton`. Test: `chat/composerAttachInput.browser.test.tsx`.
 - Visible panel resize grips: `components/ui/panel-resize-grip.tsx`
 - Touch long-press context menus: `hooks/useLongPressContextMenu.ts`, `lib/longPress.ts`
 - PWA: `public/sw.js`, `pwa/registerServiceWorker.ts`, `chunkLoadRecovery.ts`, `void-icon-*` assets
@@ -281,9 +297,14 @@ Fork-only files cannot conflict. These upstream files carry the wiring and do:
 | `apps/web/src/components/AppSidebarLayout.tsx`                     | sidebar fall-through                      |
 | `apps/web/src/components/sidebar/SidebarChrome.tsx`                | `VoidMark` logo                           |
 | `apps/web/src/components/ChatView.tsx`                             | tab sync, background effects, focus rules |
-| `apps/web/src/components/chat/ChatComposer.tsx`                    | dictation button, pending contexts        |
+| `apps/web/src/components/chat/ChatComposer.tsx`                    | dictation, attach input at the form root  |
+| `chat/ComposerFooterControls.tsx`                                  | dictation props on the send button        |
 | `apps/web/src/components/RightPanelTabs.tsx`, `rightPanelStore.ts` | history surface                           |
-| `apps/web/src/components/DiffPanel.tsx`, `diffPanelStore.ts`       | Void diff tree                            |
+| `chat/RightPanelSurfaceContent.tsx`                                | history, commit and draft diff surfaces   |
+| `chat/useRightPanelActions.ts`                                     | diff opens for unsent drafts              |
+| `chat/ChatRightPanel.tsx`                                          | the sheet can be maximized                |
+| `chat/timelineRowContext.ts`, `chat/MessagesTimeline.tsx`          | synced `codeTheme` for timeline diffs     |
+| `apps/web/src/components/DiffPanel.tsx`, `diffPanelStore.ts`       | draft and commit diffs, code theme        |
 | `components/settings/SettingsPanels.tsx`, `SettingsSidebarNav.tsx` | Voice, Beta, Actions, Usage pages         |
 | `apps/web/src/hooks/useSettings.ts`                                | every fork setting key                    |
 | `packages/contracts/src/settings.ts`                               | every fork setting schema                 |
@@ -306,7 +327,12 @@ functions, wrapped in `useStableCallback` only where they leave the component.
 Fork code there must do the same. A `useCallback` brings back the old-render
 memory leak upstream removed. A function a child calls while rendering, like
 the prompt-action disabled reason, comes from a module-level factory
-(`makeProjectPromptActionDisabledReason`) memoized on its inputs.
+(`makeProjectPromptActionDisabledReason`) called during render.
+
+The web app builds with React Compiler, and `t3code/no-manual-memo` rejects
+`useMemo` and `useCallback` in `apps/web/src`. Write fork code the same way:
+plain derived values, and the compiler caches them. A file the compiler cannot
+prove safe still builds, unoptimized; `reactCompilerCoverage.test.ts` names it.
 
 ## Branding is deliberately minimal
 

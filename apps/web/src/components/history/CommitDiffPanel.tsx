@@ -6,7 +6,7 @@
  * its patch against its first parent, and the same renderer the review panel
  * uses so the diff reads identically wherever it appears.
  */
-import type { FileDiffContentsLoader } from "@pierre/diffs";
+import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
@@ -33,6 +33,8 @@ import { DiffFilePathCopyButton } from "~/components/DiffFilePathCopyButton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 const noop = () => {};
+// A commit patch arrives whole, so no file is ever a lazy placeholder.
+const NO_PENDING_FILES: ReadonlyArray<FileDiffMetadata> = [];
 
 export function CommitDiffPanel({
   environmentId,
@@ -153,6 +155,7 @@ export function CommitDiffPanel({
           codeViewKey={`commit:${sha}`}
           className="diff-render-surface min-h-0 flex-1 overflow-auto"
           files={codeViewFiles}
+          pendingFiles={NO_PENDING_FILES}
           sectionId={`commit:${sha}`}
           sectionTitle={subject}
           composerDraftTarget={composerDraftTarget}

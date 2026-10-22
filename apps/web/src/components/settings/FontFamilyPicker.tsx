@@ -1,7 +1,7 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { MAX_FONT_FAMILY_NAME_LENGTH } from "@t3tools/contracts/settings";
 import { SearchIcon } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { loadInstalledFontFamilies, supportsInstalledFontAccess } from "../../installedFonts";
 import {
@@ -63,7 +63,7 @@ export function FontFamilyPicker({
   const [query, setQuery] = useState("");
   const fontListRef = useRef<LegendListRef>(null);
 
-  const options = useMemo(() => {
+  const options = (() => {
     const builtInOptions = presets.map((preset): FontOption => ({ ...preset, source: "Built-in" }));
     const reservedNames = new Set(builtInOptions.map((option) => option.value.toLowerCase()));
     const installedOptions = installedFamilies
@@ -80,11 +80,11 @@ export function FontFamilyPicker({
       { label: value, source: "Custom" as const, value },
       ...installedOptions,
     ];
-  }, [installedFamilies, presets, value]);
+  })();
 
   const selectedOption =
     options.find((option) => optionRepresentsValue(option, value)) ?? options[0];
-  const pickerOptions = useMemo(() => {
+  const pickerOptions = (() => {
     const customFamily = query.trim();
     if (
       customFamily.length === 0 ||
@@ -101,13 +101,10 @@ export function FontFamilyPicker({
         value: customFamily,
       },
     ];
-  }, [options, query]);
-  const filteredOptions = useMemo(
-    () => pickerOptions.filter((option) => optionMatchesQuery(option, query)),
-    [pickerOptions, query],
-  );
+  })();
+  const filteredOptions = pickerOptions.filter((option) => optionMatchesQuery(option, query));
 
-  const requestInstalledFonts = useCallback(() => {
+  const requestInstalledFonts = () => {
     if (installedFontsState === "loading") return;
     if (!supportsInstalledFontAccess()) {
       setInstalledFontsState("unsupported");
@@ -122,7 +119,7 @@ export function FontFamilyPicker({
       },
       () => setInstalledFontsState("error"),
     );
-  }, [installedFontsState]);
+  };
 
   return (
     <Combobox<FontOption>
@@ -180,6 +177,10 @@ export function FontFamilyPicker({
               ref={fontListRef}
               className="scrollbar-gutter-stable overflow-x-hidden overscroll-y-contain px-1 py-1"
               data={filteredOptions}
+              // Rows are memoized by item, but Base UI highlights and selects
+              // virtualized rows by index. Re-render them when filtering moves
+              // a surviving item to a new index.
+              extraData={filteredOptions}
               drawDistance={336}
               estimatedItemSize={28}
               keyExtractor={(option) => `${option.source}:${option.value}`}

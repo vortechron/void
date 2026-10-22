@@ -1,6 +1,6 @@
 {
   "id": "/",
-  "name": "T3 Code (Alpha)",
+  "name": "T3 Code",
   "short_name": "T3 Code",
   "description": "Run T3 Code against your paired environments from an installed app window.",
   "start_url": "/",

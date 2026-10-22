@@ -1,9 +1,9 @@
 import { getFiletypeFromFileName } from "@pierre/diffs";
 import type { ProjectContentMatch } from "@t3tools/contracts";
 import type { CodeTheme } from "@t3tools/contracts/settings";
-import { memo, Suspense, use, useMemo, type CSSProperties } from "react";
+import { memo, Suspense, use, type CSSProperties } from "react";
 
-import { resolveDiffThemeName } from "~/lib/diffRendering";
+import { type DiffThemeName, resolveDiffThemeName } from "~/lib/diffRendering";
 import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
 
 import { RenderErrorBoundary } from "../RenderErrorBoundary";
@@ -126,6 +126,19 @@ function HighlightedTokens(props: {
     );
 }
 
+function firstLineTokens(
+  highlighter: Awaited<ReturnType<typeof getSyntaxHighlighterPromise>>,
+  line: string,
+  language: string,
+  themeName: DiffThemeName,
+) {
+  try {
+    return highlighter.codeToTokens(line, { lang: language, theme: themeName }).tokens[0];
+  } catch {
+    return undefined;
+  }
+}
+
 function SyntaxHighlightedTokens(props: {
   readonly line: string;
   readonly language: string;
@@ -135,16 +148,7 @@ function SyntaxHighlightedTokens(props: {
 }) {
   const themeName = resolveDiffThemeName(props.theme, props.codeTheme);
   const highlighter = use(getSyntaxHighlighterPromise(props.language, themeName));
-  const tokens = useMemo(() => {
-    try {
-      return highlighter.codeToTokens(props.line, {
-        lang: props.language,
-        theme: themeName,
-      }).tokens[0];
-    } catch {
-      return undefined;
-    }
-  }, [highlighter, props.language, props.line, themeName]);
+  const tokens = firstLineTokens(highlighter, props.line, props.language, themeName);
 
   return tokens ? (
     <HighlightedTokens line={props.line} ranges={props.ranges} tokens={tokens} />
@@ -163,7 +167,7 @@ export const HighlightedSearchLine = memo(function HighlightedSearchLine(props: 
   readonly theme: "light" | "dark";
   readonly codeTheme: CodeTheme;
 }) {
-  const ranges = useMemo(() => normalizeRanges(props.match), [props.match]);
+  const ranges = normalizeRanges(props.match);
   const fallback = (
     <HighlightedTokens
       line={props.match.lineContent}
