@@ -1,39 +1,47 @@
+import { useAtomValue } from "@effect/atom-react";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
-import { environmentSession } from "../../state/session";
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import * as DateTime from "effect/DateTime";
+import { Atom } from "effect/reactivity";
+import { useEffect, useRef } from "react";
 
 import {
   getGitDiffRevision,
   shouldRefreshGitDiffPreview,
   type GitDiffRefreshSnapshot,
 } from "@t3tools/client-runtime/state/review-diff-refresh";
-import {
-  deriveThreadCheckpointSummaries,
-  type ThreadCheckpointSummary,
-} from "@t3tools/client-runtime/state/thread-checkpoints";
-import type { EnvironmentId, ThreadId, VcsStatusResult } from "@t3tools/contracts";
+import { deriveThreadCheckpointSummaries } from "@t3tools/client-runtime/state/thread-checkpoints";
+import type {
+  EnvironmentId,
+  ReviewDiffPreviewSource,
+  ThreadId,
+  VcsStatusResult,
+} from "@t3tools/contracts";
 
 import { useCheckpointDiff } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentPresentation } from "../../state/presentation";
-import { reviewEnvironment } from "../../state/review";
+import { lastReviewGitSectionsAtom, reviewEnvironment } from "../../state/review";
+import { lastReviewTurnDiffsAtom } from "../../state/reviewTurnDiffs";
+import { environmentSession } from "../../state/session";
 import { useSelectedThreadProjection } from "../../state/use-thread-detail";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import {
   buildReviewSectionItems,
-  getDefaultReviewSectionId,
   getReadyReviewCheckpoints,
   getReviewSectionIdForCheckpoint,
+  resolveReviewSelectedSectionId,
+  reviewTurnDiffsBySectionId,
+  type ReviewSectionItem,
 } from "./reviewModel";
-import {
-  setReviewAsyncError,
-  setReviewGitSections,
-  setReviewSelectedSectionId,
-  setReviewTurnDiff,
-  setReviewTurnDiffLoading,
-  type ReviewCacheForThread,
-} from "./reviewState";
+import { setReviewSelectedSectionId, type ReviewCacheForThread } from "./reviewState";
+
+const NO_GIT_SECTIONS_ATOM = Atom.make<ReadonlyArray<ReviewDiffPreviewSource>>([]).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:review:git-sections:null"),
+);
+const NO_TURN_DIFFS_ATOM = Atom.make<Readonly<Record<number, string>>>({}).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:review:turn-diffs:null"),
+);
 
 export function useReviewSections(input: {
   readonly enabled?: boolean;
@@ -66,124 +74,75 @@ export function useReviewSections(input: {
         })
       : null,
   );
-  const { loadingTurnIds } = reviewCache.asyncState;
-
-  useEffect(() => {
-    if (reviewCache.threadKey && diffPreview.data) {
-      setReviewGitSections(reviewCache.threadKey, diffPreview.data.sources);
-    }
-  }, [diffPreview.data, reviewCache.threadKey]);
-
-  const readyCheckpoints = useMemo(
-    () =>
-      getReadyReviewCheckpoints(
-        selectedThread === null ? [] : deriveThreadCheckpointSummaries(selectedThread.projection),
-      ),
-    [selectedThread],
+  const lastGitSections = useAtomValue(
+    environmentId !== undefined && selectedThreadCwd !== null
+      ? lastReviewGitSectionsAtom(environmentId, selectedThreadCwd)
+      : NO_GIT_SECTIONS_ATOM,
   );
-  const gitDiffRevision = useMemo(() => getGitDiffRevision(input.gitStatus), [input.gitStatus]);
 
+  const lastTurnDiffs = useAtomValue(
+    environmentId !== undefined && threadId !== undefined
+      ? lastReviewTurnDiffsAtom(environmentId, threadId)
+      : NO_TURN_DIFFS_ATOM,
+  );
+
+  const readyCheckpoints = getReadyReviewCheckpoints(
+    selectedThread === null ? [] : deriveThreadCheckpointSummaries(selectedThread.projection),
+  );
+  const checkpointBySectionId = new Map(
+    readyCheckpoints.map((checkpoint) => [getReviewSectionIdForCheckpoint(checkpoint), checkpoint]),
+  );
+
+  // Git status changes (a commit, a push, edited files) and finished turns re-read the diff preview.
+  const latestTurnId = readyCheckpoints[0]?.runId ?? null;
+  const gitDiffRevision = getGitDiffRevision(input.gitStatus);
+  const hasWorkingTreeChanges = input.gitStatus?.hasWorkingTreeChanges === true;
+  const hasDiffPreview = diffPreview.data !== null;
+  const refreshDiffPreview = diffPreview.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- re-reads the diff preview when git status or the latest turn changes, remembering the last snapshot in a ref
   useEffect(() => {
-    if (!enabled || !reviewCache.threadKey || diffPreview.data === null) {
+    if (!enabled || !reviewCache.threadKey || !hasDiffPreview) {
       return;
     }
     const current = {
       threadKey: reviewCache.threadKey,
-      turnId: readyCheckpoints[0]?.runId ?? null,
+      turnId: latestTurnId,
       gitRevision: gitDiffRevision,
-      hasWorkingTreeChanges: input.gitStatus?.hasWorkingTreeChanges === true,
+      hasWorkingTreeChanges,
     };
     const shouldRefresh = shouldRefreshGitDiffPreview(
       lastGitDiffRefreshSnapshotRef.current,
       current,
     );
     lastGitDiffRefreshSnapshotRef.current = current;
-    if (shouldRefresh) diffPreview.refresh();
+    if (shouldRefresh) refreshDiffPreview();
   }, [
-    diffPreview.data?.generatedAt,
-    diffPreview.refresh,
     enabled,
     gitDiffRevision,
-    input.gitStatus?.hasWorkingTreeChanges,
-    readyCheckpoints,
+    hasDiffPreview,
+    hasWorkingTreeChanges,
+    latestTurnId,
+    refreshDiffPreview,
     reviewCache.threadKey,
   ]);
-  const checkpointBySectionId = useMemo(
-    () =>
-      Object.fromEntries(
-        readyCheckpoints.map((checkpoint) => [
-          getReviewSectionIdForCheckpoint(checkpoint),
-          checkpoint,
-        ]),
-      ) as Record<string, ThreadCheckpointSummary>,
-    [readyCheckpoints],
-  );
-  const reviewSections = useMemo(() => {
-    const sections = buildReviewSectionItems({
-      checkpoints: readyCheckpoints,
-      gitSections:
-        canReadFiles || fileAccess.isPending
-          ? (diffPreview.data?.sources ?? reviewCache.gitSections)
-          : [],
-      turnDiffById: reviewCache.turnDiffById,
-      loadingTurnIds,
-      loadingGitSections: fileAccess.isPending || diffPreview.isPending,
-    });
-    // Keep the selected section while its grant loads, without displaying cached host files.
-    return fileAccess.isPending
-      ? sections.map((section) =>
-          section.kind === "turn" ? section : { ...section, diff: null, isLoading: true },
-        )
-      : sections;
-  }, [
-    canReadFiles,
-    diffPreview.data?.sources,
-    diffPreview.isPending,
-    fileAccess.isPending,
-    loadingTurnIds,
-    readyCheckpoints,
-    reviewCache.gitSections,
-    reviewCache.turnDiffById,
-  ]);
-  const selectedSection = useMemo(
-    () =>
-      reviewSections.find((section) => section.id === reviewCache.selectedSectionId) ??
-      reviewSections[0] ??
-      null,
-    [reviewCache.selectedSectionId, reviewSections],
-  );
-  const fallbackSectionId = useMemo(
-    () => getDefaultReviewSectionId(reviewSections),
-    [reviewSections],
-  );
-  const selectedSectionIdExists = useMemo(
-    () =>
-      reviewCache.selectedSectionId
-        ? reviewSections.some((section) => section.id === reviewCache.selectedSectionId)
-        : false,
-    [reviewCache.selectedSectionId, reviewSections],
-  );
 
-  useEffect(() => {
-    if (
-      reviewSections.length > 0 &&
-      reviewCache.threadKey &&
-      (!reviewCache.selectedSectionId || !selectedSectionIdExists)
-    ) {
-      setReviewSelectedSectionId(reviewCache.threadKey, fallbackSectionId);
-    }
-  }, [
-    fallbackSectionId,
+  // Turns show their last answered diff; the active turn's live query below overrides it.
+  // Section ids and the selection do not depend on the live query, so they are resolved first.
+  const cachedSections = buildReviewSectionItems({
+    checkpoints: readyCheckpoints,
+    gitSections:
+      canReadFiles || fileAccess.isPending ? (diffPreview.data?.sources ?? lastGitSections) : [],
+    turnDiffById: reviewTurnDiffsBySectionId(readyCheckpoints, lastTurnDiffs),
+    loadingGitSections: fileAccess.isPending || diffPreview.isPending,
+  });
+  const selectedSectionId = resolveReviewSelectedSectionId(
+    cachedSections,
     reviewCache.selectedSectionId,
-    reviewCache.threadKey,
-    reviewSections.length,
-    selectedSectionIdExists,
-  ]);
+  );
 
-  let activeCheckpoint = readyCheckpoints[0] ?? null;
-  if (selectedSection?.kind === "turn") {
-    activeCheckpoint = checkpointBySectionId[selectedSection.id] ?? activeCheckpoint;
-  }
+  const selectedCheckpoint =
+    selectedSectionId === null ? undefined : checkpointBySectionId.get(selectedSectionId);
+  const activeCheckpoint = selectedCheckpoint ?? readyCheckpoints[0] ?? null;
   const activeSectionId = activeCheckpoint
     ? getReviewSectionIdForCheckpoint(activeCheckpoint)
     : null;
@@ -196,28 +155,23 @@ export function useReviewSections(input: {
     ignoreWhitespace: false,
   });
 
-  useEffect(() => {
-    if (!reviewCache.threadKey || !activeSectionId) {
-      return;
+  const reviewSections = cachedSections.map((section): ReviewSectionItem => {
+    if (section.kind === "turn") {
+      return section.id === activeSectionId
+        ? {
+            ...section,
+            diff: activeTurnDiff.data?.diff ?? section.diff,
+            isLoading: activeTurnDiff.isPending,
+          }
+        : section;
     }
-    setReviewTurnDiffLoading(reviewCache.threadKey, activeSectionId, activeTurnDiff.isPending);
-  }, [activeSectionId, activeTurnDiff.isPending, reviewCache.threadKey]);
+    // Keep the selected section while its grant loads, without displaying cached host files.
+    return fileAccess.isPending ? { ...section, diff: null, isLoading: true } : section;
+  });
+  const selectedSection =
+    reviewSections.find((section) => section.id === selectedSectionId) ?? null;
 
-  useEffect(() => {
-    if (!reviewCache.threadKey || !activeSectionId || !activeTurnDiff.data) {
-      return;
-    }
-    setReviewTurnDiff(reviewCache.threadKey, activeSectionId, activeTurnDiff.data.diff);
-    setReviewAsyncError(reviewCache.threadKey, null);
-  }, [activeSectionId, activeTurnDiff.data, reviewCache.threadKey]);
-
-  useEffect(() => {
-    if (reviewCache.threadKey && activeTurnDiff.error) {
-      setReviewAsyncError(reviewCache.threadKey, activeTurnDiff.error);
-    }
-  }, [activeTurnDiff.error, reviewCache.threadKey]);
-
-  const refreshSelectedSection = useCallback(async () => {
+  const refreshSelectedSection = async () => {
     if (!enabled) {
       return;
     }
@@ -226,32 +180,23 @@ export function useReviewSections(input: {
       return;
     }
     diffPreview.refresh();
-  }, [activeTurnDiff, diffPreview, enabled, selectedSection?.kind]);
+  };
 
-  const selectSection = useCallback(
-    (sectionId: string) => {
-      if (reviewCache.threadKey) {
-        setReviewSelectedSectionId(reviewCache.threadKey, sectionId);
-      }
-    },
-    [reviewCache.threadKey],
-  );
+  const selectSection = (sectionId: string) => {
+    if (reviewCache.threadKey) {
+      setReviewSelectedSectionId(reviewCache.threadKey, sectionId);
+    }
+  };
 
   return {
     error:
       diffPreview.error ??
       activeTurnDiff.error ??
-      reviewCache.asyncState.error ??
       (selectedSection === null && !fileAccess.isPending && !canReadFiles
         ? (fileAccess.error ?? "This connection cannot read local diffs.")
         : null),
     isSelectedSectionPending:
       selectedSection?.kind === "turn" ? activeTurnDiff.isPending : diffPreview.isPending,
-    loadingGitDiffs: fileAccess.isPending || diffPreview.isPending,
-    diffPreviewRevision: diffPreview.data
-      ? DateTime.formatIso(diffPreview.data.generatedAt)
-      : undefined,
-    loadingTurnIds,
     reviewSections,
     selectedSection,
     refreshSelectedSection,

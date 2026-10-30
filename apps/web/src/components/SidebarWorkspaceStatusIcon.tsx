@@ -31,6 +31,11 @@ const STATUS_PRESENTATION: Record<
     Icon: MessageSquareIcon,
     className: "text-indigo-600 dark:text-indigo-300",
   },
+  request: {
+    label: "Guest waiting",
+    Icon: MessageSquareIcon,
+    className: "text-indigo-600 dark:text-indigo-300",
+  },
   failed: {
     label: "Failed",
     Icon: TriangleAlertIcon,

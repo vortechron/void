@@ -5,7 +5,7 @@ import {
 import type { ThreadEnvMode } from "@t3tools/contracts";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { selectProjectGroupingSettings } from "../../logicalProject";
+import { selectProjectGroupingSettings } from "@t3tools/client-runtime/state/project-grouping";
 import { useClientSettings } from "../../hooks/useSettings";
 import {
   buildSidebarProjectSnapshots,

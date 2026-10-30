@@ -12,10 +12,11 @@ import {
   resolveFileDiffPath,
   resolveFileDiffPreviousPath,
 } from "./diffRendering";
+import { READABLE_LIGHT_THEME_NAME } from "./readableSyntaxTheme";
 
 describe("resolveDiffThemeName", () => {
   it("follows the interface color scheme for the default code theme", () => {
-    expect(resolveDiffThemeName("light", "default")).toBe("pierre-light");
+    expect(resolveDiffThemeName("light", "default")).toBe(READABLE_LIGHT_THEME_NAME);
     expect(resolveDiffThemeName("dark", "default")).toBe("pierre-dark");
   });
 

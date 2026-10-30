@@ -127,17 +127,21 @@ The most-used fork change and the one most likely to be lost in a merge.
 | Usage meters   | `components/sidebar/SidebarUsageMeters.tsx`, `SidebarUsageMeters.logic.ts`, `usageMeterCharts.tsx`                                                 |
 | Private names  | `privateProjectNames.ts`, `hooks/usePrivateProjectNames.ts` (hides real project names while screen sharing)                                        |
 
-`Sidebar.tsx` and `LegacySidebar.tsx` are upstream's and should always be
-resolved in upstream's favour — the two projects share no code in them. Which
-one renders is a three-step fall-through in `AppSidebarLayout.tsx`:
+`Sidebar.tsx` is upstream's and should always be resolved in upstream's
+favour — the two sidebars share no code. `AppSidebarLayout.tsx` renders
+`SidebarVoid.tsx` while `voidSidebarEnabled` (default **true**) is on, and
+upstream's `Sidebar.tsx` otherwise. Upstream deleted its `LegacySidebar.tsx`;
+its `legacySidebarEnabled` key now only turns on the "boring" mode inside its
+own sidebar, so Void has no legacy toggle of its own.
 
-1. `voidSidebarEnabled` (default **true**) → `SidebarVoid.tsx`
-2. else `legacySidebarEnabled` (upstream's key, default false) → `LegacySidebar.tsx`
-3. else → upstream's `Sidebar.tsx`
+The Void sidebar toggle sits in **Settings → General → Sidebar** and in
+**Settings → Labs**. `useVoidSidebarEnabled()` holds at `true` until client
+settings hydrate so a cold load never flashes the other sidebar.
 
-Both toggles sit in **Settings → General**, and `useVoidSidebarEnabled()` holds
-at `true` until client settings hydrate so a cold load never flashes the other
-sidebar.
+Upstream deletes sidebar helpers once its own sidebars stop calling them. The
+ones only Void still uses live in `sidebarVoid.logic.ts`, and
+`sidebarThreadPreviewCount` stays in `packages/contracts/src/settings.ts` for
+the Void sidebar alone.
 
 Preserve `SidebarWorkspaceRow` and the `workspaceSidebarStore` integration,
 including custom labels, Pinned, and recoverable Archived workspaces. Port
@@ -178,7 +182,7 @@ button while a turn is running.
 - Hook: `apps/web/src/hooks/useVoiceDictation.ts`
 - Settings: `components/settings/VoiceSettingsPanel.tsx`, `VoiceDictationSettingsSection.tsx`,
   `VoiceDictionarySection.tsx`, `VoiceSnippetsSection.tsx`, `voiceDictationLists.ts`
-- Route: `apps/web/src/routes/settings.voice.tsx`
+- Route: `apps/web/src/routes/_chat.settings.voice.tsx` (settings open as a modal over the chat)
 - Docs: `docs/user/voice-dictation.md`
 
 ### 4. Git history in the right panel
@@ -193,20 +197,19 @@ A commit graph, per-commit diffs, and history actions as a right-panel surface.
 - Columns are resizable and persisted: `historyColumnWidths.ts`,
   `useHistoryColumnWidths.ts`, `HistoryColumnResizeHandle.tsx`
 - Closed-chat history shows each chat's status: `components/chat/workspaceHistoryStatus.ts`
+- A commit's diff comes from upstream's commit source in `getReviewDiffPreview`
+  (`commitSha`). Do not add a second commit branch to `GitVcsDriverCore.ts`.
 
-### 5. Diff file tree
+### 5. Diff file tree (retired)
 
-A resizable file tree beside the diff, with a base-ref picker.
+Void uses upstream's `DiffFileTree` in the diff panel; the owner chose that on
+2026-10-22. Port upstream's diff-tree changes as they come.
 
-- `components/diffs/DiffFileTreeVoid.tsx`, `DiffBaseRefPicker.tsx`, `DiffToolbarActions.tsx`
-- `lib/diffFileTree.ts`, `lib/diffFileTreeResize.ts`, `lib/diffPanelCss.ts`
-
-Upstream's diff-tree work targets its own tree. Decide per change whether it is
-worth porting; do not let it overwrite `DiffFileTreeVoid.tsx`.
-
-Not wired in at the moment: `DiffPanel.tsx` has rendered upstream's
-`DiffFileTree` since the 2026-09-07 sync, and nothing imports the three files
-above. Restoring them is a deliberate change, not a merge fix.
+The old Void tree is no longer used: `components/diffs/DiffFileTreeVoid.tsx`,
+`DiffBaseRefPicker.tsx`, `DiffToolbarActions.tsx`, `lib/diffFileTree.ts` and
+`lib/diffFileTreeResize.ts`. Do not wire them back during a sync. Deleting them
+is safe once the owner agrees. `lib/diffPanelCss.ts` is still used by the
+commit diff panel.
 
 ### 6. Provider usage meters
 
@@ -285,8 +288,10 @@ Choose worktree or current checkout per project when starting a thread.
 - Visible panel resize grips: `components/ui/panel-resize-grip.tsx`
 - Touch long-press context menus: `hooks/useLongPressContextMenu.ts`, `lib/longPress.ts`
 - PWA: `public/sw.js`, `pwa/registerServiceWorker.ts`, `chunkLoadRecovery.ts`, `void-icon-*` assets
-- Settings sync and Beta panel: `lib/settingsSync.ts`, `SharedSettingsMismatchAlert.tsx`,
-  `BetaSettingsPanel.tsx`, `routes/settings.beta.tsx`
+- Settings sync: `lib/settingsSync.ts`, `SharedSettingsMismatchAlert.tsx`, and
+  `findSharedSettingsMismatches` in `packages/client-runtime/src/state/sharedSettings.ts`
+  (upstream deleted that helper once; Void still needs it). Void's old Beta page
+  is gone: `/settings/beta` now redirects to upstream's Labs page.
 
 ### Wiring points to re-check after every sync
 
@@ -305,7 +310,7 @@ Fork-only files cannot conflict. These upstream files carry the wiring and do:
 | `chat/ChatRightPanel.tsx`                                          | the sheet can be maximized                |
 | `chat/timelineRowContext.ts`, `chat/MessagesTimeline.tsx`          | synced `codeTheme` for timeline diffs     |
 | `apps/web/src/components/DiffPanel.tsx`, `diffPanelStore.ts`       | draft and commit diffs, code theme        |
-| `components/settings/SettingsPanels.tsx`, `SettingsSidebarNav.tsx` | Voice, Beta, Actions, Usage pages         |
+| `components/settings/SettingsPanels.tsx`, `SettingsSidebarNav.tsx` | Voice page, Void sidebar row, alerts      |
 | `apps/web/src/hooks/useSettings.ts`                                | every fork setting key                    |
 | `packages/contracts/src/settings.ts`                               | every fork setting schema                 |
 | `apps/server/src/persistence/Migrations.ts`                        | migration list, offset by one             |
@@ -316,6 +321,8 @@ Fork-only files cannot conflict. These upstream files carry the wiring and do:
 | `apps/web/src/reopenClosedView.ts`                                 | reopening a closed commit diff            |
 | `apps/web/src/components/chat/ThreadDetailsPanel.tsx`              | `projectActionExtras` (prompt actions)    |
 | `apps/web/src/routes/__root.tsx`                                   | Void appearance, zoom and workspace syncs |
+| `apps/web/src/appInit.tsx`                                         | no font writes; Void's fonts own them     |
+| `apps/web/src/shortcuts/chatRouteCommands.ts`                      | `chat.new` skips the palette (Void bar)   |
 | `apps/web/src/routeTree.gen.ts`                                    | generated — regenerate, never hand-merge  |
 
 A conflict in any of those means an upstream change landed next to fork wiring.

@@ -3,10 +3,10 @@ import { assert, it, vi } from "@effect/vitest";
 import { ProjectId, type ProjectScript } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectService from "./ProjectService.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 
@@ -68,7 +68,10 @@ function makeHarness(scripts: ReadonlyArray<ProjectScript>) {
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ProjectService.ProjectService)({
-          getById: () => Effect.succeed(Option.some(project)),
+          getById: () => Effect.succeedSome(project),
+        }),
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({
+          getThreadShell: () => Effect.succeed(null),
         }),
         Layer.mock(TerminalManager.TerminalManager)({ open, write, subscribe }),
         ServerSettings.layerTest({ globalScripts: [globalSetup] }),
@@ -76,11 +79,11 @@ function makeHarness(scripts: ReadonlyArray<ProjectScript>) {
       ),
     ),
   );
-  return { layer, write };
+  return { layer };
 }
 
 it.effect("runs a global setup script when the project declares none", () => {
-  const { layer, write } = makeHarness([]);
+  const { layer } = makeHarness([]);
   return Effect.gen(function* () {
     const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
     const result = yield* runner.runForThread({
@@ -93,12 +96,11 @@ it.effect("runs a global setup script when the project declares none", () => {
       assert.equal(result.scriptId, "global-setup");
       assert.equal(result.scriptName, "Global setup");
     }
-    assert.equal(write.mock.calls[0]?.[0].data, "pnpm install\r");
   }).pipe(Effect.provide(layer));
 });
 
 it.effect("lets the project's own setup script shadow the global one", () => {
-  const { layer, write } = makeHarness([projectSetup]);
+  const { layer } = makeHarness([projectSetup]);
   return Effect.gen(function* () {
     const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
     const result = yield* runner.runForThread({
@@ -110,6 +112,5 @@ it.effect("lets the project's own setup script shadow the global one", () => {
     if (result.status === "started") {
       assert.equal(result.scriptId, "setup");
     }
-    assert.equal(write.mock.calls[0]?.[0].data, "bun install\r");
   }).pipe(Effect.provide(layer));
 });

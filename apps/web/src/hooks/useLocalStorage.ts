@@ -125,7 +125,7 @@ function decodeOrInitial<T, E>(
   }
 }
 
-function writeLocalStorageValue<T, E>(
+export function writeLocalStorageValue<T, E>(
   key: string,
   value: T | ((val: T) => T),
   initialValue: T,
@@ -134,8 +134,7 @@ function writeLocalStorageValue<T, E>(
   try {
     let valueToStore: T;
     if (typeof value === "function") {
-      // Like the read path, treat an unreadable stored value as the initial
-      // value, so a corrupt blob cannot block every later write.
+      // Fall back to the initial value so corrupt storage cannot block later writes.
       let currentValue = initialValue;
       try {
         currentValue = getLocalStorageItem(key, schema) ?? initialValue;

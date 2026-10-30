@@ -12,7 +12,7 @@ import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
+import { SettingResetButton, SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 const COMPLETION_SOUND_LABELS: Readonly<Record<CompletionSound, string>> = {
@@ -20,6 +20,7 @@ const COMPLETION_SOUND_LABELS: Readonly<Record<CompletionSound, string>> = {
   chime: "Chime",
 };
 
+/** Rows only: General renders them inside its Notifications section. */
 export function AgentCompletionSettings() {
   const notificationsEnabled = useClientSettings((settings) => settings.agentNotificationsEnabled);
   const completionSound = useClientSettings((settings) => settings.completionSound);
@@ -29,6 +30,7 @@ export function AgentCompletionSettings() {
   );
   const [requestingPermission, setRequestingPermission] = useState(false);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window focus listener rereads the browser notification permission
   useEffect(() => {
     const refreshPermission = () => {
       setNotificationPermission(readAgentNotificationPermission());
@@ -80,7 +82,7 @@ export function AgentCompletionSettings() {
           : undefined;
 
   return (
-    <SettingsSection title="Notifications">
+    <>
       <SettingsRow
         {...searchableSetting("agent-notifications")}
         description="Get notified when an agent finishes working."
@@ -161,6 +163,6 @@ export function AgentCompletionSettings() {
           </>
         }
       />
-    </SettingsSection>
+    </>
   );
 }
