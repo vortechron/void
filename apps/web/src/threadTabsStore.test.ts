@@ -6,7 +6,6 @@ import { DraftId } from "./composerDraftStore";
 import {
   EMPTY_THREAD_TABS_STATE,
   EMPTY_WORKSPACE_THREAD_TABS_STATE,
-  MAX_THREAD_TABS,
   addThreadTabToGroup,
   applyRemoteWorkspaceThreadTabs,
   closeOtherThreadTabs,
@@ -61,15 +60,11 @@ describe("openThreadTab", () => {
     expect(promoted.tabs[0]?.draftId).toBeNull();
   });
 
-  it("evicts the oldest inactive tab past the limit", () => {
-    const ids = Array.from({ length: MAX_THREAD_TABS }, (_, index) => `t${index}`);
-    const full = openAll(ids);
-    expect(full.tabs).toHaveLength(MAX_THREAD_TABS);
-
-    const overflowed = openThreadTab(full, ref("overflow"), null);
-    expect(overflowed.tabs).toHaveLength(MAX_THREAD_TABS);
-    expect(overflowed.tabs.map((tab) => tab.threadId)).not.toContain("t0");
-    expect(overflowed.activeKey).toBe(key("overflow"));
+  it("keeps every tab open until it is closed", () => {
+    const ids = Array.from({ length: 40 }, (_, index) => `t${index}`);
+    const many = openThreadTab(openAll(ids), ref("latest"), null);
+    expect(many.tabs.map((tab) => tab.threadId)).toEqual([...ids, "latest"]);
+    expect(many.activeKey).toBe(key("latest"));
   });
 });
 
