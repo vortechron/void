@@ -15,9 +15,14 @@ import {
 const primaryId = EnvironmentId.make("env-primary");
 const laptopId = EnvironmentId.make("env-laptop");
 const boxId = EnvironmentId.make("env-box");
-const restartCapabilities = { threadRestartContinuation: true };
 
 describe("filterSharedServerPatch", () => {
+  it("holds the restart preference until the target's config loads", () => {
+    const patch = { continueThreadsAfterServerUpdate: true, sidebarAutoSettleAfterDays: 7 };
+    expect(filterSharedServerPatch(patch, undefined)).toEqual({ sidebarAutoSettleAfterDays: 7 });
+    expect(filterSharedServerPatch(patch, DEFAULT_SERVER_SETTINGS)).toEqual(patch);
+  });
+
   it.each([true, false])(
     "resets a disabled default provider only on the originating environment (%s)",
     (targetIsSource) => {
@@ -41,14 +46,13 @@ describe("filterSharedServerPatch", () => {
         continueThreadsAfterServerUpdate: true,
         sidebarAutoSettleAfterDays: 7,
       };
-      expect(filterSharedServerPatch(patch, undefined, settings, settings, targetIsSource)).toEqual(
-        {
-          ...(targetIsSource
-            ? { textGenerationModelSelection: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection }
-            : {}),
-          sidebarAutoSettleAfterDays: 7,
-        },
-      );
+      expect(filterSharedServerPatch(patch, settings, settings, targetIsSource)).toEqual({
+        ...(targetIsSource
+          ? { textGenerationModelSelection: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection }
+          : {}),
+        continueThreadsAfterServerUpdate: true,
+        sidebarAutoSettleAfterDays: 7,
+      });
     },
   );
 
@@ -79,36 +83,8 @@ describe("filterSharedServerPatch", () => {
           [instanceId]: { ...instance, driver: ProviderDriverKind.make("codex"), enabled: true },
         },
       };
-      expect(filterSharedServerPatch(patch, restartCapabilities, settings, sourceSettings)).toEqual(
+      expect(filterSharedServerPatch(patch, settings, sourceSettings)).toEqual(
         availability === "enabled" ? patch : { sidebarAutoSettleAfterDays: 7 },
-      );
-      const primarySettings = {
-        ...sourceSettings,
-        textGenerationModelSelection: selection,
-      };
-      expect(
-        findSharedSettingsMismatches({
-          primaryEnvironmentId: primaryId,
-          primarySettings,
-          environments: [
-            { environmentId: boxId, label: "Remote Box", syncEligible: true, settings },
-          ],
-        }),
-      ).toEqual(availability === "enabled" ? [{ environmentId: boxId, label: "Remote Box" }] : []);
-    },
-  );
-
-  it.each([undefined, {}, { threadRestartContinuation: false }])(
-    "omits only the unsupported restart preference with capabilities %j",
-    (capabilities) => {
-      expect(
-        filterSharedServerPatch(
-          { continueThreadsAfterServerUpdate: true, sidebarAutoSettleAfterDays: 7 },
-          capabilities,
-        ),
-      ).toEqual({ sidebarAutoSettleAfterDays: 7 });
-      expect(pickSharedServerSettings(DEFAULT_SERVER_SETTINGS, capabilities)).not.toHaveProperty(
-        "continueThreadsAfterServerUpdate",
       );
     },
   );
@@ -127,13 +103,11 @@ describe("findSharedSettingsMismatches", () => {
         label: "Remote Box",
         syncEligible: true,
         settings: remoteSettings,
-        capabilities: restartCapabilities,
       };
       expect(
         findSharedSettingsMismatches({
           primaryEnvironmentId: primaryId,
           primarySettings: settings,
-          primaryCapabilities: restartCapabilities,
           environments: [environment],
         }),
       ).toEqual([{ environmentId: boxId, label: "Remote Box" }]);
@@ -141,54 +115,14 @@ describe("findSharedSettingsMismatches", () => {
         findSharedSettingsMismatches({
           primaryEnvironmentId: primaryId,
           primarySettings: settings,
-          primaryCapabilities: restartCapabilities,
           environments: [
             {
               ...environment,
-              settings: Object.assign(
-                {},
-                remoteSettings,
-                pickSharedServerSettings(settings, restartCapabilities),
-              ),
+              settings: Object.assign({}, remoteSettings, pickSharedServerSettings(settings)),
             },
           ],
         }),
       ).toEqual([]);
-    },
-  );
-
-  it.each([
-    [undefined, restartCapabilities],
-    [restartCapabilities, undefined],
-    [undefined, undefined],
-  ])(
-    "ignores restart drift unless both servers support it (%j, %j)",
-    (primaryCapabilities, capabilities) => {
-      const environment = {
-        environmentId: boxId,
-        label: "Remote Box",
-        syncEligible: true,
-        capabilities,
-        settings: { ...primarySettings, continueThreadsAfterServerUpdate: true },
-      };
-      const input = {
-        primaryEnvironmentId: primaryId,
-        primarySettings,
-        primaryCapabilities,
-        environments: [environment],
-      };
-      expect(findSharedSettingsMismatches(input)).toEqual([]);
-      expect(
-        findSharedSettingsMismatches({
-          ...input,
-          environments: [
-            {
-              ...environment,
-              settings: { ...environment.settings, sidebarAutoSettleAfterDays: 14 },
-            },
-          ],
-        }),
-      ).toEqual([{ environmentId: boxId, label: "Remote Box" }]);
     },
   );
 

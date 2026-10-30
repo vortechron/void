@@ -18,13 +18,11 @@ import { useTheme } from "~/hooks/useTheme";
 import { DIFF_PANEL_UNSAFE_CSS } from "~/lib/diffPanelCss";
 import {
   buildFileDiffContentVersion,
-  getDiffCollapseIconClassName,
   getRenderablePatch,
   resolveDiffThemeName,
   resolveDiffThemeType,
   resolveFileDiffPath,
 } from "~/lib/diffRendering";
-import { cn } from "~/lib/utils";
 import { useEnvironmentQuery } from "~/state/query";
 import { reviewEnvironment } from "~/state/review";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -171,10 +169,7 @@ export function CommitDiffPanel({
                 <TooltipTrigger
                   render={
                     <span
-                      className={cn(
-                        "inline-flex size-5 shrink-0 items-center justify-center",
-                        getDiffCollapseIconClassName(fileDiff),
-                      )}
+                      className="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground/80"
                       aria-label={filePath}
                     />
                   }

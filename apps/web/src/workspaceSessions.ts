@@ -189,22 +189,20 @@ export function buildProjectWorkspaces(input: {
   }
 
   return [...workspaceMetadata.entries()]
-    .map(
-      ([key, metadata]): ProjectWorkspace => ({
-        key,
-        projectRef: {
-          environmentId: metadata.member.environmentId,
-          projectId: metadata.member.id,
-        },
-        projectRoot: metadata.member.workspaceRoot,
-        cwd: metadata.worktreePath ?? metadata.member.workspaceRoot,
-        worktreePath: metadata.worktreePath,
-        branch: metadata.branch,
-        sessions: [...(sessionsByWorkspace.get(key) ?? [])].sort((left, right) =>
-          right.updatedAt.localeCompare(left.updatedAt),
-        ),
-      }),
-    )
+    .map(([key, metadata]): ProjectWorkspace => ({
+      key,
+      projectRef: {
+        environmentId: metadata.member.environmentId,
+        projectId: metadata.member.id,
+      },
+      projectRoot: metadata.member.workspaceRoot,
+      cwd: metadata.worktreePath ?? metadata.member.workspaceRoot,
+      worktreePath: metadata.worktreePath,
+      branch: metadata.branch,
+      sessions: [...(sessionsByWorkspace.get(key) ?? [])].sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt),
+      ),
+    }))
     .sort((left, right) => {
       if (left.worktreePath === null && right.worktreePath !== null) return -1;
       if (left.worktreePath !== null && right.worktreePath === null) return 1;

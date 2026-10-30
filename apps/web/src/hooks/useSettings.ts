@@ -145,6 +145,25 @@ export function getClientSettings(): ClientSettings {
   return readClientSettingsSnapshot();
 }
 
+/** Client settings ride the primary server's settings, so that atom is the change signal. */
+export function subscribeClientSettings(listener: () => void): () => void {
+  return appAtomRegistry.subscribe(primaryServerSettingsAtom, listener);
+}
+
+export function getClientSettingsHydratedSnapshot(): boolean {
+  return (
+    clientSettingsTestOverride !== null || appAtomRegistry.get(primaryServerConfigAtom) !== null
+  );
+}
+
+export function subscribeClientSettingsHydration(listener: () => void): () => void {
+  return appAtomRegistry.subscribe(primaryServerConfigAtom, listener);
+}
+
+export function isClientSettingsHydrated(): boolean {
+  return getClientSettingsHydratedSnapshot();
+}
+
 /**
  * Resolves once client settings have actually arrived.
  *
@@ -241,46 +260,60 @@ export function mergeEnvironmentSettings(
   };
 }
 
-// Servers that predate `migrateModelPreferences` drop it and keep reporting null favorites.
-const attemptedMigrationGenerations = new Map<EnvironmentId, number>();
-const connectionGenerationAtom = Atom.family((environmentId: EnvironmentId | null) =>
-  Atom.make((get) =>
-    environmentId === null
-      ? null
-      : Option.match(AsyncResult.value(get(environmentCatalog.stateAtom(environmentId))), {
-          onNone: () => null,
-          onSome: (connection) => (connection.phase === "connected" ? connection.generation : null),
-        }),
-  ),
-);
-
 const selectLegacyModelPreferences = (settings: ClientSettings) => ({
   favorites: settings.favorites,
   providerModelPreferences: settings.providerModelPreferences,
 });
 
-export function useMigrateModelPreferences(
-  environmentId: EnvironmentId | null,
-  settings: ServerSettings | null,
-) {
-  const clientSettings = useClientSettings(selectLegacyModelPreferences);
-  const hydrated = useClientSettingsHydrated();
-  const connectionGeneration = useAtomValue(connectionGenerationAtom(environmentId));
-  const migrate = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
-  useEffect(() => {
-    if (
-      !environmentId ||
-      !settings ||
-      !hydrated ||
-      connectionGeneration === null ||
-      attemptedMigrationGenerations.get(environmentId) === connectionGeneration
-    )
-      return;
+// Servers that predate `migrateModelPreferences` drop it and keep reporting null favorites.
+const attemptedMigrationGenerations = new Map<EnvironmentId, number>();
+
+const modelPreferencesMigrationTargetsAtom = Atom.make((get) =>
+  [...get(environmentCatalog.catalogValueAtom).entries.keys()].flatMap((environmentId) => {
+    const generation = Option.match(
+      AsyncResult.value(get(environmentCatalog.stateAtom(environmentId))),
+      {
+        onNone: () => null,
+        onSome: (connection) => (connection.phase === "connected" ? connection.generation : null),
+      },
+    );
+    const settings = get(serverEnvironment.settingsValueAtom(environmentId));
+    return generation === null || settings === null
+      ? []
+      : [{ environmentId, generation, settings }];
+  }),
+).pipe(Atom.withLabel("web-model-preferences-migration-targets"));
+
+function migrateModelPreferences(): void {
+  if (!getClientSettingsHydratedSnapshot()) return;
+  const clientSettings = readClientSettingsSnapshot();
+  for (const { environmentId, generation, settings } of appAtomRegistry.get(
+    modelPreferencesMigrationTargetsAtom,
+  )) {
+    if (attemptedMigrationGenerations.get(environmentId) === generation) continue;
     const patch = modelPreferencesMigrationPatch(settings, clientSettings);
-    if (!patch) return;
-    attemptedMigrationGenerations.set(environmentId, connectionGeneration);
-    void migrate({ environmentId, input: { patch } });
-  }, [clientSettings, connectionGeneration, environmentId, hydrated, migrate, settings]);
+    if (!patch) continue;
+    attemptedMigrationGenerations.set(environmentId, generation);
+    void runAtomCommand(
+      appAtomRegistry,
+      serverEnvironment.updateSettings,
+      { environmentId, input: { patch } },
+      { reportFailure: false },
+    );
+  }
+}
+
+/** Moves this client's legacy model preferences onto each server, once per connection. */
+export function startModelPreferencesMigration(): () => void {
+  const unsubscribes = [
+    appAtomRegistry.subscribe(modelPreferencesMigrationTargetsAtom, migrateModelPreferences),
+    subscribeClientSettings(migrateModelPreferences),
+    subscribeClientSettingsHydration(migrateModelPreferences),
+  ];
+  migrateModelPreferences();
+  return () => {
+    for (const unsubscribe of unsubscribes) unsubscribe();
+  };
 }
 
 /** Selecting inside the client store keeps a client write from re-rendering unaffected readers. */
@@ -294,14 +327,15 @@ export function useMergedSettings<T = UnifiedSettings>(
   });
 }
 
-export function resolveEnvironmentIdentificationMode(input: {
+function resolveEnvironmentIdentificationMode(input: {
   mode: EnvironmentIdentificationMode;
   settingsHydrated: boolean;
   paletteThemeActive?: boolean;
   paletteThemeAllowsArtwork?: boolean;
 }): EnvironmentIdentificationMode {
   if (!input.settingsHydrated) return "none";
-  return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && input.mode === "artwork"
+  const isArtwork = input.mode !== "pill" && input.mode !== "none";
+  return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && isArtwork
     ? "pill"
     : input.mode;
 }
@@ -336,11 +370,11 @@ export function useVoidSidebarEnabled(): boolean {
   return settingsHydrated ? voidSidebarEnabled : true;
 }
 
-/** Upstream's original per-project tree. Only reachable with Void's sidebar off. */
-export function useLegacySidebarEnabled(): boolean {
-  const settingsHydrated = useClientSettingsHydrated();
-  const legacySidebarEnabled = useClientSettings((settings) => settings.legacySidebarEnabled);
-  return settingsHydrated && legacySidebarEnabled;
+/** Legacy sidebar opt-ins still count, so those users land in the boring sidebar. */
+export function useBoringSidebarEnabled(): boolean {
+  return useClientSettings(
+    (settings) => settings.boringSidebarEnabled || settings.legacySidebarEnabled,
+  );
 }
 
 /** Presentation of the sidebar provider usage meter. */
@@ -472,7 +506,6 @@ export function useEnvironmentModelPreferences(environmentId: EnvironmentId | nu
     environmentId ? serverEnvironment.settingsValueAtom(environmentId) : noEnvironmentSettingsAtom,
   );
   const legacy = useClientSettings(selectLegacyModelPreferences);
-  useMigrateModelPreferences(environmentId, settings);
   return resolveModelPreferences(settings ?? DEFAULT_SERVER_SETTINGS, legacy);
 }
 
@@ -481,7 +514,6 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
   const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
-  useMigrateModelPreferences(environmentId, serverSettings);
   return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
@@ -499,12 +531,7 @@ export function usePersistEnvironmentProviderInstanceMutation(environmentId: Env
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const environment = usePrimaryEnvironment();
   const settings = useAtomValue(primaryServerSettingsAtom);
-  useMigrateModelPreferences(
-    environment?.environmentId ?? null,
-    environment?.serverConfig?.settings ?? null,
-  );
   return useMergedSettings(settings, selector);
 }
 
@@ -534,7 +561,7 @@ function useSharedSettingsSyncTargetIds(includePending = false): ReadonlyArray<E
     if (includePending && result._tag === "Initial") {
       return [environmentId];
     }
-    const session = result._tag === "Failure" ? null : Option.getOrNull(AsyncResult.value(result));
+    const session = result._tag === "Failure" ? null : AsyncResult.getOrElse(result, () => null);
     return session !== null && sessionGrantsScope(session, AuthSettingsWriteScope)
       ? [environmentId]
       : [];
@@ -631,7 +658,6 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
 export function useSharedSettingsSync() {
   const primaryEnvironment = usePrimaryEnvironment();
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
-  const primaryCapabilities = primaryEnvironment?.serverConfig?.environment.capabilities;
   // Read the loaded config, not `primaryServerSettingsAtom`: that atom falls
   // back to defaults while the primary is disconnected, and "apply to all"
   // must never push defaults over real values. Same for a primary too old to
@@ -649,13 +675,11 @@ export function useSharedSettingsSync() {
   const mismatches = findSharedSettingsMismatches({
     primaryEnvironmentId,
     primarySettings,
-    primaryCapabilities,
     environments: environments.map((environment) => ({
       environmentId: environment.environmentId,
       label: environment.label,
       syncEligible: supportsSharedSettingsSync(environment),
       settings: environment.serverConfig?.settings ?? null,
-      capabilities: environment.serverConfig?.environment.capabilities,
     })),
   });
 
@@ -663,7 +687,7 @@ export function useSharedSettingsSync() {
     if (primarySettings === null) {
       return;
     }
-    const patch = pickSharedServerSettings(primarySettings, primaryCapabilities);
+    const patch = pickSharedServerSettings(primarySettings);
     for (const mismatch of mismatches) {
       const target = environments.find(
         (candidate) => candidate.environmentId === mismatch.environmentId,
@@ -671,12 +695,7 @@ export function useSharedSettingsSync() {
       void persistServerSettings({
         environmentId: mismatch.environmentId,
         input: {
-          patch: filterSharedServerPatch(
-            patch,
-            target?.serverConfig?.environment.capabilities,
-            target?.serverConfig?.settings,
-            primarySettings,
-          ),
+          patch: filterSharedServerPatch(patch, target?.serverConfig?.settings, primarySettings),
         },
       });
     }

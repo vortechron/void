@@ -12,6 +12,8 @@ type ThreadAttentionInput = Parameters<typeof resolveThreadStatusPill>[0]["threa
 const WORKSPACE_STATUS_PRIORITY: Record<ThreadAttentionStatus, number> = {
   approval: 8,
   input: 7,
+  // A guest waiting on the owner needs the owner, just like a question does.
+  request: 7,
   failed: 6,
   limited: 6,
   working: 5,

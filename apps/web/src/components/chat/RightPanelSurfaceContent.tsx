@@ -34,23 +34,22 @@ const FilePreviewPanel = lazy(() => import("../files/FilePreviewPanel"));
 const GitHistoryPanel = lazy(() => import("../history/GitHistoryPanel"));
 const CommitDiffPanel = lazy(() => import("../history/CommitDiffPanel"));
 
-export type RightPanelTerminalProps = Omit<
+type RightPanelTerminalProps = Omit<
   PersistentThreadTerminalPanelProps,
   "visible" | "threadRef" | "surface"
 >;
 
-export interface RightPanelPullRequestProps {
+interface RightPanelPullRequestProps {
   readonly capabilityKnown: boolean;
   readonly supported: boolean;
   readonly projectId: ProjectId | null;
   readonly pullRequests: ReadonlyArray<ThreadPullRequestLink>;
   readonly linkedPullRequest: ThreadLinkedPullRequest | null;
   readonly branchPullRequest: ThreadLinkedPullRequest | null | undefined;
-  /** Back to the pull request list; absent when there is no list to go back to. */
   readonly onBack: (() => void) | undefined;
 }
 
-export interface RightPanelFileProps {
+interface RightPanelFileProps {
   readonly projectName: string | null;
   readonly workspaceRoot: string | undefined;
   readonly availableEditors: ReadonlyArray<EditorId>;
@@ -63,7 +62,7 @@ export interface RightPanelFileProps {
  * Void: the diff panel reads Git from the checkout it is handed, so an unsent
  * draft can show its working tree and branch changes before its first turn.
  */
-export interface RightPanelDiffProps {
+interface RightPanelDiffProps {
   /** The thread's worktree, else the project root. */
   readonly cwd: string | undefined;
   /** Repository root for file actions, unset when `cwd` is a worktree. */
@@ -71,14 +70,12 @@ export interface RightPanelDiffProps {
 }
 
 /** Void: the checkout the Git history and commit surfaces read. */
-export interface RightPanelHistoryProps {
+interface RightPanelHistoryProps {
   readonly environmentId: EnvironmentId | null;
   readonly cwd: string | undefined;
   readonly onOpenCommit: (commit: { sha: string; shortSha: string; subject: string }) => void;
   readonly onOpenWorkingTree: () => void;
 }
-
-/** The body of the thread's right panel for the surface it is showing. */
 export function RightPanelSurfaceContent(props: {
   readonly surface: RightPanelSurface | null;
   readonly activeSurfaceId: string | null;

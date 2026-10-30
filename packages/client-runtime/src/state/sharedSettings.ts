@@ -1,9 +1,4 @@
-import type {
-  EnvironmentId,
-  ExecutionEnvironmentCapabilities,
-  ServerSettings,
-  ServerSettingsPatch,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ServerSettings, ServerSettingsPatch } from "@t3tools/contracts";
 import { isModelSelectionProviderEnabled } from "@t3tools/shared/serverSettings";
 import * as Equal from "effect/Equal";
 import * as Struct from "effect/Struct";
@@ -16,12 +11,11 @@ const SHARED_SERVER_SETTING_KEYS = [
   "sidebarAutoSettleOnMerge",
   "autoResumeLimitedThreads",
   "snoozeLimitedThreads",
+  "snoozePresets",
   "newWorktreesStartFromOrigin",
   "sourceControlWritingStyle",
   "textGenerationModelSelection",
 ] as const satisfies ReadonlyArray<keyof ServerSettings & keyof ServerSettingsPatch>;
-
-export type SharedServerSettingKey = (typeof SHARED_SERVER_SETTING_KEYS)[number];
 
 const SHARED_KEY_SET = new Set<string>(SHARED_SERVER_SETTING_KEYS);
 
@@ -46,7 +40,6 @@ export function splitSharedServerPatch(patch: ServerSettingsPatch): {
 
 export function filterSharedServerPatch(
   patch: ServerSettingsPatch,
-  capabilities: Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation"> | undefined,
   settings?: ServerSettings,
   sourceSettings = settings,
   targetIsSource = false,
@@ -68,65 +61,41 @@ export function filterSharedServerPatch(
   ) {
     patch = Struct.omit(patch, ["textGenerationModelSelection"]);
   }
-  return capabilities?.threadRestartContinuation === true
-    ? patch
-    : Struct.omit(patch, ["continueThreadsAfterServerUpdate"]);
+  return settings ? patch : Struct.omit(patch, ["continueThreadsAfterServerUpdate"]);
 }
 
-export function pickSharedServerSettings(
-  settings: ServerSettings,
-  capabilities?: Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">,
-): ServerSettingsPatch {
-  return filterSharedServerPatch(
-    Struct.pick(settings, SHARED_SERVER_SETTING_KEYS),
-    capabilities,
-    settings,
-  );
+export function pickSharedServerSettings(settings: ServerSettings): ServerSettingsPatch {
+  return filterSharedServerPatch(Struct.pick(settings, SHARED_SERVER_SETTING_KEYS), settings);
 }
 
 export function supportsSharedSettingsSync(environment: {
   readonly connection: { readonly phase: EnvironmentConnectionPhase };
-  readonly serverConfig: {
-    readonly environment: {
-      readonly capabilities: Pick<ExecutionEnvironmentCapabilities, "threadAutoSettlement">;
-    };
-  } | null;
+  readonly serverConfig: object | null;
 }): boolean {
-  return (
-    environment.connection.phase === "connected" &&
-    environment.serverConfig?.environment.capabilities.threadAutoSettlement === true
-  );
+  return environment.connection.phase === "connected" && environment.serverConfig !== null;
 }
 
-export interface SharedSettingsEnvironment {
+interface SharedSettingsEnvironment {
   readonly environmentId: EnvironmentId;
   readonly label: string;
   readonly syncEligible: boolean;
   readonly settings: ServerSettings | null;
-  readonly capabilities?:
-    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">
-    | undefined;
 }
 
 /**
- * Callers must pass the real loaded settings, never a default fallback, or
- * "apply to all" would push defaults over real values.
+ * Void's shared-settings mismatch alert. Callers must pass the real loaded
+ * settings, never a default fallback, or "apply to all" would push defaults
+ * over real values.
  */
 export function findSharedSettingsMismatches(input: {
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly primarySettings: ServerSettings | null;
-  readonly primaryCapabilities?:
-    | Pick<ExecutionEnvironmentCapabilities, "threadRestartContinuation">
-    | undefined;
   readonly environments: ReadonlyArray<SharedSettingsEnvironment>;
 }): ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly label: string }> {
   if (input.primaryEnvironmentId === null || input.primarySettings === null) {
     return [];
   }
-  const primarySettings = pickSharedServerSettings(
-    input.primarySettings,
-    input.primaryCapabilities,
-  );
+  const primarySettings = pickSharedServerSettings(input.primarySettings);
   return input.environments.flatMap((environment) => {
     if (
       environment.environmentId === input.primaryEnvironmentId ||
@@ -137,15 +106,10 @@ export function findSharedSettingsMismatches(input: {
     }
     const expected = filterSharedServerPatch(
       primarySettings,
-      environment.capabilities,
       environment.settings,
       input.primarySettings ?? undefined,
     );
-    let actual = filterSharedServerPatch(
-      pickSharedServerSettings(environment.settings, environment.capabilities),
-      input.primaryCapabilities,
-      environment.settings,
-    );
+    let actual = pickSharedServerSettings(environment.settings);
     if (!expected.textGenerationModelSelection) {
       actual = Struct.omit(actual, ["textGenerationModelSelection"]);
     }

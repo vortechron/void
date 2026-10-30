@@ -185,18 +185,16 @@ export function makeGitHistoryActions({ runGit, resolvePrimaryRemoteName }: GitH
       const classified = classifyFailure(result.stderr);
       if (classified !== null) return classified;
 
-      return yield* Effect.fail(
-        new GitCommandError({
-          operation: `GitHistoryActions.${input.action._tag}`,
-          command: "git",
-          cwd: input.cwd,
-          argumentCount: args.length,
-          detail: firstLine(result.stderr) || "Git command exited with a non-zero status.",
-          ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
-          stdoutLength: result.stdout.length,
-          stderrLength: result.stderr.length,
-        }),
-      );
+      return yield* new GitCommandError({
+        operation: `GitHistoryActions.${input.action._tag}`,
+        command: "git",
+        cwd: input.cwd,
+        argumentCount: args.length,
+        detail: firstLine(result.stderr) || "Git command exited with a non-zero status.",
+        ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+        stdoutLength: result.stdout.length,
+        stderrLength: result.stderr.length,
+      });
     }
 
     const refName = command.changesHead

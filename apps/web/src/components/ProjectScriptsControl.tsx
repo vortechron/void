@@ -48,11 +48,7 @@ import {
   primaryProjectScript,
 } from "~/projectScripts";
 import { getAppModelOptionsForInstance } from "~/modelSelection";
-import {
-  applyProviderInstanceSettings,
-  deriveProviderInstanceEntries,
-  sortProviderInstanceEntries,
-} from "~/providerInstances";
+import { providerInstanceEntriesFor } from "~/providerInstances";
 import { ProviderModelPicker } from "./chat/ProviderModelPicker";
 import { readPromptUltrathink, TraitsPicker } from "./chat/TraitsPicker";
 import { shortcutLabelForCommand } from "~/keybindings";
@@ -294,15 +290,9 @@ export default function ProjectScriptsControl({
   const providerInstanceEntries = useMemo(
     () =>
       settings
-        ? sortProviderInstanceEntries(
-            // Global actions run in any project, so the editor offers the
-            // server-wide provider list; ChatView re-checks the project on use.
-            applyProviderInstanceSettings(
-              deriveProviderInstanceEntries(providerStatuses),
-              settings,
-              null,
-            ),
-          )
+        ? // Global actions run in any project, so the editor offers the
+          // server-wide provider list; ChatView re-checks the project on use.
+          providerInstanceEntriesFor(providerStatuses, settings, null)
         : [],
     [providerStatuses, settings],
   );
@@ -791,8 +781,7 @@ export default function ProjectScriptsControl({
                   panel={isPanel}
                   className={isPanel ? undefined : "w-7 sm:w-6 @3xl/header-actions:w-auto!"}
                   aria-label={`Run ${primaryScript.name}`}
-                  // The tooltip wrapper replaces data-slot="button", so themed
-                  // toolbar styling needs its own hook.
+                  // Tooltip replaces the button data-slot, so toolbar theming needs a separate hook.
                   data-toolbar-control=""
                   aria-disabled={!onRunScript || undefined}
                   onClick={() => onRunScript?.(primaryScript)}
