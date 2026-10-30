@@ -18,9 +18,6 @@ import { resolveStorage } from "./lib/storage";
 const THREAD_TABS_STORAGE_KEY = "t3code:workspace-thread-tabs:v2";
 const THREAD_TABS_STORAGE_VERSION = 3;
 
-/** Beyond this the list is unreadable, so the oldest inactive tab drops off. */
-export const MAX_THREAD_TABS = 12;
-
 export const THREAD_TAB_GROUP_COLORS = WORKSPACE_THREAD_TAB_GROUP_COLOR_VALUES;
 export type ThreadTabGroupColor = WorkspaceThreadTabGroupColor;
 
@@ -101,19 +98,7 @@ export function openThreadTab(
     draftId,
     groupId: null,
   };
-  const appended = [...state.tabs, tab];
-  return pruneEmptyThreadTabGroups({
-    tabs: trimToLimit(appended, key),
-    activeKey: key,
-    groups: state.groups,
-  });
-}
-
-function trimToLimit(tabs: readonly ThreadTab[], activeKey: string): readonly ThreadTab[] {
-  if (tabs.length <= MAX_THREAD_TABS) return tabs;
-  const evictable = tabs.findIndex((tab) => tab.key !== activeKey);
-  if (evictable < 0) return tabs;
-  return [...tabs.slice(0, evictable), ...tabs.slice(evictable + 1)];
+  return { tabs: [...state.tabs, tab], activeKey: key, groups: state.groups };
 }
 
 function pruneEmptyThreadTabGroups(state: ThreadTabsState): ThreadTabsState {
@@ -403,13 +388,9 @@ export function openWorkspaceThreadTab<State extends WorkspaceThreadTabsState>(
 }
 
 /**
- * The slice of the strip that travels between devices: which real chats are
- * open, in tab order.
- *
- * Draft tabs are dropped — their thread ids are reserved client-side and mean
- * nothing to another device — and a workspace whose tabs are all drafts is
- * omitted entirely. An absent workspace therefore reads the same as an empty
- * one: nothing open here.
+ * Draft tabs stay on this device: their thread ids are reserved client-side
+ * and mean nothing elsewhere. A workspace with only drafts is omitted, so an
+ * absent workspace reads the same as an empty one.
  */
 export function selectSyncableWorkspaceThreadTabs(
   state: WorkspaceThreadTabsState,
